@@ -64,6 +64,8 @@
     "build": "tsup && node scripts/postbuild.mjs",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke.mjs",
+    "verify": "npm run typecheck && npm run build && npm run smoke",
     "play": "npm --prefix playground run dev"
   },
   "engines": {
@@ -88,6 +90,7 @@
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "jsdom": "^29.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tsup": "^8.3.5",

@@ -1,19 +1,84 @@
 /**
- * qa-studio — public API (Phase 0 placeholder; Phase 1 fills the real runtime).
+ * qa-studio — public API.
  *
- * Ships ZERO AI: this is a keyless, secretless, 100% client-side capture widget.
- * The real <QaStudio/> mounts an isolated Shadow-DOM host on the client and
- * renders nothing on the server.
+ * Ships ZERO AI: this is a keyless, secretless, 100% client-side capture
+ * widget. The <QaStudio/> component and initQaStudio() imperative function
+ * both mount an isolated Shadow-DOM host on the client and render nothing on
+ * the server (SSR-safe).
  */
 
-export type QaConfig = Record<string, unknown>;
+// Re-export all public config types so consumers can type their config objects
+// without a separate import path.
+export type {
+  QaConfig,
+  ResolvedConfig,
+  QaTheme,
+  QaBilingual,
+  QaCredential,
+  QaJourneyLane,
+  QaJourneyStep,
+  QaRisk,
+  QaPreamble,
+} from './config/schema';
 
-/** Declarative entry. Returns null until the Phase 1 runtime lands. */
-export function QaStudio(_props: { config?: QaConfig }): null {
-  return null;
+import { useEffect } from 'react';
+import type { QaConfig } from './config/schema';
+import { validateConfig } from './config/schema';
+import { mountQaStudio } from './mount/ShadowMount';
+
+// ---------------------------------------------------------------------------
+// Imperative entry
+// ---------------------------------------------------------------------------
+
+/**
+ * Mount qa-studio imperatively.
+ *
+ * Validates and resolves the supplied config, then mounts the widget into an
+ * isolated Shadow-DOM host attached to document.body. Returns a handle with a
+ * destroy() method that unmounts and cleans up.
+ *
+ * SSR-safe: returns a no-op destroy() when called outside a browser.
+ */
+export function initQaStudio(config?: QaConfig): { destroy(): void } {
+  if (typeof window === 'undefined') {
+    return { destroy() {} };
+  }
+
+  const { config: resolved, warnings } = validateConfig(config);
+
+  for (const w of warnings) {
+    // eslint-disable-next-line no-console
+    console.warn('[QA Studio]', w);
+  }
+
+  return mountQaStudio(resolved);
 }
 
-/** Imperative entry for non-React / standalone hosts. */
-export function initQaStudio(_config?: QaConfig): { destroy: () => void } {
-  return { destroy() {} };
+// ---------------------------------------------------------------------------
+// Declarative React entry
+// ---------------------------------------------------------------------------
+
+/**
+ * Drop-in React component that mounts qa-studio on the client.
+ *
+ * Renders `null` (SSR-safe). On mount it calls initQaStudio() and returns its
+ * destroy() for useEffect cleanup. Config changes after mount are ignored
+ * (destroy + remount if needed).
+ *
+ * Usage (Next.js App Router):
+ *   import { QaStudio } from 'qa-studio/next';  // adds 'use client' banner
+ *   <QaStudio config={qaConfig} />
+ *
+ * Usage (any React app):
+ *   import { QaStudio } from 'qa-studio';
+ *   <QaStudio config={qaConfig} />
+ */
+export function QaStudio({ config }: { config?: QaConfig }): null {
+  useEffect(() => {
+    const instance = initQaStudio(config);
+    return () => instance.destroy();
+    // intentionally [] — mount once; remount is user-driven
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
 }

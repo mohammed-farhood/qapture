@@ -33,5 +33,8 @@ export default defineConfig([
     sourcemap: false,
     clean: false,
     banner: { js: '#!/usr/bin/env node' },
+    // Bundle the markdown artifacts (SKILL.md, AGENTS section) as text constants
+    // so the CLI is a single self-contained file with no runtime file lookups.
+    loader: { '.md': 'text' },
   },
 ]);
