@@ -45,8 +45,8 @@ async function waitFor(fn, ms = 2000) {
   return false;
 }
 
-const host = window.document.querySelector('qa-studio');
-if (!host) throw new Error('FAIL: <qa-studio> host element not mounted');
+const host = window.document.querySelector('qapture-overlay');
+if (!host) throw new Error('FAIL: <qapture> host element not mounted');
 if (!host.shadowRoot) throw new Error('FAIL: shadow root not attached');
 if (!host.hasAttribute('data-qa-overlay')) throw new Error('FAIL: host missing data-qa-overlay');
 
@@ -56,7 +56,7 @@ console.log(`host=ok shadowRoot=ok data-qa-overlay=ok fab=${sawButton ? 'ok' : '
 if (!sawButton) throw new Error('FAIL: no FAB <button> rendered in the shadow root');
 
 inst.destroy();
-await waitFor(() => !window.document.querySelector('qa-studio'), 500);
-if (window.document.querySelector('qa-studio')) throw new Error('FAIL: destroy() did not remove the host');
+await waitFor(() => !window.document.querySelector('qapture-overlay'), 500);
+if (window.document.querySelector('qapture-overlay')) throw new Error('FAIL: destroy() did not remove the host');
 
 console.log('SMOKE PASS ✅  (mount → shadow host + FAB → destroy/cleanup)');

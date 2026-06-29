@@ -150,7 +150,7 @@ function buildPreamble(
 
   // Resolve top-level helpers (all null-safe)
   const p:           QaPreamble     = config.preamble ?? {};
-  const brandLabel:  string         = config.brand?.label ?? 'QA Studio';
+  const brandLabel:  string         = config.brand?.label ?? 'Qapture';
   const projectName: string         = (typeof p.projectName === 'string' && p.projectName.trim())
     ? p.projectName.trim()
     : brandLabel;
@@ -159,8 +159,8 @@ function buildPreamble(
 
   // ── 1. HTML-comment banner ────────────────────────────────────────────────
   sections.push(
-    '<!-- QA Studio Export Preamble — read before acting on any point. ' +
-    'NO AI is bundled in QA Studio — YOU are the AI reading this. -->',
+    '<!-- Qapture Export Preamble — read before acting on any point. ' +
+    'NO AI is bundled in Qapture — YOU are the AI reading this. -->',
   );
 
   // ── 2. Project title + oneLiner + stamp + point count ────────────────────
@@ -338,7 +338,7 @@ export async function buildAndDownloadZip(
   const preambleMd = buildPreamble(resolvedConfig, resolvedChecked, stamp, notes.length);
 
   // ── Notes section header (unchanged baseline format) ──────────────────────
-  const brandLabel = resolvedConfig.brand?.label ?? 'QA Studio';
+  const brandLabel = resolvedConfig.brand?.label ?? 'Qapture';
   const notesHeader = [
     `# ${brandLabel} Testing Notes`,
     '',

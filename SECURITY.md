@@ -2,11 +2,11 @@
 
 ## Security model
 
-QA Studio is designed to have a minimal threat surface by construction.
+Qapture is designed to have a minimal threat surface by construction.
 
 ### Zero AI, zero network, zero keys
 
-QA Studio ships no AI model, makes no network calls, and requires no API keys. The widget is entirely self-contained: all code runs in the browser, all data lives in the browser.
+Qapture ships no AI model, makes no network calls, and requires no API keys. The widget is entirely self-contained: all code runs in the browser, all data lives in the browser.
 
 There is no:
 - Telemetry or usage analytics
@@ -28,13 +28,13 @@ No data is transmitted anywhere. Data leaves the browser **only** when the teste
 
 The `credentials` config field is intended strictly for DEV, TEST, and SEED environments. These values are displayed in the Credentials tab and embedded in the export preamble so the receiving agent can log in during fix verification.
 
-**Never include production credentials** in `qa.config.*`. QA Studio cannot enforce this at runtime, but the tool's design (local-only, no network) means configured credentials are never transmitted anywhere — they exist only in the browser memory and the locally downloaded ZIP.
+**Never include production credentials** in `qa.config.*`. Qapture cannot enforce this at runtime, but the tool's design (local-only, no network) means configured credentials are never transmitted anywhere — they exist only in the browser memory and the locally downloaded ZIP.
 
 The agent skill (`SKILL.md`) and `AGENTS.md` explicitly instruct any receiving agent to treat Login Context values as DEV/TEST/SEED only and to never log, commit, forward, or use them in production.
 
 ### CLI secret guard
 
-The `npx qa-studio init` CLI is a **purely deterministic, regex-only scaffolder**. It uses text analysis only — it never `require()`s or `eval()`s target project files. Every file read is gated through a hard path blocklist (`src/bin/utils/secretGuard.ts`) before opening.
+The `npx qapture init` CLI is a **purely deterministic, regex-only scaffolder**. It uses text analysis only — it never `require()`s or `eval()`s target project files. Every file read is gated through a hard path blocklist (`src/bin/utils/secretGuard.ts`) before opening.
 
 **Always blocked:**
 
@@ -54,13 +54,13 @@ The blocklist is consulted before every file access in the detectors. The guard 
 
 ### No telemetry
 
-QA Studio collects zero telemetry. There is no usage tracking, crash reporting, heartbeat ping, or install notification. No opt-out is required because there is nothing to opt out of.
+Qapture collects zero telemetry. There is no usage tracking, crash reporting, heartbeat ping, or install notification. No opt-out is required because there is nothing to opt out of.
 
 ---
 
 ## Supported versions
 
-QA Studio is currently pre-1.0 and under active development. Security fixes are applied to the latest published version.
+Qapture is currently pre-1.0 and under active development. Security fixes are applied to the latest published version.
 
 ---
 

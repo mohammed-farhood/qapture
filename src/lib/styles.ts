@@ -1,5 +1,5 @@
 /**
- * styles.ts — Shadow-DOM stylesheet for qa-studio.
+ * styles.ts — Shadow-DOM stylesheet for qapture.
  *
  * All class names carry a `qa-` prefix to avoid collision with the host app.
  * Brand colours travel as inline `style` props in components; this file

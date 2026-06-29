@@ -1,4 +1,4 @@
-# QA Studio
+# Qapture
 
 > Drop-in, AI-aware, 100% client-side QA capture widget — ships **zero AI**.
 
@@ -7,7 +7,7 @@ A human tester walks your live web app, annotates elements or regions (auto-scre
 No model is bundled. No API keys. No network calls. The widget is 100% client-side and keyless; notes live in the tester's browser (IndexedDB) until they export. The CLI scaffolder is deterministic and AI-free. **The AI is yours.**
 
 ```bash
-npm install qa-studio
+npm install qapture
 ```
 
 ---
@@ -32,8 +32,8 @@ npm install qa-studio
 ### React (any)
 
 ```tsx
-import { QaStudio } from 'qa-studio';
-import type { QaConfig } from 'qa-studio';
+import { Qapture } from 'qapture';
+import type { QaConfig } from 'qapture';
 
 const config: QaConfig = {
   namespace: 'my-app',
@@ -47,21 +47,21 @@ function App() {
   return (
     <>
       <RouterAndLayout />
-      <QaStudio config={config} />
+      <Qapture config={config} />
     </>
   );
 }
 ```
 
-`<QaStudio>` renders `null` on the server and is SSR-safe. On mount it attaches an isolated Shadow DOM host to `document.body`; on unmount it tears it down cleanly. Config is read once at mount time — changes to the prop after mount are ignored.
+`<Qapture>` renders `null` on the server and is SSR-safe. On mount it attaches an isolated Shadow DOM host to `document.body`; on unmount it tears it down cleanly. Config is read once at mount time — changes to the prop after mount are ignored.
 
 ### Next.js App Router
 
-`qa-studio/next` re-exports the same component but ships with a `'use client'` directive prepended to its bundle output — no extra wrapper file needed:
+`qapture/next` re-exports the same component but ships with a `'use client'` directive prepended to its bundle output — no extra wrapper file needed:
 
 ```tsx
 // app/layout.tsx
-import { QaStudio } from 'qa-studio/next';
+import { Qapture } from 'qapture/next';
 import config from '../qa.config';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -69,7 +69,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html>
       <body>
         {children}
-        <QaStudio config={config} />
+        <Qapture config={config} />
       </body>
     </html>
   );
@@ -78,10 +78,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 ### Standalone (non-React)
 
-For apps without React — plain HTML, Vue, Svelte, Astro islands, etc. Use the imperative `initQaStudio()` from `qa-studio/standalone`:
+For apps without React — plain HTML, Vue, Svelte, Astro islands, etc. Use the imperative `initQaStudio()` from `qapture/standalone`:
 
 ```js
-import { initQaStudio } from 'qa-studio/standalone';
+import { initQaStudio } from 'qapture/standalone';
 
 const instance = initQaStudio({ namespace: 'my-app', brand: { label: 'My App' } });
 
@@ -89,16 +89,16 @@ const instance = initQaStudio({ namespace: 'my-app', brand: { label: 'My App' } 
 instance.destroy();
 ```
 
-Or use the registered `<qa-studio-widget>` custom element — accepts a `config` attribute (JSON string) or a `.config` property:
+Or use the registered `<qapture-widget>` custom element — accepts a `config` attribute (JSON string) or a `.config` property:
 
 ```html
 <script type="module" src="/dist/standalone.js"></script>
 
 <!-- attribute-based config -->
-<qa-studio-widget config='{"namespace":"my-app"}'></qa-studio-widget>
+<qapture-widget config='{"namespace":"my-app"}'></qapture-widget>
 
 <!-- or property-based config (full object, no JSON serialization needed) -->
-<qa-studio-widget id="qa"></qa-studio-widget>
+<qapture-widget id="qa"></qapture-widget>
 <script>
   document.getElementById('qa').config = {
     namespace: 'my-app',
@@ -117,9 +117,9 @@ All fields are optional. Passing an empty object (or no config at all) produces 
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `namespace` | `string` | `'qa-studio'` | Prefix for IndexedDB (`${namespace}-db`) and localStorage keys (`${namespace}:*`). Use a unique value per project to avoid storage collisions on the same origin. |
+| `namespace` | `string` | `'qapture'` | Prefix for IndexedDB (`${namespace}-db`) and localStorage keys (`${namespace}:*`). Use a unique value per project to avoid storage collisions on the same origin. |
 | `theme` | `Partial<QaTheme>` | See QaTheme defaults | Override any subset of the 9 colour tokens. Unspecified tokens keep their defaults. |
-| `brand` | `{ label?: string }` | `{ label: 'QA Studio' }` | Panel heading label. |
+| `brand` | `{ label?: string }` | `{ label: 'Qapture' }` | Panel heading label. |
 | `loginField` | `{ en: string; ar?: string }` | `{ en: 'Username', ar: 'اسم المستخدم' }` | Display label for the login column in the Credentials tab. |
 | `credentials` | `QaCredential[]` | `[]` | DEV/TEST/SEED login rows shown in the Credentials tab. |
 | `journey` | `QaJourneyLane[]` | `[]` | Role-grouped testing journey shown in the Guide tab. |
@@ -234,10 +234,10 @@ When there are no red steps the score is vacuously Complete. The receiving agent
 
 ### The workflow
 
-1. **Capture** — click an element or drag a region on the live page. QA Studio auto-screenshots the visible page, opens the note editor. Write a description; save.
+1. **Capture** — click an element or drag a region on the live page. Qapture auto-screenshots the visible page, opens the note editor. Write a description; save.
 2. **Guide** — tick steps in the journey as you walk through them. The Guide tab tracks red-zone coverage and shows the current tier.
 3. **Export** — click Export in the panel. A `qa-notes-<timestamp>.zip` downloads to your machine. Give it a meaningful name.
-4. **Handoff** — drop the ZIP into your terminal coding agent's context. If you use Claude Code, the `.claude/skills/qa-studio/SKILL.md` the CLI generated (or the `AGENTS.md` snippet) primes the agent automatically when the ZIP is attached.
+4. **Handoff** — drop the ZIP into your terminal coding agent's context. If you use Claude Code, the `.claude/skills/qapture/SKILL.md` the CLI generated (or the `AGENTS.md` snippet) primes the agent automatically when the ZIP is attached.
 5. **Agent acts** — the agent reads `notes.md`, internalises the preamble (project context, theme tokens, dev credentials, red-zone coverage, invariants), flags any uncovered RED steps, then works through each `## Point N` annotation: locates the code via the selector + screenshot, makes the change, verifies it in the running app, and produces a graded summary.
 
 ### ZIP layout
@@ -254,7 +254,7 @@ qa-notes-<timestamp>.zip
 ### `notes.md` structure
 
 ```
-<!-- QA Studio Export Preamble — read before acting on any point. -->
+<!-- Qapture Export Preamble — read before acting on any point. -->
 
 # Project — QA Handoff
 > one-liner
@@ -295,8 +295,8 @@ The preamble degrades gracefully — sections with no data are marked `(not prov
 The CLI scaffolds `qa.config`, the agent skill, and `AGENTS.md` into any repository. It is **deterministic, AI-free, and network-free** — no model call, no network request, no `require()`-ing of target project files.
 
 ```bash
-npx qa-studio init [target-dir] [--force]
-npx qa-studio version
+npx qapture init [target-dir] [--force]
+npx qapture version
 ```
 
 `target-dir` defaults to the current directory. `--force` overwrites existing `qa.config.*` and `qa.preamble.md` (SKILL.md is always refreshed regardless).
@@ -310,7 +310,7 @@ npx qa-studio version
 | Credential detection | Scans `.env.example` and seeder/seed files for test logins. **Never reads `.env`, `.env.local`, `.env.production`, or any real secrets file** — enforced by a hard blocklist |
 | `qa.config.js` / `.ts` | Generated based on detections; contains TODO comments for manual grading |
 | `qa.preamble.md` | Starter preamble file; fill with project context and paste into `config.preamble` |
-| `.claude/skills/qa-studio/SKILL.md` | Claude Code agent skill (always refreshed — this is a vendor artifact) |
+| `.claude/skills/qapture/SKILL.md` | Claude Code agent skill (always refreshed — this is a vendor artifact) |
 | `AGENTS.md` | Idempotent merge with sentinel guards; safe to run repeatedly |
 
 All generated files are idempotent — existing `qa.config.*` and `qa.preamble.md` are skipped unless `--force` is passed.
@@ -319,8 +319,8 @@ All generated files are idempotent — existing `qa.config.*` and `qa.preamble.m
 
 After `init`, copy the agent instructions into your IDE's rules directory:
 
-- **Cursor** — copy the `qa-studio` block from `AGENTS.md` into `.cursor/rules/qa-studio.md`
-- **Windsurf** — append the `qa-studio` block from `AGENTS.md` to `.windsurf/rules.md`
+- **Cursor** — copy the `qapture` block from `AGENTS.md` into `.cursor/rules/qapture.md`
+- **Windsurf** — append the `qapture` block from `AGENTS.md` to `.windsurf/rules.md`
 
 ---
 
@@ -342,8 +342,8 @@ The **hotkey** (default: `Shift+Alt+Q`) toggles the panel open/closed regardless
 ## Browser and SSR Support
 
 - **Peer dependencies:** React >= 18, ReactDOM >= 18.
-- **SSR-safe:** `QaStudio`, `initQaStudio()`, and `<qa-studio-widget>` all guard `typeof window` and return no-ops on the server. Nothing is rendered server-side.
-- **Next.js App Router:** use `qa-studio/next` (which has `'use client'` baked into its bundle output) rather than `qa-studio` directly. This prevents the "attempted to call a Client Component from the Server" error.
+- **SSR-safe:** `Qapture`, `initQaStudio()`, and `<qapture-widget>` all guard `typeof window` and return no-ops on the server. Nothing is rendered server-side.
+- **Next.js App Router:** use `qapture/next` (which has `'use client'` baked into its bundle output) rather than `qapture` directly. This prevents the "attempted to call a Client Component from the Server" error.
 - **Node >= 18** required for the CLI.
 - Heavy dependencies (`jszip`, `html2canvas`) are loaded as **lazy code-split chunks** — they do not affect initial page load and are only fetched when the user triggers a capture or export action.
 
@@ -359,11 +359,11 @@ The **hotkey** (default: `Shift+Alt+Q`) toggles the panel open/closed regardless
 
 ### Known limitations
 
-- **html2canvas captures the visible light DOM only.** Content inside *other* custom elements that have their own shadow roots (not qa-studio's own) will not appear in screenshots. This is a limitation of html2canvas, not qa-studio.
+- **html2canvas captures the visible light DOM only.** Content inside *other* custom elements that have their own shadow roots (not qapture's own) will not appear in screenshots. This is a limitation of html2canvas, not qapture.
 - **`position: fixed` may shift on transformed ancestors.** If any ancestor of `document.body` has a CSS `transform`, `perspective`, or `will-change` property applied, `position: fixed` elements — including the QA panel — may be offset from their expected position. This is standard CSS containment behaviour.
-- **Next.js App Router requires `qa-studio/next`.** Importing from `qa-studio` in a Server Component context will produce a "use client" error. Use the `/next` entry point.
-- **Config changes after mount are ignored.** `<QaStudio>` mounts once on first render (`useEffect` with `[]` deps) and ignores subsequent prop changes. To apply a new config, destroy the instance and remount.
-- **One instance per page.** Calling `initQaStudio()` or rendering `<QaStudio>` multiple times without calling `destroy()` first will append multiple widget hosts to `<body>`.
+- **Next.js App Router requires `qapture/next`.** Importing from `qapture` in a Server Component context will produce a "use client" error. Use the `/next` entry point.
+- **Config changes after mount are ignored.** `<Qapture>` mounts once on first render (`useEffect` with `[]` deps) and ignores subsequent prop changes. To apply a new config, destroy the instance and remount.
+- **One instance per page.** Calling `initQaStudio()` or rendering `<Qapture>` multiple times without calling `destroy()` first will append multiple widget hosts to `<body>`.
 
 ---
 
@@ -380,15 +380,15 @@ See [SECURITY.md](./SECURITY.md) for the full security model and vulnerability r
 
 ## Uninstall
 
-1. Remove `<QaStudio />` (or `initQaStudio()` calls) from your codebase.
-2. Uninstall the package: `npm uninstall qa-studio`.
+1. Remove `<Qapture />` (or `initQaStudio()` calls) from your codebase.
+2. Uninstall the package: `npm uninstall qapture`.
 3. Optionally delete the IndexedDB left behind — open the browser console on your app's origin and run:
 
 ```js
-indexedDB.deleteDatabase('qa-studio-db'); // replace 'qa-studio' with your namespace value
+indexedDB.deleteDatabase('qapture-db'); // replace 'qapture' with your namespace value
 ```
 
-4. Optionally delete scaffolded files: `qa.config.*`, `qa.preamble.md`, `.claude/skills/qa-studio/`, and the `qa-studio` block in `AGENTS.md`.
+4. Optionally delete scaffolded files: `qa.config.*`, `qa.preamble.md`, `.claude/skills/qapture/`, and the `qapture` block in `AGENTS.md`.
 
 ---
 

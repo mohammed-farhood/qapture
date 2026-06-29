@@ -1,10 +1,10 @@
-import { QaStudio } from 'qa-studio';
+import { Qapture } from 'qapture';
 
 // A demo config the Phase 1 runtime will consume. Kept here so the playground
 // doubles as the manual test harness (theme + graded journey + dev logins).
 const demoConfig = {
   namespace: 'playground',
-  brand: { label: 'QA Studio' },
+  brand: { label: 'Qapture' },
   rtl: false,
   alwaysVisible: true,
   loginField: { en: 'Email', ar: 'البريد' },
@@ -39,7 +39,7 @@ const demoConfig = {
 export function App() {
   return (
     <div className="wrap">
-      <h1>QA Studio — Playground</h1>
+      <h1>Qapture — Playground</h1>
       <p>
         This page intentionally uses <strong>no Tailwind</strong> and plain CSS, to prove
         the widget is fully self-contained and style-isolated. Open the launcher
@@ -62,7 +62,7 @@ export function App() {
         ))}
       </div>
 
-      <QaStudio config={demoConfig} />
+      <Qapture config={demoConfig} />
     </div>
   );
 }

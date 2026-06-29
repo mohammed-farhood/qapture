@@ -1,5 +1,5 @@
 /**
- * QaRoot — the top-level component for qa-studio's Shadow-DOM tree.
+ * QaRoot — the top-level component for qapture's Shadow-DOM tree.
  *
  * Responsibilities:
  *  1. Error boundary: catches rendering errors so a bug in the tool never
@@ -86,7 +86,7 @@ class QaErrorBoundary extends Component<{ children: ReactNode }, EBState> {
 
   override componentDidCatch(err: unknown, info: unknown): void {
     // eslint-disable-next-line no-console
-    console.error('[QA Studio] Caught error in overlay:', err, info);
+    console.error('[Qapture] Caught error in overlay:', err, info);
   }
 
   override render(): ReactNode {

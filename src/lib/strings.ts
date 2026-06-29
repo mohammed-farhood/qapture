@@ -1,5 +1,5 @@
 /**
- * strings.ts — UI text for qa-studio in English + Arabic.
+ * strings.ts — UI text for qapture in English + Arabic.
  *
  * translate(lang, key, vars?) → resolves a key, falling back to English then
  * the raw key, and interpolates {placeholders}.

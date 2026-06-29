@@ -1,7 +1,7 @@
 /**
- * ShadowMount.ts — imperatively mounts qa-studio into an isolated Shadow DOM.
+ * ShadowMount.ts — imperatively mounts qapture into an isolated Shadow DOM.
  *
- * Creates a <qa-studio> custom element appended to document.body, attaches an
+ * Creates a <qapture> custom element appended to document.body, attaches an
  * open shadow root, injects the QA_CSS stylesheet, applies theme CSS variables
  * on the host, then renders <QaRoot> into the shadow via ReactDOM.createRoot.
  *
@@ -26,8 +26,10 @@ export function mountQaStudio(config: ResolvedConfig): QaStudioInstance {
     return { destroy() {} };
   }
 
-  // Create and attach the shadow host element
-  const host = document.createElement('qa-studio');
+  // Create and attach the shadow host element. NOTE: the tag MUST contain a
+  // hyphen — only valid custom-element names (and a fixed set of standard
+  // elements) support attachShadow; a bare <qapture> would throw NotSupportedError.
+  const host = document.createElement('qapture-overlay');
   host.setAttribute('data-qa-overlay', 'true');
   document.body.appendChild(host);
 
@@ -59,7 +61,7 @@ export function mountQaStudio(config: ResolvedConfig): QaStudioInstance {
 
       // Clean up any light-DOM flash boxes injected by highlight.ts.
       // These are direct children of <body> with data-qa-overlay but are
-      // NOT the <qa-studio> host element (already removed above).
+      // NOT the <qapture> host element (already removed above).
       if (typeof document !== 'undefined') {
         document.body
           .querySelectorAll(':scope > [data-qa-overlay]')

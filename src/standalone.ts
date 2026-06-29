@@ -2,9 +2,9 @@
  * standalone.ts — entry point for non-React hosts.
  *
  * Exposes the imperative mount so a plain <script> or web-component wrapper
- * can boot QA Studio without a React peer in the host app.
+ * can boot Qapture without a React peer in the host app.
  *
- * Also registers a <qa-studio-widget> custom element (best-effort) that reads
+ * Also registers a <qapture-widget> custom element (best-effort) that reads
  * its config from a `config` attribute (JSON string) or a `.config` property.
  */
 
@@ -12,18 +12,18 @@ export { initQaStudio } from './index';
 export type { QaConfig } from './index';
 
 // ---------------------------------------------------------------------------
-// <qa-studio-widget> custom element (best-effort; skipped on SSR)
+// <qapture-widget> custom element (best-effort; skipped on SSR)
 // ---------------------------------------------------------------------------
 
 if (
   typeof window !== 'undefined' &&
   typeof customElements !== 'undefined' &&
-  !customElements.get('qa-studio-widget')
+  !customElements.get('qapture-widget')
 ) {
   // Lazily import so tree-shakers can drop this if the entry is never used.
   import('./index').then(({ initQaStudio: init }) => {
     customElements.define(
-      'qa-studio-widget',
+      'qapture-widget',
       class QaStudioWidget extends HTMLElement {
         private _destroy: (() => void) | undefined;
 

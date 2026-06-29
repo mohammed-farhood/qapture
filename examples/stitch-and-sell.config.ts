@@ -1,8 +1,8 @@
 /**
- * Stitch & Sell — QA Studio config (canonical worked example).
+ * Stitch & Sell — Qapture config (canonical worked example).
  *
  * This is the complete, graded journey map for the Stitch & Sell Iraqi
- * handmade-goods marketplace. It demonstrates every qa-studio config feature:
+ * handmade-goods marketplace. It demonstrates every qapture config feature:
  *
  *   - Full 9-token QaTheme override (burgundy / terracotta palette)
  *   - Bilingual (en + ar) role labels, step instructions, and credential hints
@@ -16,7 +16,7 @@
  * Never commit real production credentials.
  */
 
-import type { QaConfig } from 'qa-studio';
+import type { QaConfig } from 'qapture';
 
 const config: QaConfig = {
   namespace: 'stitch-and-sell',

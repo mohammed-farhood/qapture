@@ -1,11 +1,11 @@
 /**
- * Minimal QA Studio config — smallest useful example.
+ * Minimal Qapture config — smallest useful example.
  *
  * Three journey steps across one lane: one green (informational),
  * one amber (important but recoverable), one red (irreversible / financial).
  *
  * Everything not specified here uses built-in defaults:
- *   namespace  → 'qa-studio'
+ *   namespace  → 'qapture'
  *   theme      → indigo/violet palette
  *   loginField → 'Username'
  *   credentials → []
@@ -15,13 +15,13 @@
  *
  * Drop in near your app root to get started immediately:
  *
- *   import { QaStudio } from 'qa-studio';
+ *   import { Qapture } from 'qapture';
  *   import config from './qa.config';
  *
- *   <QaStudio config={config} />
+ *   <Qapture config={config} />
  */
 
-import type { QaConfig } from 'qa-studio';
+import type { QaConfig } from 'qapture';
 
 const config: QaConfig = {
   namespace: 'my-app',

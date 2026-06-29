@@ -1,14 +1,14 @@
 /**
- * Icon.tsx — inline SVG icon component for qa-studio.
+ * Icon.tsx — inline SVG icon component for qapture.
  *
- * Replaces lucide-react in the package bundle so qa-studio has zero external
+ * Replaces lucide-react in the package bundle so qapture has zero external
  * icon dependencies. Path data sourced from:
  *
  *   Lucide v0.294.0 (ISC License)
  *   https://github.com/lucide-icons/lucide
  *   Copyright (c) 2022 Lucide Contributors
  *
- * Only the 24 icons used by qa-studio components are included.
+ * Only the 24 icons used by qapture components are included.
  */
 
 import React, { type CSSProperties } from 'react';

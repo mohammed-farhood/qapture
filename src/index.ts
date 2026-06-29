@@ -1,8 +1,8 @@
 /**
- * qa-studio — public API.
+ * qapture — public API.
  *
  * Ships ZERO AI: this is a keyless, secretless, 100% client-side capture
- * widget. The <QaStudio/> component and initQaStudio() imperative function
+ * widget. The <Qapture/> component and initQaStudio() imperative function
  * both mount an isolated Shadow-DOM host on the client and render nothing on
  * the server (SSR-safe).
  */
@@ -31,7 +31,7 @@ import { mountQaStudio } from './mount/ShadowMount';
 // ---------------------------------------------------------------------------
 
 /**
- * Mount qa-studio imperatively.
+ * Mount qapture imperatively.
  *
  * Validates and resolves the supplied config, then mounts the widget into an
  * isolated Shadow-DOM host attached to document.body. Returns a handle with a
@@ -48,7 +48,7 @@ export function initQaStudio(config?: QaConfig): { destroy(): void } {
 
   for (const w of warnings) {
     // eslint-disable-next-line no-console
-    console.warn('[QA Studio]', w);
+    console.warn('[Qapture]', w);
   }
 
   return mountQaStudio(resolved);
@@ -59,21 +59,21 @@ export function initQaStudio(config?: QaConfig): { destroy(): void } {
 // ---------------------------------------------------------------------------
 
 /**
- * Drop-in React component that mounts qa-studio on the client.
+ * Drop-in React component that mounts qapture on the client.
  *
  * Renders `null` (SSR-safe). On mount it calls initQaStudio() and returns its
  * destroy() for useEffect cleanup. Config changes after mount are ignored
  * (destroy + remount if needed).
  *
  * Usage (Next.js App Router):
- *   import { QaStudio } from 'qa-studio/next';  // adds 'use client' banner
- *   <QaStudio config={qaConfig} />
+ *   import { Qapture } from 'qapture/next';  // adds 'use client' banner
+ *   <Qapture config={qaConfig} />
  *
  * Usage (any React app):
- *   import { QaStudio } from 'qa-studio';
- *   <QaStudio config={qaConfig} />
+ *   import { Qapture } from 'qapture';
+ *   <Qapture config={qaConfig} />
  */
-export function QaStudio({ config }: { config?: QaConfig }): null {
+export function Qapture({ config }: { config?: QaConfig }): null {
   useEffect(() => {
     const instance = initQaStudio(config);
     return () => instance.destroy();
@@ -82,3 +82,6 @@ export function QaStudio({ config }: { config?: QaConfig }): null {
   }, []);
   return null;
 }
+
+// Backward-compatible alias
+export { Qapture as QaStudio };

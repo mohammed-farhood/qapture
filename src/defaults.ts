@@ -1,5 +1,5 @@
 /**
- * defaults.ts — Default configuration for qa-studio.
+ * defaults.ts — Default configuration for qapture.
  *
  * Neutral indigo/slate colour palette; no credentials or journey by default.
  * `visible: undefined` is the sentinel for "dev-only" — ShadowMount checks
@@ -13,7 +13,7 @@ import type { ResolvedConfig } from './config/schema';
 export { DEFAULT_THEME } from './config/schema';
 
 export const DEFAULT_CONFIG: ResolvedConfig = {
-  namespace:    'qa-studio',
+  namespace:    'qapture',
   theme: {
     primary:     '#4f46e5', // indigo-600
     primaryDark: '#3730a3', // indigo-800
@@ -25,7 +25,7 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
     surface:     '#ffffff',
     ink:         '#1f2937', // gray-800
   },
-  brand:        { label: 'QA Studio' },
+  brand:        { label: 'Qapture' },
   loginField:   { en: 'Username', ar: 'اسم المستخدم' },
   credentials:  [],
   journey:      [],

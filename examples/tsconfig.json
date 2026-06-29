@@ -9,7 +9,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "baseUrl": ".",
-    "paths": { "qa-studio": ["../src/index.ts"] }
+    "paths": { "qapture": ["../src/index.ts"] }
   },
   "include": ["."]
 }

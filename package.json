@@ -1,5 +1,5 @@
 {
-  "name": "qa-studio",
+  "name": "qapture",
   "version": "0.1.0",
   "description": "Drop-in, AI-aware in-browser QA capture widget. A tester annotates the live app (element/region + auto-screenshot + note), tracks a graded testing journey, and exports a ZIP your own coding agent reads. Ships zero AI.",
   "type": "module",
@@ -52,7 +52,15 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "qa-studio": "./dist/bin/init.cjs"
+    "qapture": "./dist/bin/init.cjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mohammed-farhood/qapture.git"
+  },
+  "homepage": "https://github.com/mohammed-farhood/qapture#readme",
+  "bugs": {
+    "url": "https://github.com/mohammed-farhood/qapture/issues"
   },
   "files": [
     "dist",

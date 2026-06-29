@@ -1,8 +1,8 @@
 <!-- qa-studio-section -->
 
-## QA Studio
+## Qapture
 
-This project uses **QA Studio** — an in-browser QA capture widget that ships
+This project uses **Qapture** — an in-browser QA capture widget that ships
 **zero AI** (no model, no API keys, no network calls). **You** are the AI.
 
 ### When you receive a `qa-notes-*.zip`
@@ -31,15 +31,15 @@ This project uses **QA Studio** — an in-browser QA capture widget that ships
 
 ### Full protocol
 
-`.claude/skills/qa-studio/SKILL.md` (always kept current by `qa-studio init`).
+`.claude/skills/qapture/SKILL.md` (always kept current by `qapture init`).
 
 ### Rules
 
 - Never read `.env`, `.env.local`, `.env.production`, or any `secrets/` path.
-- Never edit `qa.config.ts`, `qa.preamble.md`, or any qa-studio plugin files.
+- Never edit `qa.config.ts`, `qa.preamble.md`, or any qapture plugin files.
 - Never push/publish/deploy without explicit human approval.
 - Dev/test/seed credentials only — never use or request production credentials.
 
-_QA Studio — https://github.com/qa-studio/qa-studio_
+_Qapture — https://github.com/mohammed-farhood/qapture_
 
 <!-- /qa-studio-section -->

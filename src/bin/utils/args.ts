@@ -2,8 +2,8 @@
  * Hand-rolled argv parser — no third-party dependencies.
  *
  * Supported surface:
- *   qa-studio init [target-dir] [--force]
- *   qa-studio version
+ *   qapture init [target-dir] [--force]
+ *   qapture version
  */
 
 export type Command = 'init' | 'version' | 'help';

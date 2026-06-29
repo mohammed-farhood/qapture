@@ -1,5 +1,5 @@
 /**
- * QaContext.tsx — all runtime state for qa-studio.
+ * QaContext.tsx — all runtime state for qapture.
  *
  * Ported from qa-overlay/QaContext.jsx with ALL host coupling removed:
  *  - No import of qa.config (config comes in via props)

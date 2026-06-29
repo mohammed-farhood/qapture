@@ -4,7 +4,7 @@ const externalReact = ['react', 'react-dom', 'react/jsx-runtime'];
 
 // Two build groups:
 //  1) the library (ESM + CJS, dts, react externalized, code-split so
-//     jszip/html2canvas stay lazy chunks). The `qa-studio/next` entry gets its
+//     jszip/html2canvas stay lazy chunks). The `qapture/next` entry gets its
 //     "use client" directive prepended by scripts/postbuild.mjs — esbuild strips
 //     source/banner directives when bundling, so post-processing is the reliable way.
 //  2) the CLI scaffolder (Node CJS, shebang, no react).

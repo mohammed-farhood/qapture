@@ -1,32 +1,32 @@
 ---
-name: qa-studio
+name: qapture
 description: >
-  Activated when the user provides a `qa-notes-*.zip` file exported from QA
-  Studio. Reads the preamble block in `notes.md` (project context, stack, run
+  Activated when the user provides a `qa-notes-*.zip` file exported from
+  Qapture. Reads the preamble block in `notes.md` (project context, stack, run
   commands, theme tokens, dev/test login credentials, red-zone coverage report,
   and invariants), flags any uncovered RED risk zones before acting, then works
   through each `## Point N` annotation (page, element selector, screenshot →
   locate code → make the change → verify by running the app). Finally grades
   coverage against the red zones and reports.
 
-  **No AI is bundled in QA Studio — YOU are the AI reading these artifacts.**
-  QA Studio is a 100% client-side, keyless, network-free capture widget.
+  **No AI is bundled in Qapture — YOU are the AI reading these artifacts.**
+  Qapture is a 100% client-side, keyless, network-free capture widget.
 triggers:
   - qa-notes-*.zip
 ---
 
-# QA Studio — Agent Skill
+# Qapture — Agent Skill
 
-> **Core principle:** QA Studio ships zero AI. No model, no API keys, no network
+> **Core principle:** Qapture ships zero AI. No model, no API keys, no network
 > calls. The CLI is a plain deterministic scaffolder. **You** — the coding agent
-> reading this skill — are the AI. The developer used QA Studio to capture
+> reading this skill — are the AI. The developer used Qapture to capture
 > annotated screenshots + notes from their live app; your job is to act on them.
 
 ---
 
-## What Is QA Studio?
+## What Is Qapture?
 
-QA Studio is a drop-in in-browser widget (Shadow DOM, keyless, no telemetry).
+Qapture is a drop-in in-browser widget (Shadow DOM, keyless, no telemetry).
 Testers annotate the live app: click an element or draw a region, add a note,
 and the widget captures a screenshot automatically. When done, they export a
 `qa-notes-*.zip`. That ZIP is the hand-off to you.
@@ -140,7 +140,7 @@ Narrow your search by the **Page** field to avoid editing the wrong route's code
 - Respect all **Invariants** — never violate them even if the annotation implies it.
 - If the change touches a RED zone (money / auth / irreversible state), add an
   explicit comment: `// QA: red-zone change — reviewed <date>`.
-- Do **not** edit `qa.config.ts`, `qa.preamble.md`, or any qa-studio plugin files.
+- Do **not** edit `qa.config.ts`, `qa.preamble.md`, or any qapture plugin files.
 
 ---
 
@@ -163,7 +163,7 @@ Narrow your search by the **Page** field to avoid editing the wrong route's code
 After acting on all points, produce a short report:
 
 ```markdown
-## QA Studio — Changes Summary
+## Qapture — Changes Summary
 
 | Point | Page            | Change made                   | Verified | Risk  |
 | ----- | --------------- | ----------------------------- | -------- | ----- |
@@ -197,8 +197,8 @@ None (all annotated points addressed).
 - **Never log, forward, store, or commit** Login Context values outside the
   development environment.
 - **Never read** `.env`, `.env.local`, `.env.production`, or any `secrets/`
-  path. QA Studio's CLI enforces this; you must too.
-- QA Studio is **100% client-side** — it makes no network calls, holds no API
+  path. Qapture's CLI enforces this; you must too.
+- Qapture is **100% client-side** — it makes no network calls, holds no API
   keys, and sends no data anywhere.
 - **Never push, publish, or deploy** changes without explicit human approval,
   regardless of risk level.
@@ -211,8 +211,8 @@ None (all annotated points addressed).
   the DOM changed after annotation. When in doubt, use the screenshot.
 - **Don't skip the preamble.** Acting without reading the invariants or run
   commands is the most common source of broken fixes.
-- **Don't edit qa-studio config or plugin files** (`qa.config.ts`,
-  `qa.preamble.md`, `.claude/skills/qa-studio/`, `src/components/qa-overlay/`).
+- **Don't edit qapture config or plugin files** (`qa.config.ts`,
+  `qa.preamble.md`, `.claude/skills/qapture/`, `src/components/qa-overlay/`).
 - **Don't use production credentials** — ever.
 - **Don't push/publish without human approval** — always present the changes
   for review first.
@@ -221,4 +221,4 @@ None (all annotated points addressed).
 
 ---
 
-_QA Studio — https://github.com/qa-studio/qa-studio_
+_Qapture — https://github.com/mohammed-farhood/qapture_

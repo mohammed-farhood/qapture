@@ -1,14 +1,14 @@
 /**
- * qa-studio CLI — deterministic, AI-free, network-free scaffolder.
+ * qapture CLI — deterministic, AI-free, network-free scaffolder.
  *
- * CORE PHILOSOPHY: QA Studio ships ZERO AI. No model, no API keys, no network
+ * CORE PHILOSOPHY: Qapture ships ZERO AI. No model, no API keys, no network
  * calls. This CLI is a plain deterministic scaffolder: it greps the target repo
  * and drops a draft config + skill/markdown templates. It never calls an AI and
  * never reads real secrets.
  *
  * Commands:
- *   qa-studio init [target-dir] [--force]   ← main command
- *   qa-studio version                        ← print version
+ *   qapture init [target-dir] [--force]   ← main command
+ *   qapture version                        ← print version
  *
  * The #!/usr/bin/env node shebang is injected by tsup's banner config.
  * DO NOT add a shebang here.
@@ -37,7 +37,7 @@ import { genConfigText } from './generators/genConfig.js';
 import { genPreambleText } from './generators/genPreamble.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const REPO_URL = 'https://github.com/qa-studio/qa-studio';
+const REPO_URL = 'https://github.com/mohammed-farhood/qapture';
 
 const PKG_VERSION = (() => {
   // Try to read our own package.json (bundled into dist/, so walk up from __dirname)
@@ -120,10 +120,10 @@ function detectFrameworkHints(targetDir: string, pkg: Record<string, unknown>): 
 
 function printUsage(): void {
   process.stdout.write(
-    `\nqa-studio CLI v${PKG_VERSION}\n` +
+    `\nqapture CLI v${PKG_VERSION}\n` +
     `\nUsage:\n` +
-    `  qa-studio init [target-dir] [--force]   Scaffold config + artifacts into target-dir\n` +
-    `  qa-studio version                        Print version\n` +
+    `  qapture init [target-dir] [--force]   Scaffold config + artifacts into target-dir\n` +
+    `  qapture version                        Print version\n` +
     `\nOptions:\n` +
     `  --force  Overwrite qa.config.* and qa.preamble.md if they already exist\n` +
     `           (SKILL.md is always refreshed regardless of --force)\n` +
@@ -132,7 +132,7 @@ function printUsage(): void {
 }
 
 function printVersion(): void {
-  process.stdout.write(`qa-studio ${PKG_VERSION}\n`);
+  process.stdout.write(`qapture ${PKG_VERSION}\n`);
 }
 
 const DIVIDER = '─'.repeat(60);
@@ -154,7 +154,7 @@ function printSummary(
 
   const configLabel   = configFile;
   const preambleLabel = 'qa.preamble.md';
-  const skillLabel    = '.claude/skills/qa-studio/SKILL.md';
+  const skillLabel    = '.claude/skills/qapture/SKILL.md';
   const agentsLabel   = 'AGENTS.md';
 
   const configNote    = results.config   === 'skipped' ? ' (already exists — use --force to overwrite)' : ' (review & fill TODOs)';
@@ -163,7 +163,7 @@ function printSummary(
 
   process.stdout.write(
     `\n${DIVIDER}\n` +
-    `  qa-studio init — done!\n` +
+    `  qapture init — done!\n` +
     `${DIVIDER}\n` +
     `\n` +
     `  Files:\n` +
@@ -181,11 +181,11 @@ function printSummary(
     `  Mount the widget near your app root:\n` +
     `${DIVIDER}\n` +
     `\n` +
-    `    import { QaStudio } from 'qa-studio';\n` +
+    `    import { Qapture } from 'qapture';\n` +
     `    import config from './${configFile.replace(/\.[jt]s$/, '')}';\n` +
     `\n` +
     `    // Render once near your app root:\n` +
-    `    <QaStudio config={config} />\n` +
+    `    <Qapture config={config} />\n` +
     `\n` +
     `${DIVIDER}\n` +
     `  Next steps:\n` +
@@ -199,16 +199,16 @@ function printSummary(
     `         'amber' → important but recoverable flows\n` +
     `         'green' → informational / display only  (current default)\n` +
     `    4. Fill remaining TODO: fields in ${configLabel}\n` +
-    `    5. Run your app and open QA Studio (shortcut: Shift+Alt+Q)\n` +
+    `    5. Run your app and open Qapture (shortcut: Shift+Alt+Q)\n` +
     `\n` +
     `${DIVIDER}\n` +
     `  IDE advisory:\n` +
     `${DIVIDER}\n` +
     `\n` +
-    `    Cursor   → copy the qa-studio block from AGENTS.md\n` +
-    `               into  .cursor/rules/qa-studio.md\n` +
+    `    Cursor   → copy the qapture block from AGENTS.md\n` +
+    `               into  .cursor/rules/qapture.md\n` +
     `\n` +
-    `    Windsurf → append the qa-studio block from AGENTS.md\n` +
+    `    Windsurf → append the qapture block from AGENTS.md\n` +
     `               to    .windsurf/rules.md\n` +
     `\n` +
     `  Docs: ${REPO_URL}\n` +
@@ -249,7 +249,7 @@ function main(argv: string[]): void {
     process.exit(1);
   }
 
-  process.stdout.write(`\nqa-studio init — scanning ${targetDir} ...\n`);
+  process.stdout.write(`\nqapture init — scanning ${targetDir} ...\n`);
 
   // ── 1. Detect ────────────────────────────────────────────────────────────
   const pkg            = readTargetPkg(targetDir);
@@ -271,7 +271,7 @@ function main(argv: string[]): void {
   const namespace =
     typeof pkg['name'] === 'string' && pkg['name'].trim()
       ? (pkg['name'] as string).trim().replace(/^@[^/]+\//, '') // strip scope
-      : 'qa-studio';
+      : 'qapture';
 
   const projectName =
     typeof pkg['name'] === 'string' && pkg['name'].trim()
@@ -295,7 +295,7 @@ function main(argv: string[]): void {
   // ── 3. Write ─────────────────────────────────────────────────────────────
   const configPath   = path.join(targetDir, configFilename);
   const preamblePath = path.join(targetDir, 'qa.preamble.md');
-  const skillPath    = path.join(targetDir, '.claude', 'skills', 'qa-studio', 'SKILL.md');
+  const skillPath    = path.join(targetDir, '.claude', 'skills', 'qapture', 'SKILL.md');
   const agentsMdPath = path.join(targetDir, 'AGENTS.md');
 
   const configResult   = writeIfAbsent(configPath,   configText,   force);

@@ -29,7 +29,7 @@ function isStorageAvailable(): boolean {
 /**
  * Create a namespaced storage adapter.
  *
- * @param namespace - prefix for all stored keys (e.g. 'qa-studio')
+ * @param namespace - prefix for all stored keys (e.g. 'qapture')
  */
 export function createStorage(namespace: string): QaStorage {
   const prefix = `${namespace}:`;

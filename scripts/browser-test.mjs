@@ -40,21 +40,21 @@ try {
 
   // 1) isolated shadow host mounted
   await page.waitForFunction(
-    `!!document.querySelector('qa-studio') && !!document.querySelector('qa-studio').shadowRoot`,
+    `!!document.querySelector('qapture-overlay') && !!document.querySelector('qapture-overlay').shadowRoot`,
     { timeout: 10000 },
   );
   console.log('1. shadow host mounted: ok');
 
   // 2) open the panel via the FAB (the launcher button in the shadow root)
   await page.evaluate(() => {
-    const sr = document.querySelector('qa-studio').shadowRoot;
+    const sr = document.querySelector('qapture-overlay').shadowRoot;
     sr.querySelector('button').click();
   });
   await sleep(500);
 
   // 3) click "Capture from page"
   const cta = await page.evaluate(() => {
-    const sr = document.querySelector('qa-studio').shadowRoot;
+    const sr = document.querySelector('qapture-overlay').shadowRoot;
     const b = [...sr.querySelectorAll('button')].find((x) => /capture/i.test(x.textContent || ''));
     if (b) { b.click(); return (b.textContent || '').trim(); }
     return null;
@@ -76,7 +76,7 @@ try {
 
   // 5) the inline annotation card (a textarea) must appear → select succeeded
   await page.waitForFunction(
-    `(()=>{const sr=document.querySelector('qa-studio').shadowRoot;return !!sr.querySelector('textarea');})()`,
+    `(()=>{const sr=document.querySelector('qapture-overlay').shadowRoot;return !!sr.querySelector('textarea');})()`,
     { timeout: 9000 },
   );
   console.log('3. host element selected through the shadow boundary → annotation card appeared');
@@ -85,13 +85,13 @@ try {
   //    confirm the captured selector/text targets the HOST <button> — proving
   //    the selector was generated against the host light DOM, not the shadow tree.
   await page.evaluate(() => {
-    const sr = document.querySelector('qa-studio').shadowRoot;
+    const sr = document.querySelector('qapture-overlay').shadowRoot;
     const b = [...sr.querySelectorAll('button')].find((x) => /location|captured/i.test(x.textContent || ''));
     if (b) b.click();
   });
   await sleep(500);
   const refsHost = await page.evaluate(() => {
-    const sr = document.querySelector('qa-studio').shadowRoot;
+    const sr = document.querySelector('qapture-overlay').shadowRoot;
     const txt = sr.textContent || '';
     return /Place order|aria-label|button/i.test(txt);
   });

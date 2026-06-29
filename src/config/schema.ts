@@ -1,5 +1,5 @@
 /**
- * schema.ts — all public config types + a runtime validator for qa-studio.
+ * schema.ts — all public config types + a runtime validator for qapture.
  *
  * validateConfig() deep-merges user input over the built-in defaults, coerces
  * or skips invalid entries, and NEVER throws. Returns a fully-resolved config
@@ -86,7 +86,7 @@ export type QaPreamble = {
 // ---------------------------------------------------------------------------
 
 export type QaConfig = {
-  /** Storage + DB namespace. Defaults to 'qa-studio'. */
+  /** Storage + DB namespace. Defaults to 'qapture'. */
   namespace?: string;
   /** Override any subset of the colour palette. */
   theme?: Partial<QaTheme>;
@@ -160,8 +160,8 @@ export const DEFAULT_THEME: QaTheme = {
 
 // Inline defaults used by validateConfig (avoids importing from defaults.ts).
 const DEFAULTS = {
-  namespace:     'qa-studio',
-  brandLabel:    'QA Studio',
+  namespace:     'qapture',
+  brandLabel:    'Qapture',
   loginField:    { en: 'Username', ar: 'اسم المستخدم' } as { en: string; ar?: string },
   rtl:           false,
   visible:       undefined as boolean | undefined,

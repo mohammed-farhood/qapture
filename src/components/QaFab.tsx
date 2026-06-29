@@ -26,8 +26,8 @@ export default function QaFab() {
       data-qa-overlay="true"
       dir="ltr"
       onClick={() => setIsOpen(!isOpen)}
-      aria-label="QA Studio — testing notes"
-      title="QA Studio"
+      aria-label="Qapture — testing notes"
+      title="Qapture"
       className="qa-fixed qa-flex qa-items-center qa-justify-center qa-rounded-full qa-text-white qa-print-hidden qa-fab-btn"
       style={{
         left: '1.25rem',
