@@ -65,7 +65,9 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
-    "verify": "npm run typecheck && npm run build && npm run smoke",
+    "export-smoke": "esbuild src/lib/exportZip.ts --bundle --format=esm --platform=node --outfile=dist/_export-test.mjs --log-level=error && node scripts/export-smoke.mjs dist/_export-test.mjs",
+    "browser-test": "node scripts/browser-test.mjs",
+    "verify": "npm run typecheck && npm run build && npm run smoke && npm run export-smoke",
     "play": "npm --prefix playground run dev"
   },
   "engines": {
@@ -91,6 +93,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "jsdom": "^29.1.1",
+    "puppeteer-core": "^25.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tsup": "^8.3.5",
