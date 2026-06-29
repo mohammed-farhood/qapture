@@ -64,12 +64,15 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.map",
+    "!dist/_export-test.mjs",
     "README.md",
     "LICENSE"
   ],
   "sideEffects": false,
   "scripts": {
     "build": "tsup && node scripts/postbuild.mjs",
+    "prepublishOnly": "npm run build",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
