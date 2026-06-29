@@ -1,0 +1,96 @@
+{
+  "name": "qa-studio",
+  "version": "0.1.0",
+  "description": "Drop-in, AI-aware in-browser QA capture widget. A tester annotates the live app (element/region + auto-screenshot + note), tracks a graded testing journey, and exports a ZIP your own coding agent reads. Ships zero AI.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "qa",
+    "testing",
+    "annotation",
+    "screenshot",
+    "ai",
+    "agents",
+    "claude-code",
+    "widget",
+    "shadow-dom"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./next": {
+      "import": {
+        "types": "./dist/next.d.ts",
+        "default": "./dist/next.js"
+      },
+      "require": {
+        "types": "./dist/next.d.cts",
+        "default": "./dist/next.cjs"
+      }
+    },
+    "./standalone": {
+      "import": {
+        "types": "./dist/standalone.d.ts",
+        "default": "./dist/standalone.js"
+      },
+      "require": {
+        "types": "./dist/standalone.d.cts",
+        "default": "./dist/standalone.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "qa-studio": "./dist/bin/init.cjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup && node scripts/postbuild.mjs",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "play": "npm --prefix playground run dev"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": false
+    },
+    "react-dom": {
+      "optional": false
+    }
+  },
+  "dependencies": {
+    "html2canvas": "^1.4.1",
+    "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+coverage/
+playground/node_modules/
+playground/dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
