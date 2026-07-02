@@ -122,19 +122,19 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
           {!editing && (
             <button
               onClick={startEdit}
-              className="qa-text-slate-300 qa-hover-text-slate-600"
+              className="qa-text-slate-300 qa-hover-text-slate-600 qa-tap-icon"
               title={t('edit')}
               aria-label={t('edit')}
-              style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
             >
               <Icon name="Pencil" size={14} />
             </button>
           )}
           <button
             onClick={() => deleteNote(note.id)}
-            className="qa-text-slate-300 qa-hover-text-red"
+            className="qa-text-slate-300 qa-hover-text-red qa-tap-icon"
             aria-label="delete"
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
           >
             <Icon name="Trash2" size={16} />
           </button>
@@ -165,7 +165,7 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
                 />
                 <button
                   onClick={() => setImg(null)}
-                  className="qa-absolute qa-rounded-full qa-p-1 qa-text-white"
+                  className="qa-absolute qa-rounded-full qa-p-1 qa-text-white qa-tap-icon"
                   title={t('remove_image')}
                   style={{
                     top: '-8px',
@@ -200,7 +200,7 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
             <button
               onClick={save}
               disabled={!desc.trim()}
-              className="qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1 qa-rounded-lg qa-px-3 qa-py-1.5 qa-text-sm qa-font-semibold qa-text-white"
+              className="qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1 qa-rounded-lg qa-px-3 qa-py-1.5 qa-text-sm qa-font-semibold qa-text-white qa-tap"
               style={{ background: theme.accent, border: 'none', cursor: 'pointer' }}
             >
               <Icon name="Check" size={16} />
@@ -208,7 +208,7 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
             </button>
             <button
               onClick={() => setEditing(false)}
-              className="qa-rounded-lg qa-border qa-px-3 qa-text-sm"
+              className="qa-rounded-lg qa-border qa-px-3 qa-text-sm qa-tap"
               style={{
                 borderColor: `${theme.primary}33`,
                 color: theme.primary,

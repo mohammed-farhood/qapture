@@ -19,7 +19,7 @@
  *   qa-left-0    qa-left-half   (left: 50%)
  *   qa-right-0
  *   qa-z-1       qa-z-50        qa-z-100
- *   qa-z-10090   qa-z-10092     qa-z-10095     qa-z-10096
+ *   qa-z-10090   qa-z-10092     qa-z-10093     qa-z-10094     qa-z-10095   qa-z-10096
  *
  * DISPLAY / FLEX
  *   qa-flex       qa-inline-flex    qa-block      qa-inline-block   qa-hidden
@@ -86,6 +86,14 @@
  *   qa-truncate      qa-whitespace-pre-wrap    qa-break-words
  *   qa-text-start    qa-text-center    qa-text-end
  *   qa-select-all
+ *
+ * TOUCH / DENSITY
+ *   --qa-tap      (custom prop on :host — 0px default, 44px under @media (pointer: coarse))
+ *   qa-tap        — min-height: var(--qa-tap)
+ *   qa-tap-icon   — min-width/height: var(--qa-tap); inline-flex, centered (icon-only buttons)
+ *   qa-touch-none — touch-action: none
+ *   qa-touch-pan  — touch-action: pan-x pan-y
+ *   (also bumps qa-text-10/qa-text-11 by +1px under @media (pointer: coarse))
  *
  * COLORS — text
  *   qa-text-white     qa-text-current
@@ -167,6 +175,9 @@ export const QA_CSS = `
 .qa-z-100   { z-index: 100; }
 .qa-z-10090 { z-index: 10090; }
 .qa-z-10092 { z-index: 10092; }
+/* region-handle layering */
+.qa-z-10093 { z-index: 10093; }
+.qa-z-10094 { z-index: 10094; }
 .qa-z-10095 { z-index: 10095; }
 .qa-z-10096 { z-index: 10096; }
 
@@ -316,6 +327,16 @@ export const QA_CSS = `
 .qa-text-end    { text-align: end; }
 .qa-select-all  { user-select: all; }
 
+/* ── Touch density tokens ────────────────────────────────────────────── */
+:host { --qa-tap: 0px; }
+@media (pointer: coarse) {
+  :host { --qa-tap: 44px; }
+  .qa-text-10 { font-size: 11px; }
+  .qa-text-11 { font-size: 12px; }
+}
+.qa-tap      { min-height: var(--qa-tap); }
+.qa-tap-icon { min-width: var(--qa-tap); min-height: var(--qa-tap); display: inline-flex; align-items: center; justify-content: center; }
+
 /* ── Colors — text ──────────────────────────────────────────────────── */
 .qa-text-white      { color: #ffffff; }
 .qa-text-current    { color: currentColor; }
@@ -347,6 +368,8 @@ export const QA_CSS = `
 .qa-cursor-default      { cursor: default; }
 .qa-cursor-pointer      { cursor: pointer; }
 .qa-pointer-events-none { pointer-events: none; }
+.qa-touch-none { touch-action: none; }
+.qa-touch-pan  { touch-action: pan-x pan-y; }
 
 .qa-focus-ring:focus {
   outline: 2px solid var(--qa-primary, #4f46e5);
@@ -415,7 +438,7 @@ input:disabled,
 
 /* ── Panel size ─────────────────────────────────────────────────────── */
 .qa-w-panel    { width: min(93vw, 420px); }
-.qa-max-h-74vh { max-height: 74vh; }
+.qa-max-h-74vh { max-height: 74vh; max-height: min(74vh, 74dvh); }
 
 /* ── Extra rounded ──────────────────────────────────────────────────── */
 .qa-rounded-2xl { border-radius: 1rem; }

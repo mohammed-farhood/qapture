@@ -36,7 +36,7 @@ export default function LocationReveal({ target }: { target?: QaTarget | null })
         </span>
         <button
           onClick={() => setOpen((o) => !o)}
-          className="qa-ms-auto qa-inline-flex qa-items-center qa-gap-1 qa-font-medium"
+          className="qa-ms-auto qa-inline-flex qa-items-center qa-gap-1 qa-font-medium qa-tap"
           style={{ color: theme.primary, background: 'transparent', border: 'none', cursor: 'pointer' }}
         >
           {open ? t('loc_hide') : t('loc_show')}
@@ -91,7 +91,7 @@ export default function LocationReveal({ target }: { target?: QaTarget | null })
           )}
           <button
             onClick={() => flashLocate(target)}
-            className="qa-mt-1 qa-inline-flex qa-items-center qa-gap-1 qa-rounded-md qa-px-2 qa-py-1 qa-font-medium qa-text-white"
+            className="qa-mt-1 qa-inline-flex qa-items-center qa-gap-1 qa-rounded-md qa-px-2 qa-py-1 qa-font-medium qa-text-white qa-tap"
             style={{ background: theme.accent, border: 'none', cursor: 'pointer' }}
           >
             <Icon name="Crosshair" size={12} />

@@ -30,8 +30,8 @@ export default function QaFab() {
       title="Qapture"
       className="qa-fixed qa-flex qa-items-center qa-justify-center qa-rounded-full qa-text-white qa-print-hidden qa-fab-btn"
       style={{
-        left: '1.25rem',
-        bottom: '5rem',
+        left: 'calc(1.25rem + env(safe-area-inset-left))',
+        bottom: 'calc(5rem + env(safe-area-inset-bottom))',
         width: '3.5rem',
         height: '3.5rem',
         backgroundImage: `linear-gradient(135deg, ${theme.primary}, ${theme.accent})`,

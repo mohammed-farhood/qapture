@@ -101,7 +101,7 @@ export default function NoteEditor() {
       {!open ? (
         <button
           onClick={() => setOpen(true)}
-          className="qa-flex qa-w-full qa-items-center qa-justify-center qa-gap-1 qa-rounded-lg qa-border qa-border-dashed qa-py-1.5 qa-text-xs"
+          className="qa-flex qa-w-full qa-items-center qa-justify-center qa-gap-1 qa-rounded-lg qa-border qa-border-dashed qa-py-1.5 qa-text-xs qa-tap"
           style={{
             borderColor: `${theme.primary}33`,
             color: theme.primary,
@@ -144,7 +144,7 @@ export default function NoteEditor() {
                 <img src={previewUrl} alt="preview" style={{ maxHeight: '7rem', borderRadius: '0.25rem' }} />
                 <button
                   onClick={clearImage}
-                  className="qa-absolute qa-rounded-full qa-p-1 qa-text-white"
+                  className="qa-absolute qa-rounded-full qa-p-1 qa-text-white qa-tap-icon"
                   style={{
                     top: '-8px',
                     insetInlineEnd: '-8px',
@@ -159,7 +159,7 @@ export default function NoteEditor() {
             ) : (
               <button
                 onClick={() => fileRef.current?.click()}
-                className="qa-inline-flex qa-items-center qa-gap-1"
+                className="qa-inline-flex qa-items-center qa-gap-1 qa-tap"
                 style={{ color: theme.primary, background: 'transparent', border: 'none', cursor: 'pointer' }}
               >
                 <Icon name="ImagePlus" size={16} />
@@ -180,14 +180,14 @@ export default function NoteEditor() {
             <button
               onClick={save}
               disabled={!description.trim()}
-              className="qa-flex-1 qa-rounded-lg qa-px-3 qa-py-1.5 qa-text-sm qa-font-semibold qa-text-white"
+              className="qa-flex-1 qa-rounded-lg qa-px-3 qa-py-1.5 qa-text-sm qa-font-semibold qa-text-white qa-tap"
               style={{ background: theme.accent, border: 'none', cursor: 'pointer' }}
             >
               {t('add_point')}
             </button>
             <button
               onClick={() => { setOpen(false); clearImage(); setDescription(''); }}
-              className="qa-rounded-lg qa-border qa-px-3 qa-text-sm"
+              className="qa-rounded-lg qa-border qa-px-3 qa-text-sm qa-tap"
               style={{
                 borderColor: `${theme.primary}33`,
                 color: theme.primary,

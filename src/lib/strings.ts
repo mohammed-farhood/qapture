@@ -58,6 +58,12 @@ type LangMap = {
   journey_title: string;
   export_name_title: string;
   export_name_placeholder: string;
+  tap_element: string;
+  draw_region: string;
+  use_this: string;
+  adjust: string;
+  resize: string;
+  confirm_region: string;
 };
 
 export type StrKey = keyof LangMap;
@@ -107,6 +113,12 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     journey_title:         'Testing journey',
     export_name_title:     'Name your export',
     export_name_placeholder: 'file name',
+    tap_element:           'Tap an element',
+    draw_region:           'Draw region',
+    use_this:              'Use this',
+    adjust:                'Adjust',
+    resize:                'Resize',
+    confirm_region:        'Confirm region',
   },
   ar: {
     tab_notes:             'الملاحظات',
@@ -152,6 +164,12 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     journey_title:         'رحلة الاختبار',
     export_name_title:     'سمِّ ملف التصدير',
     export_name_placeholder: 'اسم الملف',
+    tap_element:           'انقر على عنصر',
+    draw_region:           'ارسم منطقة',
+    use_this:              'استخدم هذا',
+    adjust:                'تعديل',
+    resize:                'تغيير الحجم',
+    confirm_region:        'تأكيد المنطقة',
   },
 };
 

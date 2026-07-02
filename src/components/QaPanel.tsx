@@ -125,6 +125,32 @@ export default function QaPanel() {
     dispatch({ type: 'done' });
   }, []);
 
+  // ── iPad-landscape side-sheet detection (gated, defensive) ───────────────
+  // Coarse pointer + wide viewport + landscape ⇒ dock as a full-height right
+  // sheet instead of the floating bottom-left popover. SSR-safe: guards
+  // typeof window / matchMedia and defaults to "not matching" (normal
+  // popover) whenever detection is unavailable or uncertain.
+  const [isIpadLandscape, setIsIpadLandscape] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+    const mql = window.matchMedia(
+      '(pointer: coarse) and (min-width: 768px) and (orientation: landscape)',
+    );
+    setIsIpadLandscape(mql.matches);
+
+    const handleChange = (e: MediaQueryListEvent) => setIsIpadLandscape(e.matches);
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', handleChange);
+      return () => mql.removeEventListener('change', handleChange);
+    }
+    // Older Safari fallback
+    mql.addListener(handleChange);
+    return () => mql.removeListener(handleChange);
+  }, []);
+
   // Don't render at all when hidden
   if (phase === 'hidden') return null;
 
@@ -146,8 +172,22 @@ export default function QaPanel() {
       onTransitionEnd={handleTransitionEnd}
       className={`qa-fixed qa-flex qa-flex-col qa-overflow-hidden qa-rounded-2xl qa-border qa-shadow-2xl qa-print-hidden qa-w-panel qa-max-h-74vh qa-panel-anim${showIn ? ' qa-panel-in' : ''}`}
       style={{
-        left: '1rem',
-        bottom: dir === 'rtl' ? '9rem' : '8.75rem',
+        // Floating popover position (default). Fully overridden below when
+        // docked as an iPad-landscape side-sheet.
+        left: isIpadLandscape ? 'auto' : 'calc(1rem + env(safe-area-inset-left))',
+        right: isIpadLandscape ? '0' : undefined,
+        top: isIpadLandscape ? '0' : undefined,
+        bottom: isIpadLandscape
+          ? '0'
+          : dir === 'rtl'
+            ? 'calc(9rem + env(safe-area-inset-bottom))'
+            : 'calc(8.75rem + env(safe-area-inset-bottom))',
+        height: isIpadLandscape ? '100dvh' : undefined,
+        width: isIpadLandscape ? 'min(92vw, 420px)' : undefined,
+        // qa-max-h-74vh (class) would otherwise cap the sheet well short of
+        // full height — neutralize it only in the docked sheet variant.
+        maxHeight: isIpadLandscape ? 'none' : undefined,
+        borderRadius: isIpadLandscape ? 0 : undefined,
         background: theme.surface,
         borderColor: `${theme.primary}22`,
         fontFamily:
@@ -185,7 +225,7 @@ export default function QaPanel() {
             <button
               key={l}
               onClick={() => setLang(l)}
-              className="qa-px-2 qa-py-1 qa-transition"
+              className="qa-px-2 qa-py-1 qa-transition qa-tap"
               style={{
                 background: lang === l ? '#ffffff' : 'transparent',
                 color: lang === l ? theme.primary : '#fff',
@@ -203,7 +243,7 @@ export default function QaPanel() {
           onClick={openNaming}
           disabled={!notes.length || isExporting}
           title={t('export')}
-          className="qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-lg qa-px-2.5 qa-py-1.5 qa-text-xs qa-font-medium qa-hover-bg-white-15"
+          className="qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-lg qa-px-2.5 qa-py-1.5 qa-text-xs qa-font-medium qa-hover-bg-white-15 qa-tap"
           style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', cursor: 'pointer' }}
         >
           <Icon
@@ -242,7 +282,7 @@ export default function QaPanel() {
                     {t('delete_all_q', { n: notes.length })}{' '}
                     <button
                       onClick={() => { void clearAll(); setConfirmClear(false); }}
-                      className="qa-font-semibold qa-text-red-600"
+                      className="qa-font-semibold qa-text-red-600 qa-tap"
                       style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
                     >
                       {t('yes')}
@@ -250,6 +290,7 @@ export default function QaPanel() {
                     {' / '}
                     <button
                       onClick={() => setConfirmClear(false)}
+                      className="qa-tap"
                       style={{ color: theme.primary, background: 'transparent', border: 'none', cursor: 'pointer' }}
                     >
                       {t('no')}
@@ -323,7 +364,7 @@ export default function QaPanel() {
             <div className="qa-mt-3 qa-flex qa-gap-2">
               <button
                 onClick={doExport}
-                className="qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1.5 qa-rounded-lg qa-px-3 qa-py-2 qa-text-sm qa-font-semibold qa-text-white"
+                className="qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1.5 qa-rounded-lg qa-px-3 qa-py-2 qa-text-sm qa-font-semibold qa-text-white qa-tap"
                 style={{ background: theme.accent, border: 'none', cursor: 'pointer' }}
               >
                 <Icon name="Check" size={16} />
@@ -331,7 +372,7 @@ export default function QaPanel() {
               </button>
               <button
                 onClick={() => setNaming(false)}
-                className="qa-inline-flex qa-items-center qa-gap-1 qa-rounded-lg qa-border qa-px-3 qa-py-2 qa-text-sm"
+                className="qa-inline-flex qa-items-center qa-gap-1 qa-rounded-lg qa-border qa-px-3 qa-py-2 qa-text-sm qa-tap"
                 style={{
                   borderColor: `${theme.primary}33`,
                   color: theme.primary,
@@ -402,7 +443,7 @@ function TabsBar({
             key={tab.key}
             ref={(el) => { tabRefs.current[i] = el; }}
             onClick={() => setActiveTab(tab.key)}
-            className="qa-relative qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1.5 qa-py-2 qa-text-sm qa-font-medium qa-transition"
+            className="qa-relative qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1.5 qa-py-2 qa-text-sm qa-font-medium qa-transition qa-tap"
             style={{
               color: on ? theme.primary : '#94a3b8',
               background: 'transparent',
