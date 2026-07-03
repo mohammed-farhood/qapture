@@ -7,7 +7,7 @@ A human tester walks your live web app, annotates elements or regions (auto-scre
 No model is bundled. No API keys. No network calls. The widget is 100% client-side and keyless; notes live in the tester's browser (IndexedDB) until they export. The CLI scaffolder is deterministic and AI-free. **The AI is yours.**
 
 ```bash
-npm install qapture
+npm install qapture2
 ```
 
 ---
@@ -32,8 +32,8 @@ npm install qapture
 ### React (any)
 
 ```tsx
-import { Qapture } from 'qapture';
-import type { QaConfig } from 'qapture';
+import { Qapture } from 'qapture2';
+import type { QaConfig } from 'qapture2';
 
 const config: QaConfig = {
   namespace: 'my-app',
@@ -57,11 +57,11 @@ function App() {
 
 ### Next.js App Router
 
-`qapture/next` re-exports the same component but ships with a `'use client'` directive prepended to its bundle output — no extra wrapper file needed:
+`qapture2/next` re-exports the same component but ships with a `'use client'` directive prepended to its bundle output — no extra wrapper file needed:
 
 ```tsx
 // app/layout.tsx
-import { Qapture } from 'qapture/next';
+import { Qapture } from 'qapture2/next';
 import config from '../qa.config';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -78,10 +78,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 ### Standalone (non-React)
 
-For apps without React — plain HTML, Vue, Svelte, Astro islands, etc. Use the imperative `initQaStudio()` from `qapture/standalone`:
+For apps without React — plain HTML, Vue, Svelte, Astro islands, etc. Use the imperative `initQaStudio()` from `qapture2/standalone`:
 
 ```js
-import { initQaStudio } from 'qapture/standalone';
+import { initQaStudio } from 'qapture2/standalone';
 
 const instance = initQaStudio({ namespace: 'my-app', brand: { label: 'My App' } });
 
@@ -295,8 +295,8 @@ The preamble degrades gracefully — sections with no data are marked `(not prov
 The CLI scaffolds `qa.config`, the agent skill, and `AGENTS.md` into any repository. It is **deterministic, AI-free, and network-free** — no model call, no network request, no `require()`-ing of target project files.
 
 ```bash
-npx qapture init [target-dir] [--force]
-npx qapture version
+npx qapture2 init [target-dir] [--force]
+npx qapture2 version
 ```
 
 `target-dir` defaults to the current directory. `--force` overwrites existing `qa.config.*` and `qa.preamble.md` (SKILL.md is always refreshed regardless).
@@ -343,7 +343,7 @@ The **hotkey** (default: `Shift+Alt+Q`) toggles the panel open/closed regardless
 
 - **Peer dependencies:** React >= 18, ReactDOM >= 18.
 - **SSR-safe:** `Qapture`, `initQaStudio()`, and `<qapture-widget>` all guard `typeof window` and return no-ops on the server. Nothing is rendered server-side.
-- **Next.js App Router:** use `qapture/next` (which has `'use client'` baked into its bundle output) rather than `qapture` directly. This prevents the "attempted to call a Client Component from the Server" error.
+- **Next.js App Router:** use `qapture2/next` (which has `'use client'` baked into its bundle output) rather than `qapture2` directly. This prevents the "attempted to call a Client Component from the Server" error.
 - **Node >= 18** required for the CLI.
 - Heavy dependencies (`jszip`, `html2canvas`) are loaded as **lazy code-split chunks** — they do not affect initial page load and are only fetched when the user triggers a capture or export action.
 
@@ -361,7 +361,7 @@ The **hotkey** (default: `Shift+Alt+Q`) toggles the panel open/closed regardless
 
 - **html2canvas captures the visible light DOM only.** Content inside *other* custom elements that have their own shadow roots (not qapture's own) will not appear in screenshots. This is a limitation of html2canvas, not qapture.
 - **`position: fixed` may shift on transformed ancestors.** If any ancestor of `document.body` has a CSS `transform`, `perspective`, or `will-change` property applied, `position: fixed` elements — including the QA panel — may be offset from their expected position. This is standard CSS containment behaviour.
-- **Next.js App Router requires `qapture/next`.** Importing from `qapture` in a Server Component context will produce a "use client" error. Use the `/next` entry point.
+- **Next.js App Router requires `qapture2/next`.** Importing from `qapture2` in a Server Component context will produce a "use client" error. Use the `/next` entry point.
 - **Config changes after mount are ignored.** `<Qapture>` mounts once on first render (`useEffect` with `[]` deps) and ignores subsequent prop changes. To apply a new config, destroy the instance and remount.
 - **One instance per page.** Calling `initQaStudio()` or rendering `<Qapture>` multiple times without calling `destroy()` first will append multiple widget hosts to `<body>`.
 
@@ -381,7 +381,7 @@ See [SECURITY.md](./SECURITY.md) for the full security model and vulnerability r
 ## Uninstall
 
 1. Remove `<Qapture />` (or `initQaStudio()` calls) from your codebase.
-2. Uninstall the package: `npm uninstall qapture`.
+2. Uninstall the package: `npm uninstall qapture2`.
 3. Optionally delete the IndexedDB left behind — open the browser console on your app's origin and run:
 
 ```js
