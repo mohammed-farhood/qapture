@@ -1,5 +1,5 @@
 {
-  "name": "@m2farhood-2/qapture",
+  "name": "qapture2",
   "version": "0.2.0",
   "description": "Drop-in, AI-aware in-browser QA capture widget. A tester annotates the live app (element/region + auto-screenshot + note), tracks a graded testing journey, and exports a ZIP your own coding agent reads. Ships zero AI.",
   "type": "module",
