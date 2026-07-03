@@ -1,6 +1,6 @@
 {
   "name": "qapture2",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Drop-in, AI-aware in-browser QA capture widget. A tester annotates the live app (element/region + auto-screenshot + note), tracks a graded testing journey, and exports a ZIP your own coding agent reads. Ships zero AI.",
   "type": "module",
   "license": "MIT",

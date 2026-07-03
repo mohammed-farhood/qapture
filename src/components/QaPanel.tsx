@@ -28,6 +28,7 @@ import NoteList from './NoteList';
 import CredentialsSection from './CredentialsSection';
 import GuideSection from './GuideSection';
 import { computeCoverage } from '../lib/coverage';
+import { useCoarsePointer } from '../lib/coarse';
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -68,6 +69,26 @@ function panelReducer(
       return state;
   }
 }
+
+// ---------------------------------------------------------------------------
+// iOS keyboard-avoidance tuning (touch/coarse only — see effect in QaPanel)
+// ---------------------------------------------------------------------------
+
+const KEYBOARD_OVERLAP_THRESHOLD = 120; // px — spec: overlap > 120px ⇒ keyboard open
+const KEYBOARD_LIFT_GAP = 12;           // px of breathing room above the keyboard
+const NON_TEXT_INPUT_TYPES = new Set([
+  'checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'color', 'file', 'image',
+]);
+
+// Mirrors `.qa-panel-anim`'s own transition (styles.ts) so that adding a
+// `bottom` transition inline (for the keyboard-avoidance lift, below) doesn't
+// clobber the existing opacity/transform enter/exit animation: an inline
+// `transition` style fully *replaces* the class-based one for whichever
+// properties it lists — it does not merge with it — so all three must be
+// spelled out together here. Only ever applied on coarse pointers; desktop
+// keeps the class-driven transition untouched (see keyboardLiftActive).
+const PANEL_TRANSITION_WITH_LIFT =
+  'opacity 200ms cubic-bezier(0.4,0,0.2,1), transform 200ms cubic-bezier(0.4,0,0.2,1), bottom 200ms cubic-bezier(0.4,0,0.2,1)';
 
 // ---------------------------------------------------------------------------
 // QaPanel
@@ -151,6 +172,95 @@ export default function QaPanel() {
     return () => mql.removeListener(handleChange);
   }, []);
 
+  // ── iOS on-screen-keyboard avoidance (coarse/touch only, defensive) ──────
+  // iOS Safari shrinks `window.visualViewport` (not window.innerHeight) when
+  // the on-screen keyboard opens. When a text input/textarea *inside this
+  // panel* is focused and the keyboard overlaps it, lift the panel's bottom
+  // offset just enough to clear the keyboard; revert the moment the keyboard
+  // closes or focus leaves the panel. No-op on desktop (gated by
+  // useCoarsePointer), no-op whenever visualViewport is unavailable, and
+  // no-op in the iPad-landscape side-sheet (already full-height — there's
+  // nothing to clear).
+  const coarse = useCoarsePointer();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [keyboardLift, setKeyboardLift] = useState(0);
+
+  const computeKeyboardLift = useCallback((): number => {
+    try {
+      if (!coarse || isIpadLandscape) return 0;
+      if (typeof window === 'undefined') return 0;
+      const vv = window.visualViewport;
+      if (!vv) return 0;
+
+      const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      if (overlap <= KEYBOARD_OVERLAP_THRESHOLD) return 0;
+
+      const panel = panelRef.current;
+      if (!panel) return 0;
+
+      // Shadow-DOM-safe focus check: document.activeElement only reports the
+      // shadow HOST when focus is inside a shadow tree, so ask the panel's
+      // own root (the ShadowRoot in production) which of its descendants —
+      // if any — is actually focused.
+      const root = panel.getRootNode() as Document | ShadowRoot;
+      const active = root.activeElement;
+      if (!active || !panel.contains(active)) return 0;
+
+      const tag = active.tagName;
+      if (tag === 'TEXTAREA') return Math.round(overlap) + KEYBOARD_LIFT_GAP;
+      if (tag === 'INPUT' && !NON_TEXT_INPUT_TYPES.has((active as HTMLInputElement).type)) {
+        return Math.round(overlap) + KEYBOARD_LIFT_GAP;
+      }
+      return 0;
+    } catch {
+      return 0; // defensive: any unexpected DOM error ⇒ no lift, never a mispositioned panel
+    }
+  }, [coarse, isIpadLandscape]);
+
+  useEffect(() => {
+    if (!coarse) return undefined;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
+    const vv = window.visualViewport;
+    if (!vv) return undefined;
+
+    // Debounce only the "focus left" path: hopping focus between two fields
+    // inside this same panel briefly has no active element in between, and
+    // that blip shouldn't animate the panel down and back up.
+    let closeTimer: ReturnType<typeof setTimeout> | undefined;
+    const recompute = () => setKeyboardLift(computeKeyboardLift());
+    const recomputeSoon = () => {
+      if (closeTimer !== undefined) clearTimeout(closeTimer);
+      closeTimer = setTimeout(recompute, 80);
+    };
+
+    recompute(); // sync immediately (e.g. re-mount while a field is already focused)
+    vv.addEventListener('resize', recompute);
+    vv.addEventListener('scroll', recompute);
+    document.addEventListener('focusin', recompute);
+    document.addEventListener('focusout', recomputeSoon);
+
+    return () => {
+      if (closeTimer !== undefined) clearTimeout(closeTimer);
+      vv.removeEventListener('resize', recompute);
+      vv.removeEventListener('scroll', recompute);
+      document.removeEventListener('focusin', recompute);
+      document.removeEventListener('focusout', recomputeSoon);
+    };
+  }, [coarse, computeKeyboardLift]);
+
+  // Defensive belt-and-suspenders: collapse the instant the panel itself
+  // closes, so a stray keyboard-open state can never linger and permanently
+  // offset the panel the next time it opens.
+  useEffect(() => {
+    if (!isOpen) setKeyboardLift(0);
+  }, [isOpen]);
+
+  // Re-derived at render time (rather than trusted straight from state) so a
+  // lift can never apply on a non-coarse pointer or in the side-sheet even
+  // for one stale frame (e.g. right after a mouse is attached).
+  const keyboardLiftActive = coarse && !isIpadLandscape;
+  const appliedKeyboardLift = keyboardLiftActive ? keyboardLift : 0;
+
   // Don't render at all when hidden
   if (phase === 'hidden') return null;
 
@@ -165,8 +275,20 @@ export default function QaPanel() {
   // ── Tab indicator (rendered as a child of the tabs bar) ─────────────────
   // (handled by TabIndicator component below for cleaner ref management)
 
+  // ── Bottom offset (RTL + safe-area, unchanged) with an additive keyboard
+  // lift folded in. When appliedKeyboardLift is 0 (always true off-coarse,
+  // keyboard closed, or focus elsewhere) this produces the exact original
+  // calc() string byte-for-byte.
+  const restBottomRem = dir === 'rtl' ? '9rem' : '8.75rem';
+  const panelBottom = isIpadLandscape
+    ? '0'
+    : appliedKeyboardLift > 0
+      ? `calc(${restBottomRem} + env(safe-area-inset-bottom) + ${appliedKeyboardLift}px)`
+      : `calc(${restBottomRem} + env(safe-area-inset-bottom))`;
+
   return (
     <div
+      ref={panelRef}
       data-qa-overlay="true"
       dir={dir}
       onTransitionEnd={handleTransitionEnd}
@@ -177,11 +299,7 @@ export default function QaPanel() {
         left: isIpadLandscape ? 'auto' : 'calc(1rem + env(safe-area-inset-left))',
         right: isIpadLandscape ? '0' : undefined,
         top: isIpadLandscape ? '0' : undefined,
-        bottom: isIpadLandscape
-          ? '0'
-          : dir === 'rtl'
-            ? 'calc(9rem + env(safe-area-inset-bottom))'
-            : 'calc(8.75rem + env(safe-area-inset-bottom))',
+        bottom: panelBottom,
         height: isIpadLandscape ? '100dvh' : undefined,
         width: isIpadLandscape ? 'min(92vw, 420px)' : undefined,
         // qa-max-h-74vh (class) would otherwise cap the sheet well short of
@@ -195,6 +313,11 @@ export default function QaPanel() {
             ? "'Tajawal', sans-serif"
             : "'Nunito', system-ui, sans-serif",
         zIndex: 9990,
+        // Keyboard-avoidance lift (coarse/touch only — see effect above).
+        // undefined ⇒ !keyboardLiftActive, so desktop and the iPad-landscape
+        // side-sheet render this property exactly as before (the class's own
+        // opacity/transform transition applies, untouched).
+        transition: keyboardLiftActive ? PANEL_TRANSITION_WITH_LIFT : undefined,
       }}
     >
       {/* ── Header ───────────────────────────────────────────────────────── */}
