@@ -168,8 +168,8 @@ export function genConfigText(opts: GenConfigOptions): GenConfigResult {
       : '';
 
   const typeImport = isTypeScript
-    ? `import type { QaConfig } from 'qapture';\n\n`
-    : `// @ts-check\n/** @type {import('qapture').QaConfig} */\n`;
+    ? `import type { QaConfig } from 'qapture2';\n\n`
+    : `// @ts-check\n/** @type {import('qapture2').QaConfig} */\n`;
 
   const typeAnnotation = isTypeScript ? ': QaConfig' : '';
   const exportStatement = `export default config;\n`;

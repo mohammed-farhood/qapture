@@ -160,7 +160,7 @@ export function createIdb(namespace: string): QaIdb {
 
 /**
  * Full uninstall helper — wipes the entire DB for the given namespace.
- * Call from the browser console: `import('qapture').then(m => m.deleteQaDatabase('qapture'))`.
+ * Call from the browser console: `import('qapture2').then(m => m.deleteQaDatabase('qapture'))`.
  */
 export function deleteQaDatabase(namespace: string): void {
   const dbName = `${namespace}-db`;

@@ -16,7 +16,7 @@
  * Never commit real production credentials.
  */
 
-import type { QaConfig } from 'qapture';
+import type { QaConfig } from 'qapture2';
 
 const config: QaConfig = {
   namespace: 'stitch-and-sell',

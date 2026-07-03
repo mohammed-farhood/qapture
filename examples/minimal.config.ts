@@ -15,13 +15,13 @@
  *
  * Drop in near your app root to get started immediately:
  *
- *   import { Qapture } from 'qapture';
+ *   import { Qapture } from 'qapture2';
  *   import config from './qa.config';
  *
  *   <Qapture config={config} />
  */
 
-import type { QaConfig } from 'qapture';
+import type { QaConfig } from 'qapture2';
 
 const config: QaConfig = {
   namespace: 'my-app',

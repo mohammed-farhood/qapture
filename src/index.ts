@@ -66,11 +66,11 @@ export function initQaStudio(config?: QaConfig): { destroy(): void } {
  * (destroy + remount if needed).
  *
  * Usage (Next.js App Router):
- *   import { Qapture } from 'qapture/next';  // adds 'use client' banner
+ *   import { Qapture } from 'qapture2/next';  // adds 'use client' banner
  *   <Qapture config={qaConfig} />
  *
  * Usage (any React app):
- *   import { Qapture } from 'qapture';
+ *   import { Qapture } from 'qapture2';
  *   <Qapture config={qaConfig} />
  */
 export function Qapture({ config }: { config?: QaConfig }): null {

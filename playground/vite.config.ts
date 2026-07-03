@@ -9,7 +9,7 @@ const src = fileURLToPath(new URL('../src/index.ts', import.meta.url));
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { 'qapture': src },
+    alias: { 'qapture2': src },
     dedupe: ['react', 'react-dom'],
   },
   server: {

@@ -181,7 +181,7 @@ function printSummary(
     `  Mount the widget near your app root:\n` +
     `${DIVIDER}\n` +
     `\n` +
-    `    import { Qapture } from 'qapture';\n` +
+    `    import { Qapture } from 'qapture2';\n` +
     `    import config from './${configFile.replace(/\.[jt]s$/, '')}';\n` +
     `\n` +
     `    // Render once near your app root:\n` +

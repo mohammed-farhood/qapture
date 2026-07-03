@@ -1,4 +1,4 @@
-import { Qapture } from 'qapture';
+import { Qapture } from 'qapture2';
 
 // A demo config the Phase 1 runtime will consume. Kept here so the playground
 // doubles as the manual test harness (theme + graded journey + dev logins).
