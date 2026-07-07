@@ -25,7 +25,7 @@ const config = {
   brand: { label: 'Demo QA' },
   theme: { primary: '#6B2C3E', accent: '#D4726B', sage: '#8B9D83', ink: '#3A2A2E', surface: '#FFFDFB' },
   loginField: { en: 'Email' },
-  credentials: [{ role: 'Admin', login: 'admin@demo.test', password: 'Admin@123', seeded: true }],
+  credentials: [{ role: 'Admin\nRole', login: 'admin@demo.test', password: 'Admin@123', seeded: true }],
   journey: [{
     id: 'buyer', role: { en: 'Buyer' }, steps: [
       { path: '/checkout', risk: 'red', riskWhy: 'money flow', what: { en: 'place order' } },
@@ -63,4 +63,35 @@ const must = ['Demo Shop', 'Login Context', 'admin@demo.test', 'Coverage Report'
 const missing = must.filter((s) => !md.includes(s));
 console.log('\nASSERT required content:', missing.length ? 'MISSING ' + missing.join(', ') : 'all present ✅');
 if (missing.length) throw new Error('FAIL: preamble missing: ' + missing.join(', '));
+
+// --- Bug #14: mdTable() must replace embedded \r\n/\r/\n in cell values with
+// a space, not leave them intact, or a config field with a literal newline
+// (e.g. credentials[].role = 'Admin\nRole') splits a Markdown table row across
+// physical lines and corrupts the "## Login Context" table. Verify every
+// non-blank, non-separator line in that table section is a well-formed row:
+// starts/ends with '|' and has the same '|' count as the header row.
+const loginSectionMatch = md.match(/## Login Context\n\n([\s\S]*?)\n\n>/);
+if (!loginSectionMatch) throw new Error('FAIL: could not locate "## Login Context" table section');
+const loginTableLines = loginSectionMatch[1].split('\n').filter((l) => l.trim().length > 0);
+if (loginTableLines.length < 2) throw new Error('FAIL: Login Context table has too few lines');
+const headerPipeCount = (loginTableLines[0].match(/\|/g) || []).length;
+console.log('\n--- Login Context table lines ---');
+loginTableLines.forEach((l) => console.log(JSON.stringify(l)));
+const badRows = loginTableLines.filter((line, i) => {
+  const isSeparator = i === 1 && /^\|[\s:-]+\|$/.test(line.replace(/\s*\|\s*/g, '|'));
+  if (isSeparator) return false;
+  const pipeCount = (line.match(/\|/g) || []).length;
+  return !line.startsWith('|') || !line.endsWith('|') || pipeCount !== headerPipeCount;
+});
+console.log(
+  '\nASSERT Login Context table rows well-formed (no newline-split rows):',
+  badRows.length ? 'FAIL ' + JSON.stringify(badRows) : `all ${loginTableLines.length} lines OK ✅`,
+);
+if (badRows.length) {
+  throw new Error('FAIL: Login Context table row(s) split/corrupted by embedded newline: ' + JSON.stringify(badRows));
+}
+if (!md.includes('Admin Role')) {
+  throw new Error('FAIL: expected mdTable() to replace embedded newline in "Admin\\nRole" with a space ("Admin Role")');
+}
+
 console.log('EXPORT SMOKE PASS ✅');

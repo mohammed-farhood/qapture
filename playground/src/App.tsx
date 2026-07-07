@@ -1,4 +1,13 @@
-import { Qapture } from 'qapture2';
+import { Qapture, deleteQaDatabase } from 'qapture2';
+// Bug #1 test hook: exposes the real public `deleteQaDatabase` export (per
+// idb.ts's doc comment: `import('qapture2').then(m => m.deleteQaDatabase(...))`)
+// on `window` so scripts/browser-test.mjs can drive the actual fix (close
+// cached connection → onblocked/onerror/onsuccess → Promise) end to end.
+
+if (typeof window !== 'undefined') {
+  (window as unknown as { __qaDeleteDatabase?: typeof deleteQaDatabase }).__qaDeleteDatabase =
+    deleteQaDatabase;
+}
 
 // A demo config the Phase 1 runtime will consume. Kept here so the playground
 // doubles as the manual test harness (theme + graded journey + dev logins).
@@ -21,6 +30,11 @@ const demoConfig = {
   },
   credentials: [
     { role: 'Admin', login: 'admin@demo.test', password: 'Admin@123', seeded: true },
+    // Duplicate `role` on purpose (test fixture for Bug #28): CredentialsSection
+    // used to key rows by `role` alone, silently collapsing duplicates. The fix
+    // keys by `${role}-${index}` instead, so this pair must still render as two
+    // distinct DOM rows.
+    { role: 'Admin', login: 'admin2@demo.test', password: 'Admin2@456', seeded: true },
     { role: 'Buyer', login: 'buyer@demo.test', password: 'Buyer@123', seeded: true },
   ],
   journey: [
@@ -60,6 +74,14 @@ export function App() {
         {Array.from({ length: 20 }).map((_, i) => (
           <p key={i}>Paragraph {i + 1} — scroll target for region capture and locate-flash.</p>
         ))}
+      </div>
+
+      {/* Test fixture (Bugs #10/#11): a tall filler section so the page has
+          plenty of scroll room for the browser-test harness's region-capture
+          scroll-drift and scrollIntoView-settle assertions. */}
+      <div className="card" style={{ minHeight: 2600 }} id="scroll-filler">
+        <h2>Scroll filler</h2>
+        <p>Tall filler content — pure scroll real estate, no interaction needed.</p>
       </div>
 
       <Qapture config={demoConfig} />
