@@ -100,7 +100,7 @@ function Lane({
           className="qa-absolute qa-top-1 qa-bottom-0 qa-w-px"
           style={{ insetInlineStart: '7px', background: `${color}40`, bottom: '4px' }}
         />
-        {steps.map((s: QaJourneyStep) => {
+        {steps.map((s: QaJourneyStep, i: number) => {
           const k         = keyOf(id, s.path);
           const on        = checked.has(k);
           const riskColor = s.risk ? RISK_COLORS[s.risk] : RISK_COLORS.none;
@@ -109,7 +109,7 @@ function Lane({
             : (s.riskWhy ?? s.risk);
 
           return (
-            <li key={s.path} className="qa-relative qa-mb-2 qa-last-mb-0">
+            <li key={`${k}-${i}`} className="qa-relative qa-mb-2 qa-last-mb-0">
               <button
                 onClick={() => toggle(k)}
                 className="qa-flex qa-w-full qa-items-start qa-gap-2.5 qa-rounded-lg qa-p-1 qa-text-start qa-hover-bg-black-3"
