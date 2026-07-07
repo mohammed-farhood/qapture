@@ -2,8 +2,12 @@
  * QaRoot — the top-level component for qapture's Shadow-DOM tree.
  *
  * Responsibilities:
- *  1. Error boundary: catches rendering errors so a bug in the tool never
- *     crashes the host application.
+ *  1. Error boundary: catches errors thrown during rendering, in lifecycle
+ *     methods, and in constructors of the components below it, so a
+ *     rendering bug in the tool doesn't crash the host application. It does
+ *     NOT catch errors thrown from event handlers (e.g. pointer/keyboard
+ *     handlers) — React never routes those through componentDidCatch — nor
+ *     errors in async callbacks; those need their own handling if needed.
  *  2. QaProvider: wires up all runtime state.
  *  3. Visibility gating: renders the FAB (and panel) only when allowed.
  *  4. Hotkey: registers config.hotkey on document to toggle visibility.

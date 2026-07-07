@@ -24,12 +24,19 @@ export default function NoteEditor() {
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Always-current mirror of previewUrl, so the unmount cleanup below can
+  // revoke whatever the LAST blob URL was rather than the one captured at
+  // mount time (an empty deps array would otherwise freeze it at `null`).
+  const previewUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    previewUrlRef.current = previewUrl;
+  }, [previewUrl]);
+
   // Revoke preview URL on unmount
   useEffect(() => {
     return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const setImage = useCallback((blob: Blob | null) => {
