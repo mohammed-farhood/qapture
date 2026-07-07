@@ -57,6 +57,8 @@ interface RawMatch {
   value:   string;
   lineIdx: number;
   context: string; // surrounding line text for role inference
+  file:    string;  // identifies the source file this match came from, so
+                     // matches from different files are never clustered together
 }
 
 /**
@@ -71,7 +73,7 @@ interface RawMatch {
  *
  * Keys recognised: email, login, username, password, phone.
  */
-function extractMatches(content: string): RawMatch[] {
+function extractMatches(content: string, file: string): RawMatch[] {
   const out: RawMatch[] = [];
   const lines = content.split('\n');
 
@@ -81,12 +83,25 @@ function extractMatches(content: string): RawMatch[] {
   const FIELD_RE =
     /\b(email|login|username|password|phone|role)\s*[:=]\s*(?:["'`]([^"'`\r\n]+)["'`]|(process\.env\.(\w+)))/gi;
 
+  // Same field detection, but for field names embedded inside a larger
+  // camelCase or SCREAMING_SNAKE_CASE identifier (e.g. `adminPassword =`,
+  // `ADMIN_PASSWORD =`), where no \b word-boundary exists immediately before
+  // the field name because both sides are \w characters. Requires at least
+  // one identifier character before the field name (so it never re-matches
+  // the plain-field case already handled by FIELD_RE), anchored to the start
+  // of an identifier (start of line or a non-identifier character before it).
+  const FIELD_RE_EMBEDDED =
+    /(?:^|[^A-Za-z0-9_])[A-Za-z][A-Za-z0-9_]*?(email|login|username|password|phone|role)\s*[:=]\s*(?:["'`]([^"'`\r\n]+)["'`]|(process\.env\.(\w+)))/gi;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     let m: RegExpExecArray | null;
     FIELD_RE.lastIndex = 0;
 
+    const claimedRanges: Array<[number, number]> = [];
+
     while ((m = FIELD_RE.exec(line)) !== null) {
+      claimedRanges.push([m.index, m.index + m[0].length]);
       const type = m[1].toLowerCase() as RawMatch['type'];
 
       let value: string;
@@ -99,7 +114,29 @@ function extractMatches(content: string): RawMatch[] {
         if (/^[<{]/.test(value) || /^(change[_-]?me|your[_-])/i.test(value)) continue;
       }
 
-      out.push({ type, value, lineIdx: i, context: line });
+      out.push({ type, value, lineIdx: i, context: line, file });
+    }
+
+    FIELD_RE_EMBEDDED.lastIndex = 0;
+    while ((m = FIELD_RE_EMBEDDED.exec(line)) !== null) {
+      const start = m.index;
+      const end   = m.index + m[0].length;
+      // Skip if this overlaps a match already found by FIELD_RE above.
+      if (claimedRanges.some(([s, e]) => start < e && end > s)) continue;
+
+      const type = m[1].toLowerCase() as RawMatch['type'];
+
+      let value: string;
+      if (m[3] !== undefined) {
+        // process.env.VAR_NAME
+        value = `TODO: set from env ${m[4]} (use .env.example)`;
+      } else {
+        value = m[2].trim();
+        // Skip obviously non-literal placeholders like <EMAIL>, CHANGE_ME etc.
+        if (/^[<{]/.test(value) || /^(change[_-]?me|your[_-])/i.test(value)) continue;
+      }
+
+      out.push({ type, value, lineIdx: i, context: line, file });
     }
   }
 
@@ -130,7 +167,9 @@ function inferRole(context: string, login: string): string {
 /**
  * Group raw field matches into credential objects by line proximity
  * (matches within 20 lines of each other are considered part of the same
- * credential block).
+ * credential block). Matches from different source files are NEVER
+ * clustered together, regardless of their lineIdx values, since lineIdx is
+ * only meaningful relative to the single file it was extracted from.
  */
 function groupMatches(matches: RawMatch[]): CredentialDraft[] {
   if (matches.length === 0) return [];
@@ -152,7 +191,9 @@ function groupMatches(matches: RawMatch[]): CredentialDraft[] {
       x => x.type === 'email' || x.type === 'login' || x.type === 'username',
     );
 
-    if (m.lineIdx - prev.lineIdx > 20 || (isIdentifier && clusterHasIdentifier)) {
+    const sameFile = m.file === prev.file;
+
+    if (!sameFile || m.lineIdx - prev.lineIdx > 20 || (isIdentifier && clusterHasIdentifier)) {
       clusters.push(current);
       current = [m];
     } else {
@@ -227,7 +268,7 @@ export function detectCredentials(targetDir: string): CredentialDraft[] {
   const envExample = path.join(targetDir, '.env.example');
   if (fs.existsSync(envExample) && assertSafeToRead(envExample)) {
     const content = readFileSafe(envExample);
-    if (content) allMatches.push(...extractMatches(content));
+    if (content) allMatches.push(...extractMatches(content, envExample));
   }
 
   // ── 2. Seeder files ───────────────────────────────────────────────────────
@@ -246,7 +287,7 @@ export function detectCredentials(targetDir: string): CredentialDraft[] {
 
     for (const f of files) {
       const content = readFileSafe(f);
-      if (content) allMatches.push(...extractMatches(content));
+      if (content) allMatches.push(...extractMatches(content, f));
     }
   }
 
