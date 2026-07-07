@@ -85,8 +85,8 @@ export function assertSafeToRead(filePath: string): boolean {
   // Also allow variants like .env.example.local that some projects use
   if (/^\.env\.example(\.\w+)?$/.test(basename)) return true;
 
-  // ── Exact basename block ──────────────────────────────────────────────────
-  if (BLOCKED_EXACT_BASENAMES.has(basename)) return false;
+  // ── Exact basename block (case-insensitive, matching the rest of this file) ─
+  if (BLOCKED_EXACT_BASENAMES.has(basename.toLowerCase())) return false;
 
   // ── .env.* variants (anything not .env.example) ───────────────────────────
   if (/^\.env\./i.test(basename) && !/^\.env\.example/i.test(basename)) {
