@@ -381,6 +381,7 @@ export default function CaptureMode() {
         width: Math.round(selection.rect.width),
         height: Math.round(selection.rect.height),
       },
+      scroll: { ...scrollSnap.current },
     };
     await addNote({ description, screenshot: shot ?? undefined, target });
     endCapture();

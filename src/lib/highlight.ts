@@ -17,14 +17,6 @@
 
 import type { QaTarget } from '../context/QaContext';
 
-/**
- * Optional scroll snapshot captured alongside a region rect (kind: 'region').
- * Not (yet) part of the shared QaTarget type, so it's read defensively here —
- * this activates automatically once capture-time code starts persisting it
- * onto the target.
- */
-type ScrollSnapshot = { x: number; y: number };
-
 type FlashColors = { primary?: string; accent?: string };
 
 const SETTLE_TIMEOUT_MS = 400;
@@ -133,7 +125,7 @@ export function flashLocate(target: QaTarget | null, colors?: FlashColors): void
     settleThenPaint(el, colors);
   } else if (target.rect) {
     let rect = target.rect;
-    const snap = (target as QaTarget & { scroll?: ScrollSnapshot }).scroll;
+    const snap = target.scroll;
     if (snap) {
       const dx = window.scrollX - snap.x;
       const dy = window.scrollY - snap.y;
