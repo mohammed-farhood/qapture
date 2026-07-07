@@ -65,14 +65,14 @@ function makeStep(routePath: string): JourneyStep {
 function classifyPath(routePath: string): 'seller' | 'admin' | 'auth' | 'buyer' {
   const p = routePath.toLowerCase();
 
-  if (/^\/(seller|store-owner|vendor)/.test(p)) return 'seller';
+  if (/^\/(seller|store-owner|vendor)(?:\/|$)/.test(p)) return 'seller';
 
-  if (/^\/(admin|dashboard|control-panel|backoffice|back-office|management|cms)/.test(p)) {
+  if (/^\/(admin|dashboard|control-panel|backoffice|back-office|management|cms)(?:\/|$)/.test(p)) {
     return 'admin';
   }
 
   if (
-    /^\/(login|signin|sign-in|signup|sign-up|register|auth|forgot-password|reset-password|verify|email-verification|oauth)/.test(p)
+    /^\/(login|signin|sign-in|signup|sign-up|register|auth|forgot-password|reset-password|verify|email-verification|oauth)(?:\/|$)/.test(p)
   ) {
     return 'auth';
   }
