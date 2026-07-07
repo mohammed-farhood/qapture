@@ -179,6 +179,11 @@ function isNonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.trim().length > 0;
 }
 
+/** Replace any CR/LF in a string with a space so it can't break a Markdown table row. */
+function stripNewlines(v: string): string {
+  return v.replace(/\r\n|\r|\n/g, ' ');
+}
+
 function isValidBilingual(v: unknown): v is QaBilingual {
   if (typeof v === 'string') return true;
   if (v !== null && typeof v === 'object') {
@@ -222,17 +227,17 @@ function coerceCredentials(raw: unknown, warnings: string[]): QaCredential[] {
       continue;
     }
     const cred: QaCredential = {
-      role:     (c['role'] as string).trim(),
-      login:    (c['login'] as string).trim(),
-      password: isNonEmptyString(c['password']) ? (c['password'] as string).trim() : '',
+      role:     stripNewlines((c['role'] as string).trim()),
+      login:    stripNewlines((c['login'] as string).trim()),
+      password: isNonEmptyString(c['password']) ? stripNewlines((c['password'] as string).trim()) : '',
     };
-    if (isNonEmptyString(c['roleAr'])) cred.roleAr = (c['roleAr'] as string).trim();
+    if (isNonEmptyString(c['roleAr'])) cred.roleAr = stripNewlines((c['roleAr'] as string).trim());
     if (typeof c['seeded'] === 'boolean') cred.seeded = c['seeded'];
     if (c['hint'] !== null && c['hint'] !== undefined && typeof c['hint'] === 'object') {
       const h = c['hint'] as Record<string, unknown>;
       if (typeof h['en'] === 'string') {
-        cred.hint = { en: h['en'] };
-        if (typeof h['ar'] === 'string') cred.hint.ar = h['ar'];
+        cred.hint = { en: stripNewlines(h['en']) };
+        if (typeof h['ar'] === 'string') cred.hint.ar = stripNewlines(h['ar']);
       }
     }
     out.push(cred);
@@ -291,9 +296,13 @@ function coerceJourney(raw: unknown, warnings: string[]): QaJourneyLane[] {
       if (isNonEmptyString(s['riskWhy'])) step.riskWhy = s['riskWhy'] as string;
       steps.push(step);
     }
+    const rawRole = lane['role'] as QaBilingual;
+    const role: QaBilingual = typeof rawRole === 'string'
+      ? stripNewlines(rawRole)
+      : { en: stripNewlines(rawRole.en), ...(typeof rawRole.ar === 'string' ? { ar: stripNewlines(rawRole.ar) } : {}) };
     const resolved: QaJourneyLane = {
       id:    (lane['id'] as string).trim(),
-      role:  lane['role'] as QaBilingual,
+      role,
       steps,
     };
     if (isNonEmptyString(lane['color'])) resolved.color = (lane['color'] as string).trim();
@@ -305,7 +314,15 @@ function coerceJourney(raw: unknown, warnings: string[]): QaJourneyLane[] {
 function coercePreamble(raw: unknown): QaPreamble | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw !== 'object' || Array.isArray(raw)) return null;
-  return raw as QaPreamble;
+  const p = { ...raw } as QaPreamble;
+  // projectName / stack render as single-line Markdown table cells (Project
+  // table) — strip embedded newlines so a config-supplied value can't split
+  // the row across multiple lines. Other fields (conventions, invariants,
+  // verifySteps, runCommands, additionalContext, oneLiner) intentionally
+  // accept embedded newlines and are left untouched.
+  if (typeof p.projectName === 'string') p.projectName = stripNewlines(p.projectName);
+  if (typeof p.stack === 'string') p.stack = stripNewlines(p.stack);
+  return p;
 }
 
 // ---------------------------------------------------------------------------
