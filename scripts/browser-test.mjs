@@ -253,37 +253,76 @@ try {
   // ===========================================================================
   {
     // Move the viewport away first so scrollIntoView (triggered by "Locate on
-    // page" below) actually has real work to do. NOTE: we deliberately do NOT
-    // force `scroll-behavior: smooth` here — Chromium's smooth-scroll duration
-    // for a ~1000px+ jump routinely exceeds settleThenPaint's 400ms settle cap
-    // (that cap is intentional: "a page that never settles still paints
-    // eventually"), which would make an exact post-scroll position assertion
-    // flaky/non-deterministic in headless. Instant scrollIntoView still
-    // exercises the real fixed code path (poll getBoundingClientRect() across
-    // rAFs until 2 consecutive frames match, then paint) and lets us assert
-    // an exact final position deterministically.
-    await page.evaluate(() => window.scrollTo(0, 1400));
+    // page" below) actually has real work to do. This setup jump itself opts
+    // OUT of the playground's `html { scroll-behavior: smooth }` (added for
+    // this bug — see App.tsx) via an explicit 'instant' behavior, so it lands
+    // immediately and doesn't contaminate the timing we're about to measure.
+    //
+    // The offset (200px) is deliberately modest, not the ~1400px this used
+    // to jump: empirically (see task notes), Chromium's smooth-scroll
+    // duration for THIS page/button scales with distance — ~200px settles in
+    // ~200-260ms (safely under settleThenPaint's 400ms cap, so the FIXED
+    // code always reaches a truly-stable rect before painting), while a
+    // ~1400px jump routinely takes 550ms+ (would exceed the cap and make
+    // even the fixed code's paint an assertion-flaky near-miss). 200px still
+    // leaves the one-rAF-later (old, buggy) position ~200px off from the
+    // final settled one — an unmissable gap, not a rounding error.
+    await page.evaluate(() => window.scrollTo({ top: 200, left: 0, behavior: 'instant' }));
     await sleep(300);
     const beforeScrollY = await page.evaluate(() => window.scrollY);
 
-    const beforeBoxCount = await page.evaluate(
-      () => document.body.querySelectorAll(':scope > div[data-qa-overlay]').length,
-    );
-    const clicked = await page.evaluate(() => {
-      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /locate on page/i.test(x.textContent || ''));
-      if (b) b.click();
-      return !!b;
-    });
-    if (!clicked) throw new Error('Bug #2/#11: "Locate on page" button not found');
+    // Drive the click AND a same-tick rAF-sampling loop of the target
+    // element's live rect from one evaluate() call, so "when did the flash
+    // box actually appear, and what was the element's true rect at that
+    // instant" are measured with no cross-call scheduling gaps. This lets us
+    // independently confirm (via the rect-log, not just the box's own frozen
+    // style) that painting was deferred until the smooth-scroll had actually
+    // finished — the old ("one rAF after scrollIntoView") code would instead
+    // paint within ~1 frame of the click, while the element is still ~200px
+    // from its destination.
+    const locateResult = await page.evaluate(() => {
+      return new Promise((resolve, reject) => {
+        const el = document.querySelector('button[aria-label="Place order"]');
+        if (!el) { reject(new Error('Bug #2/#11: target button not found')); return; }
+        const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /locate on page/i.test(x.textContent || ''));
+        if (!b) { reject(new Error('Bug #2/#11: "Locate on page" button not found')); return; }
 
-    // Wait for the flash box to appear AND for its position to stop moving
-    // (settleThenPaint caps at 400ms) before reading it.
-    await page.waitForFunction(
-      (n) => document.body.querySelectorAll(':scope > div[data-qa-overlay]').length > n,
-      { timeout: 3000 },
-      beforeBoxCount,
-    );
-    await sleep(500); // > SETTLE_TIMEOUT_MS(400ms), so the box has finished settling
+        const t0 = performance.now();
+        const samples = [];
+        let appearedAt = null;
+        let boxAtAppear = null;
+        let elRectAtAppear = null;
+
+        const mo = new MutationObserver((mutations) => {
+          if (appearedAt !== null) return;
+          for (const m of mutations) {
+            for (const node of m.addedNodes) {
+              if (node.nodeType === 1 && node.matches && node.matches('[data-qa-overlay]') && node.parentNode === document.body) {
+                appearedAt = performance.now() - t0;
+                boxAtAppear = { top: parseFloat(node.style.top), left: parseFloat(node.style.left) };
+                const r = el.getBoundingClientRect();
+                elRectAtAppear = { top: r.top, left: r.left };
+              }
+            }
+          }
+        });
+        mo.observe(document.body, { childList: true });
+
+        const SAMPLE_WINDOW_MS = 700; // comfortably > SETTLE_TIMEOUT_MS(400ms), well under the box's 1500ms removal
+        function tick() {
+          const r = el.getBoundingClientRect();
+          samples.push({ t: Math.round(performance.now() - t0), top: r.top, left: r.left });
+          if (performance.now() - t0 < SAMPLE_WINDOW_MS) {
+            requestAnimationFrame(tick);
+          } else {
+            mo.disconnect();
+            resolve({ samples, appearedAt, boxAtAppear, elRectAtAppear });
+          }
+        }
+        requestAnimationFrame(tick);
+        b.click();
+      });
+    });
 
     const flash = await page.evaluate(() => {
       const boxes = [...document.body.querySelectorAll(':scope > div[data-qa-overlay]')];
@@ -321,15 +360,57 @@ try {
     }
     console.log('8. Bug #2: locate-flash outline/box-shadow reflect configured theme (accent/primary), not hardcoded defaults: ok');
 
-    // Bug #11: after the smooth-scroll settle, the flash box must be painted
-    // at the element's FINAL settled position, not a stale mid-scroll one.
-    if (Math.abs(flash.top - flash.elTop) > 2 || Math.abs(flash.left - flash.elLeft) > 2) {
-      throw new Error(`Bug #11: flash box (${flash.top},${flash.left}) does not match settled element rect (${flash.elTop},${flash.elLeft})`);
-    }
+    // Bug #11 setup checks — make sure this run actually exercised what we
+    // think it did, so a pass can't be an accident of timing:
     if (Math.abs(flash.scrollYAfter - beforeScrollY) < 50) {
       throw new Error('Bug #11 setup: scrollIntoView did not actually move the viewport — test would be vacuous');
     }
-    console.log('9. Bug #11: flash box painted at the settled post-scrollIntoView position (not a stale mid-scroll rect): ok');
+    if (locateResult.appearedAt === null) {
+      throw new Error('Bug #11 setup: flash box never appeared within the sample window');
+    }
+    // Confirm the scroll genuinely animated (wasn't already-settled by the
+    // time of the very first rAF sample) — otherwise a "one rAF after click"
+    // paint would be indistinguishable from a fully-settled one, and this
+    // test would be exactly the vacuous instant-scroll case it's meant to
+    // replace. The first sample's rect must still be meaningfully far
+    // (>50px) from where the element ends up (last sample).
+    const firstSample = locateResult.samples[0];
+    const lastSample = locateResult.samples[locateResult.samples.length - 1];
+    const earlyVsFinalDelta = Math.abs(firstSample.top - lastSample.top) + Math.abs(firstSample.left - lastSample.left);
+    if (earlyVsFinalDelta < 50) {
+      throw new Error(
+        `Bug #11 setup: smooth-scroll animation was not actually in-flight near click time (first-sample rect ${JSON.stringify(firstSample)} vs final ${JSON.stringify(lastSample)}, delta=${earlyVsFinalDelta}px) — test would be vacuous`,
+      );
+    }
+
+    // Bug #11, the real assertion: the flash box's OWN frozen paint position
+    // must match the element's truly-settled final rect...
+    if (Math.abs(flash.top - flash.elTop) > 2 || Math.abs(flash.left - flash.elLeft) > 2) {
+      throw new Error(`Bug #11: flash box (${flash.top},${flash.left}) does not match settled element rect (${flash.elTop},${flash.elLeft})`);
+    }
+    // ...and, independently (via the rect-log, not the box's own style), the
+    // LIVE element rect AT THE EXACT MOMENT the box was created must ALSO
+    // already match the final settled rect — i.e. painting really did wait
+    // for the animation to finish, rather than happening to freeze a
+    // still-moving rect that only later coincided with the destination.
+    if (
+      Math.abs(locateResult.elRectAtAppear.top - lastSample.top) > 2 ||
+      Math.abs(locateResult.elRectAtAppear.left - lastSample.left) > 2
+    ) {
+      throw new Error(
+        `Bug #11: element's live rect at box-creation time (${JSON.stringify(locateResult.elRectAtAppear)}) had not yet settled to the final rect (${JSON.stringify(lastSample)}) — box was painted mid-scroll`,
+      );
+    }
+    // ...and the box must not have appeared implausibly fast (~1 rAF, as the
+    // old "paint one frame after scrollIntoView" code would) — settling
+    // takes multiple frames, so a genuinely-waiting implementation should
+    // take meaningfully longer than a single frame to paint.
+    if (locateResult.appearedAt < 50) {
+      throw new Error(`Bug #11: flash box appeared only ${locateResult.appearedAt.toFixed(1)}ms after "Locate on page" — too fast to have waited for the scroll to settle (old one-rAF-later behavior)`);
+    }
+    console.log(
+      `9. Bug #11: flash box appeared ${locateResult.appearedAt.toFixed(1)}ms after click (not a ~1-frame stale paint) and was painted at the settled post-scrollIntoView position (element rect at paint-time matched final rect within 2px; ${earlyVsFinalDelta.toFixed(0)}px early-vs-final delta confirms the scroll was genuinely still animating near click time): ok`,
+    );
   }
 
   // ===========================================================================
@@ -341,7 +422,10 @@ try {
   {
     await page.keyboard.press('Escape'); // cancel the still-open element capture
     await sleep(400);
-    await page.evaluate(() => { window.scrollTo(0, 0); });
+    // Instant — this page now has `scroll-behavior: smooth` (added for Bug
+    // #11); an animated reset here would eat into the sleep below for no
+    // reason this test cares about.
+    await page.evaluate(() => { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); });
     await sleep(200);
 
     const cta2 = await page.evaluate(() => {
@@ -393,9 +477,12 @@ try {
     });
 
     // Scroll the page down a known, large amount — this is the drift the
-    // pre-fix code failed to correct for.
+    // pre-fix code failed to correct for. Instant (not the page's default
+    // smooth, added for Bug #11): this test's correction math depends on
+    // scrollYNow being the EXACT, already-settled value read 150ms later,
+    // not a value still mid-animation.
     const SCROLL_DELTA = 900;
-    await page.evaluate((dy) => window.scrollTo(0, dy), SCROLL_DELTA);
+    await page.evaluate((dy) => window.scrollTo({ top: dy, left: 0, behavior: 'instant' }), SCROLL_DELTA);
     await sleep(150);
     const scrollYNow = await page.evaluate(() => window.scrollY);
     if (scrollYNow < SCROLL_DELTA - 5) throw new Error('Bug #10 setup: page did not actually scroll (not enough scroll room?)');
@@ -434,7 +521,7 @@ try {
     console.log(`10. Bug #10: region flash box top=${Math.round(result.top)} accounts for ${scrollYNow - preScroll.scrollY}px of scroll since capture (stale would be ≈${staleTop}): ok`);
 
     // Reset for cleanliness before moving to the next page.
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.evaluate(() => window.scrollTo({ top: 0, left: 0, behavior: 'instant' }));
   }
 
   // ===========================================================================
@@ -564,11 +651,20 @@ try {
   console.log('\nTOUCH PASS ✅  iPad emulation → coarse pointer → tap(host) through shadow → confirm → annotate → draw-region → resize handles');
 
   // ===========================================================================
-  // BUG #25 — QaFab resize/orientation-change reclamp. Drag the FAB (touch-
-  // only feature) near the LARGER-dimension edge, then flip the viewport
-  // dimensions (simulated rotation) with NO further interaction, and assert
-  // the FAB's rendered position was reclamped to the new (smaller) bounds
-  // rather than sitting off-screen.
+  // BUG #25 — QaFab resize/orientation-change reclamp. The FAB's position is
+  // stored as a `bottom` CSS px offset (distance from the viewport's bottom
+  // edge), which plain CSS keeps numerically constant across a resize — it
+  // does NOT re-derive itself relative to the new viewport height. So a
+  // small `bottom` offset (near the bottom edge) trivially survives ANY
+  // rotation direction under CSS alone, with or without a resize listener —
+  // that made the old version of this test non-discriminating. To actually
+  // require the fix's resize/orientationchange listener, we drag the FAB
+  // near the TOP of the taller PORTRAIT viewport instead: that means a
+  // LARGE `bottom` offset (≈ portrait height). After rotating to the
+  // shorter LANDSCAPE viewport, that same numeric `bottom` offset would
+  // exceed the new viewport's height entirely — pushing the FAB off the top
+  // of the screen — unless something recomputes it. With NO further
+  // interaction after the rotation, only the fix's listener can save it.
   // ===========================================================================
   {
     await page2.keyboard.press('Escape'); // end capture mode → panel reopens, FAB visible
@@ -584,11 +680,11 @@ try {
     await sleep(400);
 
     const vpBefore = page2.viewport();
-    // Drag the FAB toward the BOTTOM edge (the larger dimension in iPad
-    // portrait — 1366 tall) so that after rotating to landscape (1024 tall)
-    // an unfixed FAB would land off-screen.
+    // Drag the FAB toward the TOP edge of the (taller) portrait viewport —
+    // see rationale above. A small top margin (not 0) keeps the drop point a
+    // valid, unambiguous touch target.
     const targetX = Math.round(vpBefore.width / 2);
-    const targetY = vpBefore.height - 20;
+    const targetY = 40;
     await page2.touchscreen.touchStart(fabPt0.x, fabPt0.y);
     await sleep(40);
     await page2.touchscreen.touchMove(Math.round((fabPt0.x + targetX) / 2), Math.round((fabPt0.y + targetY) / 2));
@@ -603,8 +699,20 @@ try {
       const r = btn.getBoundingClientRect();
       return { top: r.top, left: r.left, bottom: r.bottom, right: r.right };
     });
-    if (draggedRect.bottom < vpBefore.height - 100) {
-      throw new Error(`Bug #25 setup: FAB drag did not land near the bottom edge (bottom=${draggedRect.bottom}, viewport height=${vpBefore.height})`);
+    if (draggedRect.top > 150) {
+      throw new Error(`Bug #25 setup: FAB drag did not land near the top edge (top=${draggedRect.top}, viewport height=${vpBefore.height})`);
+    }
+    // The real vacuousness guard: the FAB's implied `bottom` CSS offset
+    // (distance from THIS portrait viewport's bottom edge) must exceed the
+    // upcoming LANDSCAPE viewport's full height — i.e. it must be
+    // mathematically guaranteed to land out-of-bounds after rotation absent
+    // a reclamp, not just "near an edge".
+    const bottomOffset = vpBefore.height - draggedRect.bottom;
+    const landscapeHeight = vpBefore.width; // rotation swaps width/height below
+    if (bottomOffset <= landscapeHeight) {
+      throw new Error(
+        `Bug #25 setup: dragged FAB's bottom offset (${Math.round(bottomOffset)}px) does not exceed the post-rotation landscape height (${landscapeHeight}px) — an unfixed FAB wouldn't necessarily go out-of-bounds, so this run can't discriminate the reclamp fix`,
+      );
     }
 
     // Simulate rotation: swap width/height, keep touch/mobile/dpr the same.
@@ -632,10 +740,10 @@ try {
 
     if (!fullyOnscreen) {
       throw new Error(
-        `Bug #25: FAB not reclamped after rotation — rect=${JSON.stringify(rotatedRect)} viewport=${vpAfter.width}x${vpAfter.height}`,
+        `Bug #25: FAB not reclamped after rotation — rect=${JSON.stringify(rotatedRect)} viewport=${vpAfter.width}x${vpAfter.height} (dragged bottom-offset ${Math.round(bottomOffset)}px, which exceeds the ${landscapeHeight}px landscape height and so REQUIRED reclamping to stay on-screen)`,
       );
     }
-    console.log(`17. Bug #25: FAB dragged near bottom edge (bottom=${Math.round(draggedRect.bottom)}), then viewport rotated ${vpBefore.width}x${vpBefore.height} → ${vpAfter.width}x${vpAfter.height} with NO further interaction — FAB reclamped fully on-screen: ok`);
+    console.log(`17. Bug #25: FAB dragged near the top edge of the taller portrait viewport (bottom-offset ${Math.round(bottomOffset)}px > landscape height ${landscapeHeight}px — guaranteed out-of-bounds without a reclamp), then viewport rotated ${vpBefore.width}x${vpBefore.height} → ${vpAfter.width}x${vpAfter.height} with NO further interaction — FAB reclamped fully on-screen: ok`);
   }
 
   // ===========================================================================
@@ -665,8 +773,10 @@ try {
 
     // Scroll the (now taller, thanks to the filler fixture) page down a bit
     // first, so there is real native-scroll temptation for the browser to
-    // hijack the upcoming touch gesture.
-    await page2.evaluate(() => window.scrollTo(0, 300));
+    // hijack the upcoming touch gesture. Instant (not the page's default
+    // smooth, added for Bug #11) — scrollYBefore below must be the exact,
+    // already-settled value this setup asked for.
+    await page2.evaluate(() => window.scrollTo({ top: 300, left: 0, behavior: 'instant' }));
     await sleep(200);
     const scrollYBefore = await page2.evaluate(() => window.scrollY);
 
@@ -731,6 +841,14 @@ try {
   await page3.evaluateOnNewDocument(installHelpers);
   const errors3 = [];
   page3.on('pageerror', (e) => errors3.push('PAGEERROR ' + e.message));
+  // Bug #28: React logs a dev-mode console.error ("Encountered two children
+  // with the same key") on ANY render (mount or update) of a list with
+  // colliding keys. Captured for page3's whole lifetime (not just around the
+  // Bug #28 block below) so it can't miss an earlier occurrence — e.g. the
+  // very first Logins-tab render, or the language toggles already exercised
+  // by Bug #17's block above.
+  const consoleMsgs3 = [];
+  page3.on('console', (m) => consoleMsgs3.push(m.text()));
   await page3.goto(BASE, { waitUntil: 'networkidle0' });
   await page3.waitForFunction(
     `!!document.querySelector('qapture-overlay') && !!document.querySelector('qapture-overlay').shadowRoot`,
@@ -901,24 +1019,82 @@ try {
 
   // ---------------------------------------------------------------------
   // BUG #28 — duplicate-role credentials (both "Admin") render as distinct
-  // DOM rows, not collapsed into one.
+  // DOM rows, not collapsed/cross-contaminated across a RECONCILIATION (not
+  // just the initial static mount, which the old version of this test only
+  // checked — duplicate keys don't break a first render).
+  //
+  // The bare `key={c.role}` bug is a real, verified React anti-pattern (dev
+  // React logs "Encountered two children with the same key" for it, on
+  // every render including the first), but empirically, React's reconciler
+  // walks old/new children position-by-position first and only falls back
+  // to its ambiguous key→fiber map when an update actually reorders/adds/
+  // removes list items — which nothing in this app does to the credentials
+  // list (its order and length are fixed at mount). So a same-order re-render
+  // (e.g. the EN/AR toggle) can't be relied on to visibly swap row content
+  // even under the buggy key — content checks alone would still pass. The
+  // console warning itself, however, reliably fires under the buggy
+  // `${c.role}` key and NEVER fires under the fix's `${c.role}-${i}` key
+  // (verified against both), so it's the real discriminator here, backed up
+  // by a content/identity check across a forced re-render as a regression
+  // safety net for the future.
   // ---------------------------------------------------------------------
   {
-    const dup = await page3.evaluate(() => {
+    const readCredRows = () => {
       const sr = window.__qaSR();
-      const roleLabels = [...sr.querySelectorAll('span')].filter((s) => s.textContent.trim() === 'Admin');
-      const loginNodes = [...sr.querySelectorAll('button span')].map((s) => s.textContent.trim());
-      const hasFirst = loginNodes.includes('admin@demo.test');
-      const hasSecond = loginNodes.includes('admin2@demo.test');
-      return { roleLabelCount: roleLabels.length, hasFirst, hasSecond };
+      const roleSpans = [...sr.querySelectorAll('span')].filter((s) => s.textContent.trim() === 'Admin');
+      const rows = roleSpans.map((s) => {
+        const card = s.closest('.qa-rounded-xl');
+        const loginSpan = card ? card.querySelector('button span') : null;
+        return loginSpan ? loginSpan.textContent.trim() : null;
+      });
+      return { roleLabelCount: roleSpans.length, logins: rows };
+    };
+
+    // Make sure we're actually on the Logins tab (Bug #27 above already left
+    // us there, but this block should be self-contained/robust either way).
+    await page3.evaluate(() => {
+      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^logins$/i.test((x.textContent || '').trim()));
+      if (b) b.click();
     });
-    if (dup.roleLabelCount !== 2) {
-      throw new Error(`Bug #28: expected 2 distinct "Admin" role labels in the DOM, found ${dup.roleLabelCount}`);
+    await sleep(200);
+
+    const before = await page3.evaluate(readCredRows);
+    if (before.roleLabelCount !== 2) {
+      throw new Error(`Bug #28 setup: expected 2 distinct "Admin" role labels in the DOM, found ${before.roleLabelCount}`);
     }
-    if (!dup.hasFirst || !dup.hasSecond) {
-      throw new Error(`Bug #28: both duplicate-role credential logins should render (admin@demo.test present=${dup.hasFirst}, admin2@demo.test present=${dup.hasSecond})`);
+    if (before.logins[0] !== 'admin@demo.test' || before.logins[1] !== 'admin2@demo.test') {
+      throw new Error(`Bug #28 setup: unexpected initial login association ${JSON.stringify(before.logins)} (expected [admin@demo.test, admin2@demo.test])`);
     }
-    console.log('22. Bug #28: two credentials sharing role "Admin" render as 2 distinct DOM rows (both logins present), not collapsed into one: ok');
+
+    // Force a RECONCILIATION (not just a fresh mount) of CredentialsSection:
+    // toggle the language back and forth. Each toggle re-renders the same
+    // 3-item credentials list (same order, same count) with new translated
+    // strings for OTHER fields (e.g. the "used" button text) — real prop
+    // changes flowing through the same key-mapped list.
+    for (const label of ['ع', 'EN']) {
+      await page3.evaluate((l) => {
+        const b = [...window.__qaSR().querySelectorAll('button')].find((x) => x.textContent.trim() === l);
+        if (b) b.click();
+      }, label);
+      await sleep(250);
+    }
+
+    const after = await page3.evaluate(readCredRows);
+    if (after.roleLabelCount !== 2) {
+      throw new Error(`Bug #28: expected 2 distinct "Admin" role labels after re-render, found ${after.roleLabelCount} (duplicated and/or omitted)`);
+    }
+    if (after.logins[0] !== before.logins[0] || after.logins[1] !== before.logins[1]) {
+      throw new Error(
+        `Bug #28: credential rows cross-contaminated across a re-render — before=${JSON.stringify(before.logins)} after=${JSON.stringify(after.logins)}`,
+      );
+    }
+
+    const dupKeyWarning = consoleMsgs3.find((t) => /encountered two children with the same key/i.test(t));
+    if (dupKeyWarning) {
+      throw new Error(`Bug #28: React logged a duplicate-key warning for the credentials list — keys are not unique: "${dupKeyWarning.slice(0, 160)}"`);
+    }
+
+    console.log('22. Bug #28: two credentials sharing role "Admin" render as 2 distinct, correctly-associated DOM rows across a forced re-render (EN→AR→EN), with no React duplicate-key warning logged: ok');
   }
 
   // ---------------------------------------------------------------------
@@ -1104,9 +1280,40 @@ try {
     await sleep(20);
     await page4.keyboard.press('Escape');
 
-    // Let any deferred html2canvas work (up to its own internal timeout)
-    // settle before checking for leaks.
-    await sleep(2500);
+    // The old version of this check just waited a fixed 2500ms and asserted
+    // "0 outstanding" — but with Escape firing this fast, that was true
+    // VACUOUSLY on both the buggy and fixed code: captureRegion's async
+    // chain (dynamic import(html2canvas) + a real canvas render) genuinely
+    // never got far enough to call createObjectURL AT ALL within that
+    // window on either version, so "0 outstanding" (0 created, 0 revoked)
+    // proved nothing about revoke behavior specifically.
+    //
+    // First, explicitly wait for (and require) at least one createObjectURL
+    // call — i.e. confirm the capture actually progressed far enough to
+    // produce a blob — before we ask whether it was revoked. Empirically
+    // (see task notes) the FIXED code's create(+immediate-revoke, since the
+    // component is already unmounted) reliably lands within ~1s of the
+    // click; this timeout is well beyond that with margin to spare.
+    const CREATE_WAIT_MS = 5000;
+    let sawCreate = true;
+    try {
+      await page4.waitForFunction(
+        (from) => window.__qaUrlLog.slice(from).some((e) => e.type === 'create'),
+        { timeout: CREATE_WAIT_MS },
+        markIndex,
+      );
+    } catch {
+      sawCreate = false;
+    }
+    if (!sawCreate) {
+      throw new Error(
+        `Bug #19: no createObjectURL call was observed within ${CREATE_WAIT_MS}ms of an Escape-cancelled capture — the abandoned capture's continuation never completed, so revoke behavior couldn't even be exercised (on the fixed code this reliably fires within ~1s)`,
+      );
+    }
+
+    // Now that we know a create happened, give any trailing revoke a beat
+    // to land too, then check nothing from this window is still outstanding.
+    await sleep(500);
 
     const outstanding = await page4.evaluate((from) => {
       const entries = window.__qaUrlLog.slice(from);
@@ -1118,7 +1325,7 @@ try {
     if (outstanding.length > 0) {
       throw new Error(`Bug #19: ${outstanding.length} blob URL(s) created during a capture cancelled mid-flight (Escape before html2canvas finished) were never revoked: ${JSON.stringify(outstanding)}`);
     }
-    console.log('27. Bug #19: Escape immediately after starting a capture (racing html2canvas) left zero outstanding un-revoked blob URLs once deferred work settled: ok');
+    console.log('27. Bug #19: capture cancelled mid-flight (Escape before html2canvas finished) DID create a blob URL (confirmed, not vacuous) and it was revoked with zero outstanding: ok');
   }
 
   if (errors4.length) console.log('   (page4 page errors:', errors4.join(' | '), ')');

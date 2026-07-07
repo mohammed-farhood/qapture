@@ -53,6 +53,17 @@ const demoConfig = {
 export function App() {
   return (
     <div className="wrap">
+      {/* Test fixture (Bug #11): a real animated scroll so scrollIntoView's
+          browser-native smooth-scroll actually runs over multiple frames
+          (rather than settling instantly), letting the browser-test harness
+          distinguish "paint one rAF after scrollIntoView" (old, wrong —
+          would paint mid-animation) from settleThenPaint's poll-until-stable
+          behaviour (new, correct — paints the true final rect). This is the
+          `html` scrolling box (the page has no other scroll container), so
+          this is the CSS property that actually governs it. Scoped test
+          setup scrolls in scripts/browser-test.mjs explicitly opt back into
+          `behavior: 'instant'` so this doesn't affect their own timing.  */}
+      <style>{'html { scroll-behavior: smooth; }'}</style>
       <h1>Qapture — Playground</h1>
       <p>
         This page intentionally uses <strong>no Tailwind</strong> and plain CSS, to prove
