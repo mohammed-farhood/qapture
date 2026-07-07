@@ -35,13 +35,14 @@ export function createStorage(namespace: string): QaStorage {
   const prefix = `${namespace}:`;
   const fallback = new Map<string, string>();
   const available = isStorageAvailable();
+  let degraded = false;
 
   function fullKey(key: string): string {
     return `${prefix}${key}`;
   }
 
   function getItem(key: string): string | null {
-    if (available) {
+    if (available && !degraded) {
       try {
         return window.localStorage.getItem(fullKey(key));
       } catch {
@@ -52,12 +53,13 @@ export function createStorage(namespace: string): QaStorage {
   }
 
   function setItem(key: string, value: string): void {
-    if (available) {
+    if (available && !degraded) {
       try {
         window.localStorage.setItem(fullKey(key), value);
         return;
       } catch {
         // fall through to in-memory
+        degraded = true;
       }
     }
     fallback.set(fullKey(key), value);
