@@ -90,7 +90,7 @@ export default function LocationReveal({ target }: { target?: QaTarget | null })
             </div>
           )}
           <button
-            onClick={() => flashLocate(target)}
+            onClick={() => flashLocate(target, { primary: theme.primary, accent: theme.accent })}
             className="qa-mt-1 qa-inline-flex qa-items-center qa-gap-1 qa-rounded-md qa-px-2 qa-py-1 qa-font-medium qa-text-white qa-tap"
             style={{ background: theme.accent, border: 'none', cursor: 'pointer' }}
           >
