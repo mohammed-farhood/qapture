@@ -36,7 +36,7 @@ const HTML2CANVAS_TIMEOUT_MS = 10000;
  * CSS filters/SVG/cross-origin images) can't leave capture mode stuck
  * forever — the caller's null-on-failure contract still holds.
  */
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   return Promise.race([
     promise,
     new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),

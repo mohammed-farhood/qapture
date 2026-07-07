@@ -21,6 +21,11 @@ export type {
   QaPreamble,
 } from './config/schema';
 
+// Full-uninstall helper — documented (see lib/idb.ts) as reachable via
+// `import('qapture2').then(m => m.deleteQaDatabase('qapture'))`, so it must
+// actually be re-exported from the package's main entry point.
+export { deleteQaDatabase } from './lib/idb';
+
 import { useEffect } from 'react';
 import type { QaConfig } from './config/schema';
 import { validateConfig } from './config/schema';
