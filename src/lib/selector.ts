@@ -10,7 +10,11 @@ function isCleanId(id: string | null | undefined): boolean {
 }
 
 function esc(value: string): string {
-  return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : value;
+  if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(value);
+  // Fallback for environments without CSS.escape (old Safari/IE): the value
+  // is interpolated into a quoted attribute selector, so at minimum escape
+  // backslashes and double-quotes to keep the selector syntactically valid.
+  return value.replace(/[\\"]/g, '\\$&');
 }
 
 function nthOfTypePath(el: Element, maxDepth = 6): string {
@@ -40,6 +44,15 @@ function nthOfTypePath(el: Element, maxDepth = 6): string {
   return parts.join(' > ');
 }
 
+function isUniqueSelector(selector: string): boolean {
+  if (!selector) return false;
+  try {
+    return document.querySelectorAll(selector).length === 1;
+  } catch {
+    return false;
+  }
+}
+
 export function getStableSelector(el: Element | null): string {
   if (typeof document === 'undefined') return '';
   if (!el || el.nodeType !== 1) return '';
@@ -47,26 +60,37 @@ export function getStableSelector(el: Element | null): string {
 
   // 1. Clean id
   const htmlEl = el as HTMLElement;
-  if (isCleanId(htmlEl.id)) return `#${esc(htmlEl.id)}`;
+  if (isCleanId(htmlEl.id)) {
+    const candidate = `#${esc(htmlEl.id)}`;
+    if (isUniqueSelector(candidate)) return candidate;
+  }
 
   // 2. Test/data attributes
   for (const attr of ['data-testid', 'data-test', 'data-cy', 'data-id', 'data-key']) {
     const val = el.getAttribute(attr);
-    if (val) return `[${attr}="${esc(val)}"]`;
+    if (val) {
+      const candidate = `[${attr}="${esc(val)}"]`;
+      if (isUniqueSelector(candidate)) return candidate;
+    }
   }
 
   // 3. aria-label on interactive elements
   if (['button', 'a', 'input', 'select', 'textarea'].includes(tag)) {
     const label = el.getAttribute('aria-label');
-    if (label) return `${tag}[aria-label="${esc(label)}"]`;
+    if (label) {
+      const candidate = `${tag}[aria-label="${esc(label)}"]`;
+      if (isUniqueSelector(candidate)) return candidate;
+    }
   }
 
   // 4. name on form fields
   const name = el.getAttribute('name');
   if (name && ['input', 'select', 'textarea'].includes(tag)) {
-    return `${tag}[name="${esc(name)}"]`;
+    const candidate = `${tag}[name="${esc(name)}"]`;
+    if (isUniqueSelector(candidate)) return candidate;
   }
 
-  // 5. Structural fallback
+  // 5. Structural fallback — best effort; on unusual DOMs this may still not
+  // be unique, but there's no further strategy to fall back to.
   return nthOfTypePath(el);
 }
