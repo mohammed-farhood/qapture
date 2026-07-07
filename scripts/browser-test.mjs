@@ -8,7 +8,13 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import puppeteer, { KnownDevices } from 'puppeteer-core';
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// Cross-platform Chrome resolution: honor PUPPETEER_EXECUTABLE_PATH (or the
+// puppeteer-standard CHROME_PATH) if set, so this runs in CI/Linux/Windows;
+// otherwise fall back to the known macOS install path used during local dev.
+const CHROME =
+  process.env.PUPPETEER_EXECUTABLE_PATH ||
+  process.env.CHROME_PATH ||
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PLAY = join(dirname(fileURLToPath(import.meta.url)), '..', 'playground');
 const PORT = 5183;
 const BASE = `http://localhost:${PORT}/`;
