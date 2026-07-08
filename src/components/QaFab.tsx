@@ -25,7 +25,7 @@
  *    that onClick checks first.
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQa } from '../context/QaContext';
 import { Icon } from '../icons/Icon';
 import { useCoarsePointer } from '../lib/coarse';
@@ -120,6 +120,23 @@ export default function QaFab() {
   // trailing click after a touch drag (so onClick alone can't be relied on
   // to consume it).
   const didDragRef = useRef(false);
+
+  // clampFabPos() only recomputes against the CURRENT viewport size, but it's
+  // only ever called at render time — a resize/orientation change (e.g.
+  // rotating a tablet) wouldn't otherwise trigger a re-render, so a
+  // drag-repositioned FAB could sit clamped to stale pre-rotation bounds.
+  // This dummy counter just forces a re-render so the clamp recomputes.
+  const [, setViewportTick] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onViewportChange = () => setViewportTick((n) => n + 1);
+    window.addEventListener('resize', onViewportChange);
+    window.addEventListener('orientationchange', onViewportChange);
+    return () => {
+      window.removeEventListener('resize', onViewportChange);
+      window.removeEventListener('orientationchange', onViewportChange);
+    };
+  }, []);
 
   // The FAB is hidden while capture mode is active (CaptureMode has its own UI)
   if (captureActive) return null;

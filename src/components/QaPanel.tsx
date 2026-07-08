@@ -131,6 +131,11 @@ export default function QaPanel() {
     }
     if (phase === 'hidden') {
       setShowIn(false);
+      // QaPanel never unmounts (it just renders null while hidden), so
+      // ephemeral dialog state would otherwise survive a close/reopen cycle
+      // and resurface a stale dialog instead of the expected tab content.
+      setNaming(false);
+      setConfirmClear(false);
     }
     if (phase === 'visible') {
       setShowIn(true); // keep it showing
@@ -384,6 +389,7 @@ export default function QaPanel() {
         setActiveTab={setActiveTab}
         t={t}
         theme={theme}
+        lang={lang}
       />
 
       {/* separator */}
@@ -523,11 +529,13 @@ function TabsBar({
   setActiveTab,
   t,
   theme,
+  lang,
 }: {
   activeTab: 'notes' | 'logins' | 'guide';
   setActiveTab: (tab: 'notes' | 'logins' | 'guide') => void;
   t: (key: string) => string;
   theme: { primary: string; accent: string };
+  lang: string;
 }) {
   const tabRefs   = useRef<(HTMLButtonElement | null)[]>([]);
   const barRef    = useRef<HTMLSpanElement>(null);
@@ -541,7 +549,11 @@ function TabsBar({
     // Padding compensation: the indicator is inset by 8px (0.5rem) on each side
     bar.style.left  = `${btn.offsetLeft + 8}px`;
     bar.style.width = `${Math.max(0, btn.offsetWidth - 16)}px`;
-  }, [activeTab]);
+    // `lang` isn't read above, but toggling it changes each tab button's label
+    // text/font (hence rendered width) without necessarily resizing the tabs
+    // container itself — include it here so this callback's identity changes
+    // on language switch, which reruns the positioning effect below.
+  }, [activeTab, lang]);
 
   // Reposition on active tab change
   useLayoutEffect(() => {

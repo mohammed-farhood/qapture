@@ -73,6 +73,13 @@ function openDB(dbName: string): Promise<IDBDatabase> {
       dbCache.delete(dbName); // allow retry after a failed open
       reject((e.target as IDBOpenDBRequest).error);
     };
+
+    req.onblocked = () => {
+      // Another tab is holding an older-version connection open, blocking
+      // the version upgrade indefinitely. Fail fast instead of hanging.
+      dbCache.delete(dbName); // allow retry after the blocking tab closes
+      reject(new Error(`IndexedDB open blocked for "${dbName}" — another tab has an older connection open`));
+    };
   });
 
   dbCache.set(dbName, promise);
@@ -162,13 +169,32 @@ export function createIdb(namespace: string): QaIdb {
  * Full uninstall helper — wipes the entire DB for the given namespace.
  * Call from the browser console: `import('qapture2').then(m => m.deleteQaDatabase('qapture'))`.
  */
-export function deleteQaDatabase(namespace: string): void {
+export function deleteQaDatabase(namespace: string): Promise<void> {
   const dbName = `${namespace}-db`;
-  dbCache.delete(dbName);
-  if (!isIdbAvailable()) return;
-  try {
-    indexedDB.deleteDatabase(dbName);
-  } catch {
-    // ignore
-  }
+  if (!isIdbAvailable()) return Promise.resolve();
+
+  // Close any live cached connection first — deleteDatabase() blocks forever
+  // while a connection to the database remains open.
+  const cached = dbCache.get(dbName);
+  dbCache.delete(dbName); // so a later open() creates a fresh connection
+
+  const closed = cached ? cached.then((db) => db.close()).catch(() => {}) : Promise.resolve();
+
+  return closed.then(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        let req: IDBOpenDBRequest;
+        try {
+          req = indexedDB.deleteDatabase(dbName);
+        } catch (err) {
+          reject(err);
+          return;
+        }
+
+        req.onsuccess = () => resolve();
+        req.onerror = (e) => reject((e.target as IDBOpenDBRequest).error);
+        req.onblocked = () =>
+          reject(new Error(`IndexedDB deleteDatabase blocked for "${dbName}" — another connection is still open`));
+      }),
+  );
 }

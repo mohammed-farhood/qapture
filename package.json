@@ -1,6 +1,6 @@
 {
   "name": "qapture2",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Drop-in, AI-aware in-browser QA capture widget. A tester annotates the live app (element/region + auto-screenshot + note), tracks a graded testing journey, and exports a ZIP your own coding agent reads. Ships zero AI.",
   "type": "module",
   "license": "MIT",
@@ -78,10 +78,16 @@
     "prepublishOnly": "npm run build",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
+    "typecheck:bin": "tsc --noEmit -p tsconfig.bin.json",
     "smoke": "node scripts/smoke.mjs",
     "export-smoke": "esbuild src/lib/exportZip.ts --bundle --format=esm --platform=node --outfile=dist/_export-test.mjs --log-level=error && node scripts/export-smoke.mjs dist/_export-test.mjs",
+    "cli-smoke": "node scripts/cli-smoke.mjs",
+    "cli-detectors-smoke": "node scripts/cli-detectors-smoke.mjs",
+    "selector-smoke": "node scripts/selector-smoke.mjs",
+    "capture-timeout-smoke": "node scripts/capture-timeout-smoke.mjs",
+    "standalone-smoke": "node scripts/standalone-smoke.mjs",
     "browser-test": "node scripts/browser-test.mjs",
-    "verify": "npm run typecheck && npm run build && npm run smoke && npm run export-smoke",
+    "verify": "npm run typecheck && npm run typecheck:bin && npm run build && npm run smoke && npm run export-smoke && npm run cli-smoke && npm run cli-detectors-smoke && npm run selector-smoke && npm run capture-timeout-smoke && npm run standalone-smoke",
     "play": "npm --prefix playground run dev"
   },
   "engines": {
@@ -104,6 +110,7 @@
     "jszip": "^3.10.1"
   },
   "devDependencies": {
+    "@types/node": "^20.19.43",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "jsdom": "^29.1.1",

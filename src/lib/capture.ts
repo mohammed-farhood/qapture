@@ -28,6 +28,21 @@
 
 import type { QaRect } from '../context/QaContext';
 
+const HTML2CANVAS_TIMEOUT_MS = 10000;
+
+/**
+ * Race a promise against a timeout, resolving to null if the timeout wins.
+ * Used so a hung html2canvas() call (known to happen on pages with heavy
+ * CSS filters/SVG/cross-origin images) can't leave capture mode stuck
+ * forever — the caller's null-on-failure contract still holds.
+ */
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+}
+
 function toBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
   return new Promise((resolve) => {
     if (canvas.toBlob) {
@@ -69,27 +84,31 @@ export async function captureRegion(
   try {
     const { default: html2canvas } = await import('html2canvas');
     const scale = Math.min(window.devicePixelRatio || 1, 2);
-    const canvas = await html2canvas(document.body, {
-      x: sx + rect.left,
-      y: sy + rect.top,
-      width: rect.width,
-      height: rect.height,
-      scale,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: null,
-      logging: false,
-      scrollX: sx,
-      scrollY: sy,
-      // Viewport-only clone (not the full document) — see iOS canvas-cap
-      // rationale above. Keeps the offscreen render surface ~viewport*scale.
-      windowWidth: window.innerWidth,
-      windowHeight: window.innerHeight,
-      ignoreElements: (el: Element) =>
-        el.nodeType === 1 &&
-        typeof (el as HTMLElement).hasAttribute === 'function' &&
-        (el as HTMLElement).hasAttribute('data-qa-overlay'),
-    });
+    const canvas = await withTimeout(
+      html2canvas(document.body, {
+        x: sx + rect.left,
+        y: sy + rect.top,
+        width: rect.width,
+        height: rect.height,
+        scale,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: null,
+        logging: false,
+        scrollX: sx,
+        scrollY: sy,
+        // Viewport-only clone (not the full document) — see iOS canvas-cap
+        // rationale above. Keeps the offscreen render surface ~viewport*scale.
+        windowWidth: window.innerWidth,
+        windowHeight: window.innerHeight,
+        ignoreElements: (el: Element) =>
+          el.nodeType === 1 &&
+          typeof (el as HTMLElement).hasAttribute === 'function' &&
+          (el as HTMLElement).hasAttribute('data-qa-overlay'),
+      }),
+      HTML2CANVAS_TIMEOUT_MS
+    );
+    if (!canvas) return null;
     return await toBlob(canvas);
   } catch (err) {
     // eslint-disable-next-line no-console

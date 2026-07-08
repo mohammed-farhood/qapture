@@ -90,6 +90,7 @@ export default function CaptureMode() {
   const { addNote, endCapture, t, dir, theme } = useQa();
   const coarse = useCoarsePointer();
   const layerRef = useRef<HTMLDivElement>(null);
+  const overlayRootRef = useRef<HTMLDivElement>(null);
 
   const [phase, setPhase] = useState<'selecting' | 'confirming' | 'annotating'>('selecting');
   const [hover, setHover] = useState<Hover | null>(null);
@@ -108,6 +109,8 @@ export default function CaptureMode() {
   const pointerKind = useRef<'mouse' | 'touch' | 'pen'>('mouse');
   const scrollSnap = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const handleDragRef = useRef<HandleDrag | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   // Card fade-in state: true once the annotating card is in the DOM and we
   // want to trigger the CSS transition from opacity-0 → 1.
@@ -140,6 +143,12 @@ export default function CaptureMode() {
     lockPageScroll();
     try {
       const blob = await captureRegion(sel.rect, scrollSnap.current);
+      if (!mountedRef.current) {
+        // Component is gone — don't setState; revoke immediately so we
+        // don't leave an orphaned blob URL behind.
+        if (blob) URL.revokeObjectURL(URL.createObjectURL(blob));
+        return;
+      }
       setShot(blob);
       setShotUrl((old) => {
         if (old) URL.revokeObjectURL(old);
@@ -147,7 +156,7 @@ export default function CaptureMode() {
       });
     } finally {
       unlockPageScroll();
-      setCapturing(false);
+      if (mountedRef.current) setCapturing(false);
     }
   }, []);
 
@@ -317,6 +326,34 @@ export default function CaptureMode() {
     return () => document.removeEventListener('keydown', onKey, true);
   }, [endCapture]);
 
+  // ── Focus trap: keep Tab/Shift+Tab from escaping into the dimmed host page ─
+  // The interceptor above only blocks pointer events, so without this, Tab
+  // can move focus into elements underneath the overlay.
+  useEffect(() => {
+    const FOCUSABLE_SELECTOR =
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const root = overlayRootRef.current;
+      if (!root) return;
+      const focusable = Array.from(
+        root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+      if (focusable.length === 0) { e.preventDefault(); return; }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      const activeInside = !!active && root.contains(active);
+      if (e.shiftKey) {
+        if (!activeInside || active === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (!activeInside || active === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, []);
+
   // Focus textarea when annotation card opens
   useEffect(() => {
     if (phase === 'annotating' && taRef.current) taRef.current.focus();
@@ -344,6 +381,7 @@ export default function CaptureMode() {
         width: Math.round(selection.rect.width),
         height: Math.round(selection.rect.height),
       },
+      scroll: { ...scrollSnap.current },
     };
     await addNote({ description, screenshot: shot ?? undefined, target });
     endCapture();
@@ -373,7 +411,7 @@ export default function CaptureMode() {
   const confirmingRegion = phase === 'confirming' && candidate?.kind === 'region' && coarse;
 
   return (
-    <div data-qa-overlay="true">
+    <div data-qa-overlay="true" ref={overlayRootRef}>
       {/* ── Dimmed interceptor ───────────────────────────────────────────── */}
       <div
         ref={layerRef}
@@ -384,7 +422,7 @@ export default function CaptureMode() {
         className="qa-fixed qa-inset-0 qa-z-10090"
         style={{
           cursor: phase === 'selecting' && !coarse ? 'crosshair' : 'default',
-          touchAction: coarse ? (regionMode ? 'none' : 'pan-x pan-y') : 'auto',
+          touchAction: coarse ? 'none' : 'auto',
           background: 'rgba(58,42,46,0.18)',
         }}
       />

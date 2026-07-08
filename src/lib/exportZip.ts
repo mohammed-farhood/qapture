@@ -121,7 +121,7 @@ function mdTable(headers: string[], rows: string[][]): string {
   const lines = [
     `| ${headers.join(' | ')} |`,
     `| ${sep.join(' | ')} |`,
-    ...rows.map((r) => `| ${r.map((c) => c.replace(/\|/g, '\\|')).join(' | ')} |`),
+    ...rows.map((r) => `| ${r.map((c) => c.replace(/\|/g, '\\|').replace(/\r\n|\r|\n/g, ' ')).join(' | ')} |`),
   ];
   return lines.join('\n');
 }

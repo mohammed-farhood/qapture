@@ -53,6 +53,13 @@ export type QaTarget = {
   tagName?: string;
   text?: string;
   rect: QaRect;
+  /**
+   * Page scroll position (window.scrollX/scrollY) at the moment this target
+   * was captured. For kind:'region' targets (no CSS selector, so "Locate on
+   * page" can only fall back to the raw rect), this lets the locate-time
+   * highlight correct for any scrolling that happened since capture.
+   */
+  scroll?: { x: number; y: number };
 };
 
 /**

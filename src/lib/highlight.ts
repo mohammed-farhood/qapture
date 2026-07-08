@@ -7,11 +7,19 @@
  * is excluded from html2canvas captures.
  *
  * SSR-safe: all paths guard typeof document.
- * No import from qa.config — colours are read from CSS custom properties
- * set on documentElement (or from the optional `color` argument).
+ * Colours come from the `colors` argument (the caller passes theme.primary /
+ * theme.accent from useQa().theme). CSS custom properties are only used as a
+ * last-resort fallback for any colour not supplied — the flash box is a
+ * light-DOM sibling of the shadow host, not a descendant, so the host-scoped
+ * --qa-primary/--qa-accent custom properties never actually reach it via
+ * document.documentElement.
  */
 
 import type { QaTarget } from '../context/QaContext';
+
+type FlashColors = { primary?: string; accent?: string };
+
+const SETTLE_TIMEOUT_MS = 400;
 
 function readCssVar(name: string, fallback: string): string {
   if (typeof document === 'undefined') return fallback;
@@ -23,13 +31,13 @@ function readCssVar(name: string, fallback: string): string {
 
 function paint(
   rect: { top: number; left: number; width: number; height: number },
-  color?: string,
+  colors?: FlashColors,
 ): void {
   if (typeof document === 'undefined') return;
   if (!rect || rect.width < 1 || rect.height < 1) return;
 
-  const accent  = color ?? readCssVar('--qa-accent',  '#7c3aed');
-  const primary = readCssVar('--qa-primary', '#4f46e5');
+  const accent  = colors?.accent  ?? readCssVar('--qa-accent',  '#7c3aed');
+  const primary = colors?.primary ?? readCssVar('--qa-primary', '#4f46e5');
 
   const box = document.createElement('div');
   box.setAttribute('data-qa-overlay', 'true');
@@ -55,13 +63,56 @@ function paint(
 }
 
 /**
+ * Waits for `el`'s position to stop moving before painting the highlight box.
+ * `scrollIntoView({ block: 'center', inline: 'center' })` can trigger a CSS
+ * scroll-behavior:smooth animation that runs for hundreds of ms — painting
+ * one requestAnimationFrame later (the old behaviour) stamps the box at a
+ * pre-scroll/mid-scroll position. Instead, poll getBoundingClientRect() every
+ * frame until it stays unchanged for 2 consecutive frames, capped at
+ * SETTLE_TIMEOUT_MS so a page that never settles still paints eventually.
+ */
+function settleThenPaint(el: Element, colors?: FlashColors): void {
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const start = now();
+  let last: DOMRect | null = null;
+  let stableFrames = 0;
+
+  const tick = () => {
+    const r = el.getBoundingClientRect();
+    const unchanged =
+      !!last &&
+      r.top === last.top &&
+      r.left === last.left &&
+      r.width === last.width &&
+      r.height === last.height;
+    stableFrames = unchanged ? stableFrames + 1 : 0;
+    last = r;
+
+    if (stableFrames >= 2 || now() - start >= SETTLE_TIMEOUT_MS) {
+      paint({ top: r.top, left: r.left, width: r.width, height: r.height }, colors);
+      return;
+    }
+    requestAnimationFrame(tick);
+  };
+
+  requestAnimationFrame(tick);
+}
+
+/**
  * Flash a highlight box over a captured target.
- * Tries the live element via selector first; falls back to the stored rect.
+ * Tries the live element via selector first; falls back to the stored rect
+ * (region-kind selections — freeform drag rects — never have a selector).
+ * For a rect fallback, corrects for any scrolling that happened since
+ * capture using the target's persisted scroll snapshot, when present.
  *
  * @param target - the QaTarget to locate
- * @param color  - optional accent colour override (defaults to --qa-accent)
+ * @param colors - primary/accent colours to paint with, normally
+ *                 `{ primary: theme.primary, accent: theme.accent }` from the
+ *                 caller's useQa().theme. Any colour left unset falls back to
+ *                 the --qa-primary / --qa-accent CSS custom properties (or
+ *                 hardcoded defaults).
  */
-export function flashLocate(target: QaTarget | null, color?: string): void {
+export function flashLocate(target: QaTarget | null, colors?: FlashColors): void {
   if (typeof document === 'undefined' || !target) return;
 
   let el: Element | null = null;
@@ -71,12 +122,17 @@ export function flashLocate(target: QaTarget | null, color?: string): void {
 
   if (el) {
     el.scrollIntoView({ block: 'center', inline: 'center' });
-    requestAnimationFrame(() => {
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      paint({ top: r.top, left: r.left, width: r.width, height: r.height }, color);
-    });
+    settleThenPaint(el, colors);
   } else if (target.rect) {
-    paint(target.rect, color);
+    let rect = target.rect;
+    const snap = target.scroll;
+    if (snap) {
+      const dx = window.scrollX - snap.x;
+      const dy = window.scrollY - snap.y;
+      if (dx || dy) {
+        rect = { ...rect, left: rect.left - dx, top: rect.top - dy };
+      }
+    }
+    paint(rect, colors);
   }
 }

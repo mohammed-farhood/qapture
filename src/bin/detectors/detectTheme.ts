@@ -141,6 +141,10 @@ const HEX_COLOR = /#[0-9a-fA-F]{3,8}\b/;
 /**
  * Extract name → hex pairs from Tailwind config source text.
  * Matches patterns like:  primary: '#4f46e5'  or  "primary-dark": "#3730a3"
+ * Also matches the common nested-shade convention:
+ *   primary: { 50: '#eef2ff', 500: '#4f46e5', DEFAULT: '#4f46e5' }
+ * — a representative hex (preferring DEFAULT, else a mid-range numeric shade)
+ * is attributed to the OUTER key name ("primary"), not the inner shade key.
  * Does NOT eval/require the file.
  */
 function extractTailwindColors(content: string): Map<string, string> {
@@ -154,6 +158,32 @@ function extractTailwindColors(content: string): Map<string, string> {
       colors.set(name.toLowerCase(), hex);
     }
   }
+
+  // Nested shade objects: key: { 50: '#..', 500: '#..', DEFAULT: '#..' }
+  const RE_NESTED = /['"]?([\w-]+)['"]?\s*:\s*\{([^{}]*)\}/g;
+  let nm: RegExpExecArray | null;
+  while ((nm = RE_NESTED.exec(content)) !== null) {
+    const [, outerName, innerBlock] = nm;
+    const shades = new Map<string, string>();
+    const RE_INNER = /['"]?([\w-]+)['"]?\s*:\s*['"]?(#[0-9a-fA-F]{3,8})['"]?/g;
+    let im: RegExpExecArray | null;
+    while ((im = RE_INNER.exec(innerBlock)) !== null) {
+      shades.set(im[1].toLowerCase(), im[2]);
+    }
+    if (shades.size === 0) continue;
+    const hex =
+      shades.get('default') ??
+      shades.get('500') ??
+      shades.get('600') ??
+      shades.get('400') ??
+      shades.get('700') ??
+      shades.values().next().value;
+    if (hex) {
+      const key = outerName.toLowerCase();
+      if (!colors.has(key)) colors.set(key, hex);
+    }
+  }
+
   return colors;
 }
 
