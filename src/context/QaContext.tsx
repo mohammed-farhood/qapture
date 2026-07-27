@@ -25,6 +25,8 @@ import {
   type ReactElement,
 } from 'react';
 import type { ResolvedConfig, QaTheme, QaBilingual, QaCredential, QaJourneyLane, QaPreamble } from '../config/schema';
+import type { QaJourneyRef } from '../lib/journeyMatch';
+import type { QaNoteContext } from '../lib/contextBuffer';
 import { createStorage } from '../lib/storage';
 import { createIdb } from '../lib/idb';
 import { translate, pick as pickFn } from '../lib/strings';
@@ -76,6 +78,15 @@ export type QaNote = {
   description: string;
   screenshot?: Blob;
   target?: QaTarget;
+  /**
+   * v0.3 additions — ALL optional, so notes written by 0.2.x read back
+   * unchanged and no IndexedDB migration is required. Nothing populates
+   * these yet; QaProvider starts writing them in the v0.3 build.
+   */
+  severity?: 'bug' | 'question' | 'polish';
+  status?: 'open' | 'verified';
+  journeyRef?: QaJourneyRef;
+  context?: QaNoteContext;
 };
 
 // ---------------------------------------------------------------------------
