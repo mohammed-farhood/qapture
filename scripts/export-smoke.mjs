@@ -45,6 +45,22 @@ const notes = [{
   timestamp: '2026-06-29T10:00:00Z',
   description: 'Button stays enabled with empty address.',
   target: { kind: 'element', selector: 'button[aria-label="Place order"]', tagName: 'BUTTON', text: 'Place order', rect: { top: 10, left: 20, width: 100, height: 40 } },
+  // v0.3: severity/status/journeyRef/context are carried through exportZip's
+  // per-note body via noteToMarkdown() — populate them so this smoke test
+  // actually exercises that delegation instead of just not-regressing it.
+  severity: 'bug',
+  status: 'open',
+  journeyRef: { laneId: 'buyer', path: '/checkout' },
+  context: {
+    events: [
+      { t: Date.parse('2026-06-29T09:59:59Z'), kind: 'network', method: 'POST', url: '/api/checkout', status: 500, durationMs: 340 },
+    ],
+    env: {
+      url: 'http://localhost/checkout', route: '/checkout',
+      viewportW: 1280, viewportH: 800, dpr: 1,
+      userAgent: 'jsdom-test-agent', language: 'en-US', online: true, timezone: 'UTC',
+    },
+  },
 }];
 
 await buildAndDownloadZip(notes, '2026-06-29T10:00:00Z', 'demo-export', config, guideChecked);
@@ -59,7 +75,14 @@ console.log('ZIP files:', files.join(', '));
 console.log('--- notes.md (first 70 lines) ---');
 console.log(md.split('\n').slice(0, 70).join('\n'));
 
-const must = ['Demo Shop', 'Login Context', 'admin@demo.test', 'Coverage Report', 'RED', '/checkout', '---NOTES---', 'Place order', 'Do not push without approval'];
+const must = [
+  'Demo Shop', 'Login Context', 'admin@demo.test', 'Coverage Report', 'RED', '/checkout', '---NOTES---', 'Place order', 'Do not push without approval',
+  // v0.3: per-point body now comes from noteMarkdown.ts's noteToMarkdown() —
+  // assert severity/status/journeyRef/context actually made it into notes.md
+  // rather than being silently dropped by the delegation.
+  '**Severity:** bug', '**Status:** open', '**Journey step:** buyer → /checkout',
+  'Runtime context at capture', 'POST /api/checkout → 500', 'viewport   1280×800 @1x',
+];
 const missing = must.filter((s) => !md.includes(s));
 console.log('\nASSERT required content:', missing.length ? 'MISSING ' + missing.join(', ') : 'all present ✅');
 if (missing.length) throw new Error('FAIL: preamble missing: ' + missing.join(', '));

@@ -1,6 +1,6 @@
 /**
- * QaFab — the always-visible launcher, fixed bottom-LEFT. Brand-styled with a
- * soft pulse animation and a note-count badge.
+ * QaFab — the always-visible launcher, fixed bottom-LEFT. Graphite-styled
+ * accent disc with a soft pulse animation and a note-count badge.
  *
  * Ported from QaFab.jsx:
  *  - framer-motion removed → CSS transition (.qa-fab-btn) for hover/active scale
@@ -9,6 +9,18 @@
  *  - Bottom offset is a fixed inline value (no host nav to clear)
  *  - @keyframes qaPulse lives in QA_CSS (qa-animate-pulse-accent uses it)
  *  - lucide-react → Icon
+ *
+ * v0.3 "Graphite" (this file):
+ *  - `theme` is gone from QaContextValue — the widget ships one fixed design.
+ *    The disc is now `.qa-bg-accent` (surface accent + on-accent text,
+ *    `:hover` → accent-hover, all from the design tokens) instead of an
+ *    inline `theme.primary`→`theme.accent` gradient. The note-count badge
+ *    reads `--qa-surface-1`/`--qa-ink-hi` instead of `theme.primary`.
+ *  - The persisted drag position now lives under `${namespace}:fabpos`
+ *    (namespace from useQa()) instead of a bare `qapture:fabpos` key, so
+ *    multiple namespaced instances on the same origin don't collide. A
+ *    one-time migration reads the old bare key when the namespaced one
+ *    doesn't exist yet and writes it forward — see loadFabPos() below.
  *
  * Draggable position — TOUCH ONLY (added):
  *  - Entirely gated behind useCoarsePointer(). When the pointer is NOT
@@ -40,11 +52,18 @@ const FAB_SIZE_PX = 56; // 3.5rem @ 16px root — matches the width/height below
 const EDGE_MARGIN = 12; // keep-out gap from the viewport edge; also stands in for safe-area insets
 const DRAG_THRESHOLD = 8; // px of pointer movement before a touch press becomes a drag
 
-// QaContext's namespaced `createStorage` (see lib/storage.ts) isn't exposed
-// through useQa()'s context value, so this component keeps its own tiny,
-// SSR/private-mode-safe adapter — same try/catch-guarded shape — under a
-// fixed key instead of `${namespace}:fabpos`.
-const FAB_POS_KEY = 'qapture:fabpos';
+// Pre-namespace versions of the widget stored the drag position under this
+// bare key. v0.3 namespaces it (`${namespace}:fabpos`, matching every other
+// piece of persisted state — see lib/storage.ts) so multiple instances on
+// one origin don't clobber each other's saved spot. loadFabPos() performs a
+// ONE-TIME migration: if the namespaced key is empty, it reads this legacy
+// key (if present) and writes the value forward under the namespaced key,
+// so every subsequent load only ever touches the namespaced key.
+const LEGACY_FAB_POS_KEY = 'qapture:fabpos';
+
+function fabPosKey(namespace: string): string {
+  return `${namespace}:fabpos`;
+}
 
 type FabPos = { left: number; bottom: number };
 
@@ -57,22 +76,39 @@ function isFabPos(v: unknown): v is FabPos {
   );
 }
 
-function loadFabPos(): FabPos | null {
+function loadFabPos(namespace: string): FabPos | null {
   if (typeof window === 'undefined') return null;
+  const key = fabPosKey(namespace);
   try {
-    const raw = window.localStorage.getItem(FAB_POS_KEY);
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    return isFabPos(parsed) ? parsed : null;
+    const raw = window.localStorage.getItem(key);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (isFabPos(parsed)) return parsed;
+    }
+
+    // Nothing at the namespaced key yet — check the legacy bare key from
+    // pre-namespace versions of the widget, and migrate it forward.
+    const legacyRaw = window.localStorage.getItem(LEGACY_FAB_POS_KEY);
+    if (!legacyRaw) return null;
+    const legacyParsed: unknown = JSON.parse(legacyRaw);
+    if (!isFabPos(legacyParsed)) return null;
+
+    try {
+      window.localStorage.setItem(key, JSON.stringify(legacyParsed));
+    } catch {
+      // quota exceeded / private mode — migration just won't persist this
+      // time; the legacy key is still readable next load so it isn't lost.
+    }
+    return legacyParsed;
   } catch {
     return null; // SSR / private-mode / corrupt JSON
   }
 }
 
-function saveFabPos(pos: FabPos): void {
+function saveFabPos(namespace: string, pos: FabPos): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(FAB_POS_KEY, JSON.stringify(pos));
+    window.localStorage.setItem(fabPosKey(namespace), JSON.stringify(pos));
   } catch {
     // private-mode / quota exceeded — position just won't persist
   }
@@ -106,12 +142,12 @@ type DragState = {
 };
 
 export default function QaFab() {
-  const { isOpen, setIsOpen, notes, captureActive, theme } = useQa();
+  const { isOpen, setIsOpen, notes, captureActive, namespace } = useQa();
   const coarse = useCoarsePointer();
 
   // Persisted drag position (touch-only). Loaded once on mount; null means
   // "use the default fixed spot" (byte-identical to the pre-drag CSS).
-  const [pos, setPos] = useState<FabPos | null>(() => loadFabPos());
+  const [pos, setPos] = useState<FabPos | null>(() => loadFabPos(namespace));
 
   const dragRef = useRef<DragState | null>(null);
   // True for the brief window between a completed drag and the click event
@@ -189,7 +225,7 @@ export default function QaFab() {
       const dy = e.clientY - d.startY;
       const next = clampFabPos({ left: d.startLeft + dx, bottom: d.startBottom - dy }, d.width, d.height);
       setPos(next);
-      saveFabPos(next);
+      saveFabPos(namespace, next);
       didDragRef.current = true;
     }
   };
@@ -218,10 +254,7 @@ export default function QaFab() {
     bottom: applied ? `${applied.bottom}px` : DEFAULT_BOTTOM,
     width: '3.5rem',
     height: '3.5rem',
-    backgroundImage: `linear-gradient(135deg, ${theme.primary}, ${theme.accent})`,
-    boxShadow:
-      '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04), 0 0 0 2px rgba(255,255,255,0.7)',
-    zIndex: 9990,
+    zIndex: 'var(--qa-z-fab)',
   };
 
   return (
@@ -236,7 +269,7 @@ export default function QaFab() {
       onPointerCancel={coarse ? onPointerCancel : undefined}
       aria-label="Qapture — testing notes"
       title="Qapture"
-      className={`qa-fixed qa-flex qa-items-center qa-justify-center qa-rounded-full qa-text-white qa-print-hidden qa-fab-btn${coarse ? ' qa-touch-none' : ''}`}
+      className={`qa-fixed qa-flex qa-items-center qa-justify-center qa-rounded-full qa-bg-accent qa-elev-2 qa-print-hidden qa-fab-btn${coarse ? ' qa-touch-none' : ''}`}
       style={fabStyle}
     >
       {/* pulse ring — only shown when panel is closed */}
@@ -254,7 +287,7 @@ export default function QaFab() {
       {/* note-count badge */}
       {!isOpen && notes.length > 0 && (
         <span
-          className="qa-absolute qa-flex qa-items-center qa-justify-center qa-rounded-full qa-text-xs qa-font-bold"
+          className="qa-absolute qa-flex qa-items-center qa-justify-center qa-rounded-full qa-text-xs qa-font-bold qa-bg-1 qa-text-hi qa-border qa-border-subtle qa-elev-1"
           aria-label={`${notes.length} notes`}
           style={{
             top: '-4px',
@@ -262,9 +295,6 @@ export default function QaFab() {
             minWidth: '1.5rem',
             height: '1.5rem',
             padding: '0 4px',
-            background: '#fff',
-            color: theme.primary,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
           }}
         >
           {notes.length}

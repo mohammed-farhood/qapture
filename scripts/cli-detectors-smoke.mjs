@@ -1,7 +1,7 @@
 // CLI detector regression smoke test — builds a throwaway fixture project on
-// disk, esbuild-bundles the four src/bin detector/util modules to Node-runnable
+// disk, esbuild-bundles the three src/bin detector/util modules to Node-runnable
 // ESM (mirroring export-smoke.mjs's approach for exportZip.ts), then asserts
-// the specific behaviors of five previously-fixed bugs:
+// the specific behaviors of four previously-fixed bugs:
 //   #5  detectCredentials: matches from different files must never cluster
 //       into one fabricated credential, regardless of line-number proximity.
 //   #6  detectRoutes: auth/admin/seller classification must not prefix-match
@@ -11,8 +11,11 @@
 //   #8  detectCredentials: camelCase/SCREAMING_SNAKE_CASE field declarations
 //       (e.g. `const adminPassword = '...'`) must be detected, not just
 //       object-literal `password: '...'` style.
-//   #16 detectTheme: nested Tailwind shade objects (`primary: { 500: '#hex' }`)
-//       must resolve to the outer key name, not just flat `key: '#hex'` pairs.
+//
+// NOTE: a #16 detectTheme fixture (nested Tailwind shade objects resolving to
+// the outer key name) previously lived here. It was removed in v0.3.0 along
+// with detectTheme.ts itself — custom themes are deprecated and qa.config no
+// longer emits or detects a theme block at all.
 import { execSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -41,12 +44,10 @@ mkdirSync(BUNDLE_DIR, { recursive: true });
 
 const credentialsUrl = bundle('src/bin/detectors/detectCredentials.ts', 'detectCredentials.mjs');
 const routesUrl      = bundle('src/bin/detectors/detectRoutes.ts', 'detectRoutes.mjs');
-const themeUrl        = bundle('src/bin/detectors/detectTheme.ts', 'detectTheme.mjs');
 const secretGuardUrl  = bundle('src/bin/utils/secretGuard.ts', 'secretGuard.mjs');
 
 const { detectCredentials } = await import(credentialsUrl);
 const { detectRoutes }      = await import(routesUrl);
-const { detectTheme }       = await import(themeUrl);
 const { assertSafeToRead }  = await import(secretGuardUrl);
 
 // ── Fixture project ──────────────────────────────────────────────────────────
@@ -115,25 +116,6 @@ try {
   assertTrue(assertSafeToRead(join(fixtureDir, '.ENV')) === false, '#7 secretGuard blocks uppercase ".ENV" just like ".env"');
   assertTrue(assertSafeToRead(join(fixtureDir, '.env')) === false, '#7 secretGuard still blocks lowercase ".env"');
   assertTrue(assertSafeToRead(join(fixtureDir, '.env.example')) === true, '#7 secretGuard still allows ".env.example"');
-
-  // --- Bug #16 fixture: nested Tailwind shade object.
-  writeFileSync(
-    join(fixtureDir, 'tailwind.config.js'),
-    `module.exports = {\n` +
-      `  theme: {\n` +
-      `    extend: {\n` +
-      `      colors: {\n` +
-      `        primary: { 50: '#eef2ff', 500: '#4f46e5', DEFAULT: '#4f46e5' },\n` +
-      `        accent: '#7c3aed',\n` +
-      `      },\n` +
-      `    },\n` +
-      `  },\n` +
-      `};\n`,
-  );
-
-  const theme = detectTheme(fixtureDir);
-  assertTrue(theme.primary === '#4f46e5', `#16 detectTheme resolves nested primary shade to #4f46e5 (got ${theme.primary})`);
-  assertTrue(theme.accent === '#7c3aed', `#16 detectTheme still resolves flat accent color (got ${theme.accent})`);
 } finally {
   rmSync(fixtureDir, { recursive: true, force: true });
   rmSync(BUNDLE_DIR, { recursive: true, force: true });

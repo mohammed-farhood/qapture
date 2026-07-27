@@ -9,6 +9,10 @@
  *  - SSR-safe: guards `typeof indexedDB === 'undefined'` separately from window
  *  - All ops wrapped in try/catch; on failure resolve to empty/no-op so notes
  *    simply won't persist rather than crashing.
+ *
+ * v0.3 "Graphite": `put()` reports success/failure instead of swallowing it —
+ * QaContext uses the `false` case to surface a "storage full" notice instead
+ * of a note silently vanishing on reload.
  */
 
 /** The current DB schema version. */
@@ -19,7 +23,8 @@ const META_STORE  = 'meta';
 
 export type QaIdb = {
   getAll(): Promise<unknown[]>;
-  put(record: object): Promise<void>;
+  /** true = persisted, false = failed. Never throws. */
+  put(record: object): Promise<boolean>;
   delete(id: string): Promise<void>;
   clear(): Promise<void>;
 };
@@ -120,10 +125,12 @@ export function createIdb(namespace: string): QaIdb {
   const dbName = `${namespace}-db`;
 
   if (!isIdbAvailable()) {
-    // SSR / jsdom — return a no-op adapter.
+    // SSR / jsdom — return a no-op adapter. put() reports success (true) so
+    // callers don't surface a spurious "storage full" notice in environments
+    // that never had storage to begin with.
     return {
       getAll: () => Promise.resolve([]),
-      put:    () => Promise.resolve(),
+      put:    () => Promise.resolve(true),
       delete: () => Promise.resolve(),
       clear:  () => Promise.resolve(),
     };
@@ -142,8 +149,9 @@ export function createIdb(namespace: string): QaIdb {
     put: async (record) => {
       try {
         await run(dbName, NOTES_STORE, 'readwrite', (s) => s.put(record));
+        return true;
       } catch {
-        // ignore
+        return false;
       }
     },
 

@@ -12,7 +12,6 @@
 export type {
   QaConfig,
   ResolvedConfig,
-  QaTheme,
   QaBilingual,
   QaCredential,
   QaJourneyLane,
@@ -20,6 +19,14 @@ export type {
   QaRisk,
   QaPreamble,
 } from './config/schema';
+
+/**
+ * @deprecated Custom themes were removed in Qapture 0.3.0 — the widget now
+ * ships one fixed, self-contained design. Kept as a re-export only so that
+ * consumers with an existing `theme?: Partial<QaTheme>` config object still
+ * type-check; it no longer has any effect on the rendered UI.
+ */
+export type { QaTheme } from './config/schema';
 
 // Full-uninstall helper — documented (see lib/idb.ts) as reachable via
 // `import('qapture2').then(m => m.deleteQaDatabase('qapture'))`, so it must

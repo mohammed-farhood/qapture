@@ -24,11 +24,16 @@ import type { QaJourneyLane } from '../config/schema';
 // Constants
 // ---------------------------------------------------------------------------
 
+// Fixed Graphite semantic colours (v0.3.0 — no theme parameter anywhere).
+// Mirrors --qa-danger / --qa-warn / --qa-success / --qa-neutral from
+// styles.ts. This module is plain data (not a component), so it can't read
+// the shadow-scoped CSS custom properties at import time — these are literal
+// copies of those token values, kept in sync by hand.
 export const RISK_COLORS = {
-  red:   '#EF4444',
-  amber: '#F59E0B',
-  green: '#22C55E',
-  none:  '#CBD5E1',
+  red:   '#FF6B6B', // --qa-danger
+  amber: '#FBBF24', // --qa-warn
+  green: '#34D399', // --qa-success
+  none:  '#5B616B', // --qa-neutral
 } as const;
 
 export type RiskColorKey = keyof typeof RISK_COLORS;

@@ -64,6 +64,53 @@ function installUrlLog() {
   };
 }
 
+// Installed (via evaluateOnNewDocument, page5 only) BEFORE navigation, so
+// NoteList's "Copy as agent prompt" → navigator.clipboard.writeText(...) has
+// something deterministic to land in — headless Chrome's real Clipboard API
+// is permission-gated and unreliable to assert against directly. Overriding
+// just the method (rather than replacing the whole `navigator.clipboard`
+// object when it already exists) keeps any other Clipboard API shape intact.
+function installClipboardSpy() {
+  window.__qaClipboard = [];
+  const fakeWriteText = (text) => {
+    window.__qaClipboard.push(text);
+    return Promise.resolve();
+  };
+  if (!navigator.clipboard) {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: fakeWriteText },
+      configurable: true,
+    });
+  } else {
+    navigator.clipboard.writeText = fakeWriteText;
+  }
+}
+
+// Read every persisted note straight out of IndexedDB (bypassing React state
+// entirely), for asserting on fields (journeyRef, context, severity…) that
+// aren't necessarily rendered anywhere in the DOM. Mirrors the reopen-and-
+// read pattern Bug #1's post-delete check already uses above.
+async function readIdbNotes(page, dbName = 'playground-db') {
+  return page.evaluate((name) => {
+    return new Promise((resolve) => {
+      const req = indexedDB.open(name, 2);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+      };
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction('notes', 'readonly');
+        const getAllReq = tx.objectStore('notes').getAll();
+        getAllReq.onsuccess = () => { db.close(); resolve(getAllReq.result); };
+        getAllReq.onerror = () => { db.close(); resolve([]); };
+      };
+      req.onerror = () => resolve([]);
+    });
+  }, dbName);
+}
+
 const vite = spawn('npx', ['vite', '--port', String(PORT), '--strictPort'], {
   cwd: PLAY, stdio: 'ignore', env: process.env,
 });
@@ -77,7 +124,10 @@ async function waitServer(ms = 40000) {
   return false;
 }
 
-const hardKill = setTimeout(() => { console.error('TIMEOUT'); try { vite.kill('SIGKILL'); } catch {} process.exit(1); }, 170000);
+// 170s → 210s: PASS 5 below deliberately sleeps out deleteNote's real 5s
+// soft-delete/Undo window (SOFT_DELETE_MS in QaContext.tsx) once, plus its own
+// setup/assertion overhead on top of everything already in this file.
+const hardKill = setTimeout(() => { console.error('TIMEOUT'); try { vite.kill('SIGKILL'); } catch {} process.exit(1); }, 210000);
 
 let browser, code = 1;
 try {
@@ -343,22 +393,31 @@ try {
       };
     });
 
-    // Bug #2: colors must reflect the playground's configured theme
-    // (accent '#D4726B' → rgb(212,114,107); primary '#6B2C3E' → rgb(107,44,62)),
-    // not the hardcoded flashLocate() defaults ('#7c3aed'/'#4f46e5').
-    if (flash.outlineColor !== 'rgb(212, 114, 107)') {
-      throw new Error(`Bug #2: outline color = "${flash.outlineColor}", expected configured accent rgb(212, 114, 107)`);
+    // Bug #2 (pre-0.3.0 diagnosis): colors used to leak the WRONG hardcoded
+    // defaults ('#7c3aed'/'#4f46e5', a purple/indigo pair unrelated to the
+    // widget's own palette). v0.3.0 "Graphite" removed per-consumer custom
+    // themes entirely (CHANGELOG.md — "flashLocate() no longer accepts a
+    // colors param"), so there is no configured theme left to reflect: the
+    // widget now ships ONE fixed dark design, and flashLocate's highlight
+    // colours are literal copies of that fixed design's --qa-accent
+    // ('#4D9CFF' → rgb(77,156,255)) and --qa-danger ('#FF6B6B' →
+    // rgb(255,107,107)) — see src/lib/highlight.ts and src/lib/styles.ts.
+    // This assertion now pins those fixed Graphite colours instead of a
+    // per-config theme, and still guards against the original pre-0.3
+    // purple/indigo regression.
+    if (flash.outlineColor !== 'rgb(77, 156, 255)') {
+      throw new Error(`Bug #2: outline color = "${flash.outlineColor}", expected fixed Graphite accent rgb(77, 156, 255)`);
     }
     if (flash.outlineStyle !== 'solid' || flash.outlineWidth !== '3px') {
       throw new Error(`Bug #2: outline style/width unexpected: ${flash.outlineStyle} ${flash.outlineWidth}`);
     }
-    if (!/107,\s*44,\s*62/.test(flash.boxShadow)) {
-      throw new Error(`Bug #2: box-shadow does not reference configured primary rgb(107,44,62): "${flash.boxShadow}"`);
+    if (!/255,\s*107,\s*107/.test(flash.boxShadow)) {
+      throw new Error(`Bug #2: box-shadow does not reference fixed Graphite danger rgb(255,107,107): "${flash.boxShadow}"`);
     }
     if (flash.outlineColor === 'rgb(124, 58, 237)' || /124,\s*58,\s*237/.test(flash.boxShadow)) {
-      throw new Error('Bug #2: flash box is using the hardcoded default colors, not the configured theme');
+      throw new Error('Bug #2: flash box is using the old pre-0.3 hardcoded purple/indigo defaults');
     }
-    console.log('8. Bug #2: locate-flash outline/box-shadow reflect configured theme (accent/primary), not hardcoded defaults: ok');
+    console.log('8. Bug #2: locate-flash outline/box-shadow use the fixed Graphite accent/danger colours, not the old hardcoded purple/indigo defaults: ok');
 
     // Bug #11 setup checks — make sure this run actually exercised what we
     // think it did, so a pass can't be an accident of timing:
@@ -1331,7 +1390,341 @@ try {
   if (errors4.length) console.log('   (page4 page errors:', errors4.join(' | '), ')');
   console.log('\nPASS 4 ✅  NoteEditor blob leak on tab-switch (#9) + CaptureMode blob leak on fast-Escape unmount (#19)');
 
-  console.log('\nBROWSER TEST PASS ✅  mouse + touch + FAB-resize + touch-wobble(best-effort) + panel/dialog/focus-trap + blob-leak tracking');
+  // ===========================================================================
+  // PASS 5 — v0.3 "Graphite": journeyRef resolution, the runtime-context ring
+  // buffer, soft-delete Undo (both restore AND real commit), the test-along
+  // walkthrough (TestAlongHud replacing QaPanel; Next/Back/Pass/Fail/Exit),
+  // and "Copy as agent prompt" → clipboard. A dedicated page, with the
+  // clipboard spy installed BEFORE navigation (see installClipboardSpy above).
+  // ===========================================================================
+  const page5 = await browser.newPage();
+  await page5.setViewport({ width: 1100, height: 900 });
+  await page5.evaluateOnNewDocument(installHelpers);
+  await page5.evaluateOnNewDocument(installClipboardSpy);
+  const errors5 = [];
+  page5.on('pageerror', (e) => errors5.push('PAGEERROR ' + e.message));
+  await page5.goto(BASE, { waitUntil: 'networkidle0' });
+  await page5.waitForFunction(
+    `!!document.querySelector('qapture-overlay') && !!document.querySelector('qapture-overlay').shadowRoot`,
+    { timeout: 10000 },
+  );
+
+  // Small local helpers, scoped to page5, matching the file's existing
+  // find-button-by-text-then-click evaluate() pattern.
+  const clickHudButton = (text) => page5.evaluate((txt) => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => (x.textContent || '').trim() === txt);
+    if (!b || b.disabled) return false;
+    b.click();
+    return true;
+  }, text);
+
+  const addQuickNote = async (desc) => {
+    await page5.evaluate(() => {
+      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /quick note/i.test(x.textContent || ''));
+      if (b) b.click();
+    });
+    await sleep(200);
+    const taHandle = await page5.evaluateHandle(() => window.__qaSR().querySelector('textarea'));
+    const ta = taHandle.asElement();
+    if (!ta) throw new Error(`Graphite: quick-note textarea not found while adding "${desc}"`);
+    await ta.click();
+    await ta.type(desc);
+    const saved = await page5.evaluate(() => {
+      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /add point/i.test(x.textContent || ''));
+      if (b) b.click();
+      return !!b;
+    });
+    if (!saved) throw new Error(`Graphite: "Add point" button not found while adding "${desc}"`);
+    await sleep(350);
+  };
+
+  // Open the panel via the FAB (widget just mounted — only the FAB exists yet).
+  await page5.evaluate(() => { window.__qaSR().querySelector('button').click(); });
+  await sleep(500);
+
+  // ---------------------------------------------------------------------
+  // (1) journeyRef resolution — a note captured while on a journey-matching
+  // route gets journeyRef; one captured on a route matching NOTHING in the
+  // journey does not (a real two-sided assertion, not just "truthy").
+  // ---------------------------------------------------------------------
+  {
+    await page5.evaluate(() => window.history.pushState({}, '', '/checkout'));
+    await addQuickNote('Journey ref fixture note (checkout)');
+
+    await page5.evaluate(() => window.history.pushState({}, '', '/totally/unrelated/path'));
+    await addQuickNote('No journey match fixture note');
+
+    const idbNotes = await readIdbNotes(page5);
+    const checkoutNote = idbNotes.find((n) => n.description === 'Journey ref fixture note (checkout)');
+    if (!checkoutNote) throw new Error('Graphite: journeyRef fixture note not found in IndexedDB');
+    if (!checkoutNote.journeyRef || checkoutNote.journeyRef.laneId !== 'public' || checkoutNote.journeyRef.path !== '/checkout') {
+      throw new Error(`Graphite: expected journeyRef {laneId:'public',path:'/checkout'}, got ${JSON.stringify(checkoutNote.journeyRef)}`);
+    }
+    const noMatchNote = idbNotes.find((n) => n.description === 'No journey match fixture note');
+    if (!noMatchNote) throw new Error('Graphite: non-matching-route fixture note not found in IndexedDB');
+    if (noMatchNote.journeyRef) {
+      throw new Error(`Graphite: expected NO journeyRef for a route matching no journey step, got ${JSON.stringify(noMatchNote.journeyRef)}`);
+    }
+    console.log('28. Graphite: a note captured on a journey-matching route ("/checkout") got journeyRef {laneId:"public",path:"/checkout"}; one on a non-matching route got none: ok');
+  }
+
+  // ---------------------------------------------------------------------
+  // (2) runtime-context ring buffer — triggering the console.error and
+  // failing-fetch playground fixtures right before capturing must leave the
+  // saved note's context.events non-empty, with both a real console event
+  // AND a real (status:null) failed-network event, not just "some array".
+  // ---------------------------------------------------------------------
+  {
+    await page5.evaluate(() => { document.querySelector('button[aria-label="Trigger console error"]').click(); });
+    await page5.evaluate(() => { document.querySelector('button[aria-label="Trigger failing fetch"]').click(); });
+    // Let the console.error land synchronously and the .invalid fetch's DNS
+    // failure reject (near-instant, but real network-stack round trip).
+    await sleep(700);
+
+    await addQuickNote('Context events fixture note');
+
+    const idbNotes = await readIdbNotes(page5);
+    const ctxNote = idbNotes.find((n) => n.description === 'Context events fixture note');
+    if (!ctxNote) throw new Error('Graphite: context-events fixture note not found in IndexedDB');
+    const events = ctxNote.context && Array.isArray(ctxNote.context.events) ? ctxNote.context.events : [];
+    if (events.length === 0) {
+      throw new Error('Graphite: note.context.events was empty after triggering the console.error + failing-fetch fixtures');
+    }
+    const hasConsoleErr = events.some((e) => e.kind === 'console' && e.level === 'error' && /Qapture fixture/i.test(e.message || ''));
+    const hasNetworkFail = events.some((e) => e.kind === 'network' && e.status === null);
+    if (!hasConsoleErr) {
+      throw new Error(`Graphite: no console.error event from the fixture button in context.events: ${JSON.stringify(events)}`);
+    }
+    if (!hasNetworkFail) {
+      throw new Error(`Graphite: no failed (status:null) network event from the .invalid fetch fixture in context.events: ${JSON.stringify(events)}`);
+    }
+    console.log(`29. Graphite: note.context.events (${events.length} total) captured the fixture's console.error AND the failed .invalid fetch as a status:null network event: ok`);
+  }
+
+  // Deterministic language for the "Undo" / "Copy as agent prompt" text
+  // matches below (independent of whatever an earlier page's toggling left
+  // in localStorage).
+  await page5.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => x.textContent.trim() === 'EN');
+    if (b) b.click();
+  });
+  await sleep(200);
+
+  // ---------------------------------------------------------------------
+  // (3a) soft-delete Undo — clicking Undo restores the note to the list
+  // (and its IndexedDB record was never actually removed).
+  // ---------------------------------------------------------------------
+  {
+    await addQuickNote('Undo restore fixture note');
+    const before = await readIdbNotes(page5);
+    const restoreNote = before.find((n) => n.description === 'Undo restore fixture note');
+    if (!restoreNote) throw new Error('Graphite setup: restore-fixture note not found in IndexedDB before delete');
+    const restoreId = restoreNote.id;
+
+    const deleteClicked = await page5.evaluate((desc) => {
+      const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes(desc));
+      const del = li && li.querySelector('button[aria-label="delete"]');
+      if (!del) return false;
+      del.click();
+      return true;
+    }, 'Undo restore fixture note');
+    if (!deleteClicked) throw new Error('Graphite: could not find/click the delete button for the restore-fixture note');
+    await sleep(250);
+
+    const goneFromList = await page5.evaluate((desc) =>
+      ![...window.__qaSR().querySelectorAll('li')].some((el) => (el.textContent || '').includes(desc)),
+      'Undo restore fixture note',
+    );
+    if (!goneFromList) throw new Error('Graphite: note still shown in the list immediately after delete (expected immediate removal from state)');
+
+    const undoClicked = await page5.evaluate(() => {
+      const btn = [...window.__qaSR().querySelectorAll('button')].find((b) => (b.textContent || '').trim() === 'Undo');
+      if (!btn) return false;
+      btn.click();
+      return true;
+    });
+    if (!undoClicked) throw new Error('Graphite: "Undo" action button not found on the delete notice');
+    await sleep(300);
+
+    const restoredInList = await page5.evaluate((desc) =>
+      [...window.__qaSR().querySelectorAll('li')].some((el) => (el.textContent || '').includes(desc)),
+      'Undo restore fixture note',
+    );
+    if (!restoredInList) throw new Error('Graphite: clicking Undo did not restore the note to the visible list');
+
+    const afterUndo = await readIdbNotes(page5);
+    if (!afterUndo.some((n) => n.id === restoreId)) {
+      throw new Error('Graphite: note record missing from IndexedDB after Undo (should never have been committed-deleted)');
+    }
+    console.log('30. Graphite: deleting a note shows a notice with an Undo action; clicking Undo restores it to the list, and its IndexedDB record was never committed-deleted: ok');
+  }
+
+  // ---------------------------------------------------------------------
+  // (3b) soft-delete commit — NOT clicking Undo within the 5s window must
+  // actually commit the delete to IndexedDB (checked both "still there
+  // just after delete" — proving it's soft, not immediate — AND "gone once
+  // the window has elapsed").
+  // ---------------------------------------------------------------------
+  {
+    await addQuickNote('Undo commit fixture note');
+    const before = await readIdbNotes(page5);
+    const commitNote = before.find((n) => n.description === 'Undo commit fixture note');
+    if (!commitNote) throw new Error('Graphite setup: commit-fixture note not found in IndexedDB before delete');
+    const commitId = commitNote.id;
+
+    const deleteClicked = await page5.evaluate((desc) => {
+      const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes(desc));
+      const del = li && li.querySelector('button[aria-label="delete"]');
+      if (!del) return false;
+      del.click();
+      return true;
+    }, 'Undo commit fixture note');
+    if (!deleteClicked) throw new Error('Graphite: could not find/click the delete button for the commit-fixture note');
+
+    // Well before the 5s SOFT_DELETE_MS window — the record must still be
+    // in IndexedDB, proving this really is a soft (deferred) delete.
+    await sleep(400);
+    const stillThere = await readIdbNotes(page5);
+    if (!stillThere.some((n) => n.id === commitId)) {
+      throw new Error('Graphite: note record was already gone from IndexedDB well before the 5s Undo window elapsed — not a soft delete');
+    }
+
+    // Wait the window out with NO Undo click.
+    await sleep(5300);
+    const afterWindow = await readIdbNotes(page5);
+    if (afterWindow.some((n) => n.id === commitId)) {
+      throw new Error('Graphite: note record still present in IndexedDB after the 5s Undo window elapsed untouched — soft-delete never committed');
+    }
+    console.log('31. Graphite: NOT clicking Undo — the note survives in IndexedDB immediately after delete, then is actually gone once the 5s window elapses untouched: ok');
+  }
+
+  // ---------------------------------------------------------------------
+  // (4) test-along walkthrough — starting it replaces QaPanel with
+  // TestAlongHud, and Next/Back/Pass/Fail/Exit all work.
+  // ---------------------------------------------------------------------
+  {
+    await page5.evaluate(() => {
+      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^guide$/i.test((x.textContent || '').trim()));
+      if (b) b.click();
+    });
+    await sleep(300);
+
+    const started = await page5.evaluate(() => {
+      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /start walkthrough/i.test(x.textContent || ''));
+      if (b) b.click();
+      return !!b;
+    });
+    if (!started) throw new Error('Graphite: "Start walkthrough" button not found in the Guide tab');
+    await sleep(400);
+
+    const hudShowing = await page5.evaluate(() => (window.__qaSR().textContent || '').includes('Step 1 of 2'));
+    const panelGone = await page5.evaluate(() =>
+      ![...window.__qaSR().querySelectorAll('button')].some((b) => /^notes$/i.test((b.textContent || '').trim())),
+    );
+    if (!hudShowing) throw new Error('Graphite: TestAlongHud "Step 1 of 2" text not found after starting the walkthrough');
+    if (!panelGone) throw new Error('Graphite: QaPanel (Notes tab button) still rendered while test-along is active');
+    console.log('32. Graphite: starting a test-along walkthrough replaces QaPanel with TestAlongHud ("Step 1 of 2" shown, panel tabs gone): ok');
+
+    if (!(await clickHudButton('Next'))) throw new Error('Graphite: TestAlongHud "Next" not found/enabled at step 1');
+    await sleep(300);
+    if (!(await page5.evaluate(() => (window.__qaSR().textContent || '').includes('Step 2 of 2')))) {
+      throw new Error('Graphite: "Next" did not advance TestAlongHud to "Step 2 of 2"');
+    }
+
+    if (!(await clickHudButton('Back'))) throw new Error('Graphite: TestAlongHud "Back" not found/enabled at step 2');
+    await sleep(300);
+    if (!(await page5.evaluate(() => (window.__qaSR().textContent || '').includes('Step 1 of 2')))) {
+      throw new Error('Graphite: "Back" did not return TestAlongHud to "Step 1 of 2"');
+    }
+
+    if (!(await clickHudButton('Pass'))) throw new Error('Graphite: TestAlongHud "Pass" not found at step 1');
+    await sleep(200);
+    const guideAfterPass = await page5.evaluate(() => JSON.parse(localStorage.getItem('playground:guide') || '[]'));
+    const guideFailedAfterPass = await page5.evaluate(() => JSON.parse(localStorage.getItem('playground:guideFailed') || '[]'));
+    if (!guideAfterPass.includes('public::/')) {
+      throw new Error(`Graphite: "Pass" on step "/" did not persist 'public::/' into guideChecked (${JSON.stringify(guideAfterPass)})`);
+    }
+    if (guideFailedAfterPass.includes('public::/')) {
+      throw new Error('Graphite: "Pass" on step "/" left it present in guideFailed');
+    }
+
+    if (!(await clickHudButton('Next'))) throw new Error('Graphite: TestAlongHud "Next" not found/enabled after Pass');
+    await sleep(300);
+    if (!(await clickHudButton('Fail'))) throw new Error('Graphite: TestAlongHud "Fail" not found at step 2');
+    await sleep(200);
+    const guideFailedAfterFail = await page5.evaluate(() => JSON.parse(localStorage.getItem('playground:guideFailed') || '[]'));
+    const guideAfterFail = await page5.evaluate(() => JSON.parse(localStorage.getItem('playground:guide') || '[]'));
+    if (!guideFailedAfterFail.includes('public::/checkout')) {
+      throw new Error(`Graphite: "Fail" on step "/checkout" did not persist 'public::/checkout' into guideFailed (${JSON.stringify(guideFailedAfterFail)})`);
+    }
+    if (guideAfterFail.includes('public::/checkout')) {
+      throw new Error('Graphite: "Fail" on step "/checkout" left it present in guideChecked');
+    }
+    console.log('33. Graphite: TestAlongHud Next/Back navigate steps, and Pass/Fail persist guideChecked/guideFailed (localStorage) correctly: ok');
+
+    if (!(await clickHudButton('Exit'))) throw new Error('Graphite: TestAlongHud "Exit" not found');
+    await sleep(400);
+    const hudGone = await page5.evaluate(() => {
+      const txt = window.__qaSR().textContent || '';
+      return !txt.includes('Step 2 of 2') && !txt.includes('Step 1 of 2');
+    });
+    if (!hudGone) throw new Error('Graphite: "Exit" did not unmount TestAlongHud');
+
+    // Reopen via the FAB and confirm QaPanel — not the walkthrough — is what
+    // comes back (testAlong.active must actually be false underneath).
+    await page5.evaluate(() => {
+      const btn = window.__qaSR().querySelector('button[aria-label="Qapture — testing notes"]');
+      if (btn) btn.click();
+    });
+    await sleep(400);
+    const panelBack = await page5.evaluate(() =>
+      [...window.__qaSR().querySelectorAll('button')].some((b) => /^notes$/i.test((b.textContent || '').trim())),
+    );
+    if (!panelBack) throw new Error('Graphite: QaPanel (Notes tab) did not come back after Exit + reopening via the FAB');
+    console.log('34. Graphite: "Exit" unmounts TestAlongHud, and reopening via the FAB shows QaPanel (not the walkthrough) again: ok');
+  }
+
+  // ---------------------------------------------------------------------
+  // (5) "Copy as agent prompt" → clipboard (spy installed pre-navigation).
+  // ---------------------------------------------------------------------
+  {
+    await page5.evaluate(() => {
+      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^notes$/i.test((x.textContent || '').trim()));
+      if (b) b.click();
+    });
+    await sleep(300);
+
+    await addQuickNote('Copy prompt fixture note');
+
+    const clipboardMarkBefore = await page5.evaluate(() => window.__qaClipboard.length);
+    const copyClicked = await page5.evaluate((desc) => {
+      const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes(desc));
+      const btn = li && li.querySelector('button[aria-label="Copy as agent prompt"]');
+      if (!btn) return false;
+      btn.click();
+      return true;
+    }, 'Copy prompt fixture note');
+    if (!copyClicked) throw new Error('Graphite: "Copy as agent prompt" button not found for the fixture note');
+
+    await page5.waitForFunction(
+      (n) => window.__qaClipboard.length > n,
+      { timeout: 3000 },
+      clipboardMarkBefore,
+    );
+    const clipboardText = await page5.evaluate(() => window.__qaClipboard[window.__qaClipboard.length - 1]);
+    if (!clipboardText || !clipboardText.includes('Copy prompt fixture note')) {
+      throw new Error(`Graphite: clipboard write did not contain the note's own description: ${JSON.stringify(clipboardText)}`);
+    }
+    if (!/^## /m.test(clipboardText)) {
+      throw new Error('Graphite: clipboard text does not look like noteToMarkdown() output (no "## " heading)');
+    }
+    console.log('35. Graphite: "Copy as agent prompt" wrote the note\'s noteToMarkdown() rendering to navigator.clipboard.writeText (stubbed): ok');
+  }
+
+  if (errors5.length) console.log('   (page5 page errors:', errors5.join(' | '), ')');
+  console.log('\nPASS 5 ✅  journeyRef resolution + context ring buffer + soft-delete Undo (restore + commit) + test-along walkthrough + copy-as-agent-prompt');
+
+  console.log('\nBROWSER TEST PASS ✅  mouse + touch + FAB-resize + touch-wobble(best-effort) + panel/dialog/focus-trap + blob-leak tracking + Graphite (journey/context/undo/walkthrough/clipboard)');
   code = 0;
 } catch (e) {
   console.error('BROWSER TEST FAIL:', e.message);

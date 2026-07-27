@@ -3,6 +3,110 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] "Graphite" — Unreleased
+
+A breaking release. The widget's chrome is rebuilt on a fixed, self-contained
+dark design ("Graphite") with custom themes removed entirely, and a batch of
+tester-facing capability is added on top: a guided walkthrough mode, note
+severity/status, a runtime-evidence buffer attached to every note, a
+"Copy as agent prompt" shortcut, and an undo-capable delete/clear system.
+
+### Breaking
+
+- **Custom themes are removed.** The widget no longer accepts a `theme`
+  override — it ships one fixed, self-contained dark design. `QaConfig.theme`
+  and the `QaTheme` type are still exported (marked `@deprecated`) purely so
+  existing config objects keep type-checking; `validateConfig` now ignores a
+  `theme` key after pushing this exact warning:
+
+  > theme: custom themes were removed in Qapture 0.3.0 — the widget now ships
+  > one fixed, self-contained design. The "theme" key is ignored; remove it
+  > from your qa.config to silence this warning.
+
+  `DEFAULT_THEME`, `coerceTheme`, and `ResolvedConfig.theme` are deleted from
+  the schema/defaults layer; `ShadowMount.ts` no longer applies theme CSS
+  variables to the shadow host at all (`applyThemeVars()` is gone). Both
+  bundled examples (`examples/minimal.config.ts`,
+  `examples/stitch-and-sell.config.ts`) have had their `theme` block deleted
+  outright — not commented out.
+- **The CLI no longer detects or generates a theme block.** The Tailwind/CSS
+  colour-extracting `detectTheme.ts` detector is deleted; `genConfig.ts` never
+  emits a `theme:` key into a scaffolded `qa.config`.
+- **`highlight.ts`'s `flashLocate()` no longer accepts a `colors` param** — the
+  locate-flash always uses the fixed Graphite highlight colours now that
+  there's no per-consumer theme to read them from.
+- **`src/index.ts` re-exports `QaTheme` as a type only**, with an `@deprecated`
+  JSDoc pointing at this entry — it carries no runtime behaviour any more.
+
+### Added
+
+- **Runtime context capture** (`src/lib/contextBuffer.ts`, new). Wraps
+  `console.error`/`console.warn`, uncaught `error`/`unhandledrejection`
+  events, `fetch`, and `XMLHttpRequest` behind a 75-event ring buffer, plus an
+  environment snapshot (viewport, language, timezone, online state, optional
+  page-load/JS-heap figures) and per-element forensics (truncated outerHTML,
+  key computed styles, coarse accessibility facts). Every new note carries
+  this as its `context` field unless disabled via `captureContext: false`.
+  Query strings are redacted from every recorded URL; request/response
+  bodies and headers, cookies, storage, and form values are never read. Full
+  guarantees documented in `SECURITY.md`.
+- **Guided walkthrough ("test-along")**. `startTestAlong()` turns the journey
+  config into a step-by-step mode: a new `TestAlongHud` bottom bar (replacing
+  the panel while active) shows the current step's instructions and optional
+  `expect` text, Back/Next navigation, Pass/Fail grading (`guideFailed` mirrors
+  `guideChecked`'s persistence), a "Capture here" action that auto-links any
+  note taken to the current step, and Exit. The Guide tab gained a
+  "Start walkthrough" entry point and per-step evidence badges.
+- **`journeyMatch.ts`** (new) — `matchRouteToSteps()` auto-links a captured
+  note to the journey step matching the current route (`:param`/`[param]`
+  aware, exact matches preferred over parameterised ones), even outside
+  test-along.
+- **Severity and status on notes.** Every note can carry a `severity`
+  (`bug` default, `question`, `polish`) and a `status` (`open` default,
+  `verified`), both optional and requiring no IndexedDB migration. Set from a
+  chip row on the quick-note form and the capture-mode annotation card;
+  status toggles with one tap on each note card.
+- **"Copy as agent prompt."** `noteMarkdown.ts` (new) renders a single note as
+  the exact same agent-ready Markdown used per-point in the exported ZIP;
+  a new button on each note card copies it straight to the clipboard, so a
+  single finding can be handed to a terminal agent without a full export.
+- **Notices and undo-capable deletes.** A small toast queue (`notices`/
+  `notify`/`dismissNotice`, capped at 3) now surfaces background outcomes —
+  storage-full, export success/failure, copy success/failure, a failed
+  screenshot's Retry action. `deleteNote()`/`clearNotes()` are soft: the note
+  (or the whole list) disappears from the UI immediately, but the real
+  IndexedDB write is deferred 5 seconds behind an Undo action on the toast; a
+  `beforeunload`/unmount flush guarantees a closed tab can't silently
+  resurrect — or silently lose — a pending change.
+- **`QaJourneyStep.expect`** (optional) — bilingual "what a pass looks like"
+  text, shown alongside a step's instructions in both the Guide tab and the
+  test-along HUD.
+- **`QaConfig.captureContext`** (optional boolean, default `true`) — the
+  single on/off switch for runtime context capture, described above.
+- New icons: `Bug`, `AlertTriangle`, `RotateCcw`, `ChevronLeft`, `ChevronRight`,
+  `Play`.
+- 29 new i18n keys added to `src/lib/strings.ts` in both English and Arabic
+  for all of the above (capture retry, severity/status labels, walkthrough
+  copy, notices, copy-prompt, etc.).
+
+### Fixed
+
+- **Screenshots came out with a transparent background.** `captureRegion()`
+  now resolves the real page background colour instead of passing `null` to
+  `html2canvas`, so a capture over a page with no explicit background no
+  longer renders as a see-through PNG.
+- **`<Qapture>`'s unmount could throw a React StrictMode error.** The effect
+  cleanup now defers `instance.destroy()` via `queueMicrotask` instead of
+  calling it synchronously, avoiding a teardown-during-render conflict when
+  StrictMode double-invokes effects in development.
+- **`withTimeout()` could leave a dangling timer** after its promise settled
+  first; the timer is now always cleared via `.finally()`.
+- **`ShadowMount.ts`'s light-DOM flash-box cleanup could remove a live,
+  just-mounted widget host.** The `[data-qa-overlay]` sweep in `destroy()` is
+  now scoped with `:not(qapture-overlay)`, so a `destroy()` call that runs
+  after a replacement instance has already mounted (StrictMode remounts, the
+  deferred teardown above) can no longer tear out that still-live host.
+
 ## [0.2.4] — 2026-07-08
 
 A correctness batch: 29 bugs found via multi-pass code review, fixed, and

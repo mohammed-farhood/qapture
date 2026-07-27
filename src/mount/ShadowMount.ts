@@ -2,11 +2,18 @@
  * ShadowMount.ts — imperatively mounts qapture into an isolated Shadow DOM.
  *
  * Creates a <qapture> custom element appended to document.body, attaches an
- * open shadow root, injects the QA_CSS stylesheet, applies theme CSS variables
- * on the host, then renders <QaRoot> into the shadow via ReactDOM.createRoot.
+ * open shadow root, injects the QA_CSS stylesheet (all colour comes from the
+ * fixed Graphite tokens defined in that stylesheet's own `:host` block — v0.3
+ * removed per-consumer theming, so there is no host CSS-variable step here
+ * any more), then renders <QaRoot> into the shadow via ReactDOM.createRoot.
  *
- * The returned destroy() function unmounts React, removes the host element from
- * the DOM, and cleans up any light-DOM flash boxes that highlight.ts created.
+ * Also starts the runtime-context ring buffer (console/error/network capture
+ * that gets attached to notes) right after mount, unless the resolved config
+ * opts out via `captureContext: false`.
+ *
+ * The returned destroy() function stops that capture, unmounts React, removes
+ * the host element from the DOM, and cleans up any light-DOM flash boxes that
+ * highlight.ts created.
  *
  * SSR-safe: returns a no-op destroy() when typeof window === 'undefined'.
  */
@@ -14,7 +21,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import type { ResolvedConfig } from '../config/schema';
-import { injectStyles, applyThemeVars } from '../lib/styles';
+import { injectStyles } from '../lib/styles';
+import { installContextCapture, uninstallContextCapture } from '../lib/contextBuffer';
 import QaRoot from '../components/QaRoot';
 
 export type QaStudioInstance = {
@@ -36,20 +44,26 @@ export function mountQaStudio(config: ResolvedConfig): QaStudioInstance {
   // Open shadow root
   const shadow = host.attachShadow({ mode: 'open' });
 
-  // Inject the QA stylesheet into the shadow root
+  // Inject the QA stylesheet into the shadow root. Every colour the widget
+  // uses lives in that stylesheet's own :host token block — there is no
+  // per-instance theme step any more (v0.3.0 removed custom theming).
   injectStyles(shadow);
-
-  // Set CSS custom properties (theme colours) on the host element so that
-  // var(--qa-*) tokens resolve correctly inside the shadow tree.
-  applyThemeVars(host, config.theme);
 
   // Mount React into the shadow root.
   // ShadowRoot extends DocumentFragment which is accepted by createRoot.
   const root = ReactDOM.createRoot(shadow);
   root.render(React.createElement(QaRoot, { config }));
 
+  // Start recording console/error/network events for note context, unless
+  // the consumer explicitly opted out.
+  if (config.captureContext !== false) {
+    installContextCapture();
+  }
+
   return {
     destroy() {
+      uninstallContextCapture();
+
       try {
         root.unmount();
       } catch {

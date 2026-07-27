@@ -12,9 +12,12 @@ Qapture has two independent layers: a **runtime widget** (the in-browser capture
 │                                                                      │
 │  initQaStudio(config)                                                │
 │    └── mountQaStudio(resolvedConfig)                                 │
-│          ├── <qapture> host → document.body                         │
+│          ├── <qapture-overlay> host → document.body                 │
 │          ├── attachShadow({ mode: 'open' })                          │
-│          ├── injectStyles(shadow)  +  applyThemeVars(host, theme)   │
+│          ├── injectStyles(shadow)   (fixed Graphite tokens only —   │
+│          │     v0.3.0 removed per-consumer theming; no host-level   │
+│          │     CSS-variable step any more)                          │
+│          ├── installContextCapture() unless captureContext:false    │
 │          └── ReactDOM.createRoot(shadow).render(<QaRoot />)          │
 │                                                                      │
 │  Storage: IndexedDB (${namespace}-db) + localStorage (${namespace}:*)│
@@ -27,9 +30,10 @@ Qapture has two independent layers: a **runtime widget** (the in-browser capture
 │                                                                      │
 │  npx qapture init [target-dir] [--force]                            │
 │    ├── detectRoutes()      → journey draft                           │
-│    ├── detectTheme()       → theme token hints                       │
 │    ├── detectCredentials() → .env.example / seeder scan              │
 │    ├── genConfigText()     → qa.config.js / qa.config.ts             │
+│    │     (no theme block — v0.3.0 removed custom themes; the        │
+│    │      former detectTheme() detector was deleted)                │
 │    ├── genPreambleText()   → qa.preamble.md                          │
 │    ├── writeAlways()       → .claude/skills/qapture/SKILL.md         │
 │    └── mergeAgentsMd()     → AGENTS.md (idempotent)                  │
@@ -42,16 +46,21 @@ Qapture has two independent layers: a **runtime widget** (the in-browser capture
 
 `mountQaStudio(config: ResolvedConfig)` in `src/mount/ShadowMount.ts`:
 
-1. Creates a `<qapture>` custom element and appends it to `document.body`.
+1. Creates a `<qapture-overlay>` custom element (tag names for `attachShadow` must contain a hyphen), marks it `data-qa-overlay="true"`, and appends it to `document.body`.
 2. Calls `host.attachShadow({ mode: 'open' })` — open mode so browser DevTools can inspect the shadow tree.
-3. Injects the widget's self-contained CSS stylesheet into the shadow root via `injectStyles(shadow)`.
-4. Applies the 9 theme colour tokens as CSS custom properties (`--qa-primary`, `--qa-accent`, etc.) as inline styles on the `<qapture>` **host** element, so `var(--qa-*)` tokens resolve correctly inside the shadow tree.
+3. Injects the widget's self-contained CSS stylesheet into the shadow root via `injectStyles(shadow)`. **v0.3.0 change:** every colour the widget uses now lives in that stylesheet's own fixed `:host` token block (see the Graphite design tokens in `styles.ts`) — there is no longer a per-instance theme-application step here. `applyThemeVars()` is gone.
+4. Starts the runtime-context ring buffer via `installContextCapture()` (see [Runtime context capture](#runtime-context-capture-contextbufferts) below), unless the resolved config opted out with `captureContext: false`.
 5. Mounts `<QaRoot config={config} />` via `ReactDOM.createRoot(shadow)`. The shadow root, being a `DocumentFragment`, is accepted directly as the React root container.
 
 The returned `{ destroy() }` handle:
+- Calls `uninstallContextCapture()` to restore the wrapped globals (`console.error`/`warn`, `fetch`, `XMLHttpRequest`, the `error`/`unhandledrejection` listeners).
 - Calls `root.unmount()` to tear down the React tree.
-- Removes the `<qapture>` host from `document.body`.
-- Queries `document.body` for any remaining `[data-qa-overlay]` children (light-DOM overlays injected by the capture/highlight layer) and removes them.
+- Removes the `<qapture-overlay>` host from `document.body`.
+- Queries `document.body` for any remaining `[data-qa-overlay]` children (light-DOM overlays injected by the capture/highlight layer) — **excluding** any `<qapture-overlay>` element itself (`:not(qapture-overlay)`) — and removes them. That exclusion matters: `destroy()` can run *after* a replacement instance has already mounted its own host (React StrictMode remounts, and the deferred teardown in `index.ts`), and a bare `[data-qa-overlay]` sweep would tear out that live, still-mounted host.
+
+### Runtime context capture (`contextBuffer.ts`)
+
+Alongside the shadow mount, `ShadowMount.ts` starts and stops a small ring buffer (`src/lib/contextBuffer.ts`) that wraps `console.error`/`console.warn`, the window `error`/`unhandledrejection` events, `fetch`, and `XMLHttpRequest`, so every note captured afterwards can carry the runtime facts around it (recent console/network events + an environment snapshot). It is gated end-to-end by `ResolvedConfig.captureContext` (default `true`): `ShadowMount` only installs it when the flag isn't `false`, and `QaContext.addNote()` only assembles a note's `context` field under the same condition — so disabling the flag means nothing is ever wrapped **and** nothing is ever attached, even if a stray event existed. This is a genuinely new privacy surface; the exact guarantees (query-string redaction, no bodies/headers/cookies/storage, a 75-event cap) are documented in full in [`SECURITY.md`](../SECURITY.md#runtime-context-capture) rather than restated here.
 
 ### Light DOM operations
 
@@ -77,6 +86,8 @@ The **capture interceptor** (`src/lib/capture.ts`) and **element highlighter** (
 | Object store `meta` | keyPath: `key` — widget metadata and UI state |
 
 Migration ladder (in `src/lib/idb.ts`): v1 creates the `notes` store; v2 adds the `meta` store. The switch-fall-through pattern ensures forward-only migrations.
+
+v0.3.0 adds four new fields to a stored note — `severity`, `status`, `journeyRef`, `context` (see `QaContext.tsx`'s `QaNote` type) — but **no schema-version bump was needed**: all four are optional, so notes written by 0.2.x read back completely unchanged and existing IndexedDB databases need no migration.
 
 When IndexedDB is unavailable (SSR, jsdom environment, blocked origins), `createIdb()` returns a no-op adapter that resolves all operations immediately. The session works in-memory but notes are not persisted between page loads.
 
@@ -135,47 +146,69 @@ src/
 ├── defaults.ts                 Default config values
 │
 ├── config/
-│   └── schema.ts               All public config types (QaConfig, QaTheme, QaCredential,
-│                               QaJourneyLane, QaJourneyStep, QaPreamble, QaBilingual,
-│                               QaRisk, ResolvedConfig) + validateConfig()
+│   └── schema.ts               All public config types (QaConfig, QaTheme [deprecated,
+│                               ignored], QaCredential, QaJourneyLane, QaJourneyStep
+│                               [+ optional `expect`], QaPreamble, QaBilingual, QaRisk,
+│                               ResolvedConfig [no `theme`, has `captureContext`])
+│                               + validateConfig() (warns+ignores a `theme` key)
 │
 ├── mount/
-│   └── ShadowMount.ts          Creates <qapture> host, open shadow root, mounts React
+│   └── ShadowMount.ts          Creates <qapture-overlay> host, open shadow root,
+│                               starts/stops contextBuffer capture, mounts React
 │
 ├── context/
-│   └── QaContext.tsx           React context: notes list, guide checked state,
-│                               language toggle, capture mode, and all actions
+│   └── QaContext.tsx           React context: notes list, guide checked/failed state,
+│                               language toggle, capture mode, notices/undo, test-along,
+│                               and all actions (theme REMOVED from context value)
 │
 ├── components/
 │   ├── QaRoot.tsx              Top-level component rendered inside the shadow root;
-│   │                           handles visibility gating and hotkey listener
-│   ├── QaPanel.tsx             Main panel (tabs: Notes / Guide / Credentials / Export)
+│   │                           handles visibility gating, hotkey listener, and mounts
+│   │                           <NoticeHost/> + (while active) <TestAlongHud/>
+│   ├── QaPanel.tsx             Main panel (tabs: Notes / Guide / Credentials / Export);
+│   │                           suppressed while test-along is active
 │   ├── QaFab.tsx               Floating action button (launcher toggle)
-│   ├── GuideSection.tsx        Journey map with risk dots + RED N/M coverage counter
+│   ├── GuideSection.tsx        Journey map with risk dots + RED N/M coverage counter;
+│   │                           "Start walkthrough" entry point + per-step evidence badges
 │   ├── CredentialsSection.tsx  Credentials table with copy-to-clipboard
-│   ├── CaptureMode.tsx         Click/drag capture overlay (activated in capture mode)
-│   ├── NoteList.tsx            List of captured notes with edit/delete
-│   ├── NoteEditor.tsx          Note edit form
+│   ├── CaptureMode.tsx         Click/drag capture overlay (activated in capture mode);
+│   │                           failed-capture retry, severity chips, forensics capture
+│   ├── NoteList.tsx            List of captured notes with edit/delete, severity/status,
+│   │                           and "Copy as agent prompt"
+│   ├── NoteEditor.tsx          Note edit form (severity chip row)
+│   ├── NoticeHost.tsx          (new) Toast viewport for the notices/undo system
+│   ├── TestAlongHud.tsx        (new) Guided step-by-step walkthrough bar, replaces the
+│   │                           panel while test-along is active
 │   └── LocationReveal.tsx      Current page path display
 │
 ├── lib/
 │   ├── capture.ts              html2canvas integration; element/region targeting;
 │   │                           injects light-DOM flash highlight during capture
+│   ├── contextBuffer.ts        (new) installContextCapture()/uninstallContextCapture() —
+│   │                           console/error/network ring buffer (cap 75) + env snapshot
+│   │                           + per-element forensics; see SECURITY.md for guarantees
 │   ├── coverage.ts             computeCoverage() — pure function; red/amber/green
 │   │                           tallies; tier (Minimal/Adequate/Full/Complete)
 │   ├── exportZip.ts            buildAndDownloadZip() — assembles preamble + notes.md
 │   │                           + screenshots/ into a ZIP and triggers browser download
 │   ├── highlight.ts            Light-DOM highlight box for hovered/selected element
+│   │                           (fixed Graphite colours built in — no `colors` param)
 │   ├── idb.ts                  createIdb(namespace) — namespaced IndexedDB wrapper;
 │   │                           DB v2 migration ladder; SSR-safe no-op fallback
+│   ├── journeyMatch.ts         (new) matchRouteToSteps() — links a captured note to the
+│   │                           journey step matching the current route (`:param`-aware)
+│   ├── noteMarkdown.ts         (new) noteToMarkdown() — renders one note as agent-ready
+│   │                           Markdown; shared by exportZip.ts and "Copy as agent prompt"
 │   ├── selector.ts             CSS selector generation from DOM elements
 │   ├── storage.ts              createStorage(namespace) — namespaced localStorage
 │   │                           wrapper; in-memory Map fallback
 │   ├── strings.ts              QaBilingual resolution helpers
-│   └── styles.ts               Shadow DOM style injection + theme CSS var application
+│   └── styles.ts               Shadow DOM style injection — fixed Graphite design
+│                               tokens only; no consumer-supplied theme application
 │
 ├── icons/
-│   └── Icon.tsx                Lucide-derived SVG icon set (ISC license)
+│   └── Icon.tsx                Lucide-derived SVG icon set (ISC license); includes
+│                               Bug, AlertTriangle, RotateCcw, ChevronLeft, ChevronRight, Play
 │
 └── bin/
     ├── init.ts                 CLI entry: argument parsing, orchestration, printSummary
@@ -191,8 +224,8 @@ src/
     │
     ├── detectors/
     │   ├── detectRoutes.ts     Route file scanner → journey lane/step draft
-    │   ├── detectTheme.ts      Tailwind config + CSS file colour extractor
     │   └── detectCredentials.ts .env.example + seeder file scanner (safe sources only)
+    │   (detectTheme.ts was deleted in v0.3.0 — no more theme detection)
     │
     ├── generators/
     │   ├── genConfig.ts        qa.config.js / qa.config.ts text generator

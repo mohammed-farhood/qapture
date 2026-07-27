@@ -29,7 +29,6 @@ import { mergeAgentsMd } from './utils/mergeAgentsMd.js';
 
 // ── Detectors ─────────────────────────────────────────────────────────────────
 import { detectRoutes } from './detectors/detectRoutes.js';
-import { detectTheme, hasDetectedColors } from './detectors/detectTheme.js';
 import { detectCredentials } from './detectors/detectCredentials.js';
 
 // ── Generators ────────────────────────────────────────────────────────────────
@@ -148,7 +147,6 @@ function printSummary(
   },
   routeCount: number,
   credCount:  number,
-  colorsDetected: boolean,
 ): void {
   const icon = (r: string) => r === 'skipped' ? '  (skip)' : '  ✓';
 
@@ -173,9 +171,8 @@ function printSummary(
     `  ✓  ${agentsLabel}${agentsNote}\n` +
     `\n` +
     `  Detected:\n` +
-    `    • Routes/steps : ${routeCount > 0 ? routeCount : 'none (fallback placeholder added)'}\n` +
-    `    • Brand colours: ${colorsDetected ? 'partial palette detected' : 'none (all #REPLACE_ME)'}\n` +
-    `    • Credentials  : ${credCount > 0 ? credCount + ' row(s) from .env.example/seeders' : 'none (add manually)'}\n` +
+    `    • Routes/steps: ${routeCount > 0 ? routeCount : 'none (fallback placeholder added)'}\n` +
+    `    • Credentials : ${credCount > 0 ? credCount + ' row(s) from .env.example/seeders' : 'none (add manually)'}\n` +
     `\n` +
     `${DIVIDER}\n` +
     `  Mount the widget near your app root:\n` +
@@ -260,10 +257,6 @@ function main(argv: string[]): void {
   const journey        = detectRoutes(targetDir);
   const routeCount     = journey.reduce((n, lane) => n + lane.steps.length, 0);
 
-  process.stdout.write(`  Detecting theme ...\n`);
-  const theme          = detectTheme(targetDir);
-  const colorsDetected = hasDetectedColors(theme);
-
   process.stdout.write(`  Detecting credentials (safe sources only) ...\n`);
   const credentials    = detectCredentials(targetDir);
 
@@ -284,7 +277,6 @@ function main(argv: string[]): void {
   const { filename: configFilename, text: configText } = genConfigText({
     namespace,
     isTypeScript,
-    theme,
     journey,
     credentials,
     frameworkHints,
@@ -315,7 +307,6 @@ function main(argv: string[]): void {
     { config: configResult, preamble: preambleResult, skill: skillResult, agents: agentsResult },
     routeCount,
     credentials.length,
-    colorsDetected,
   );
 }
 

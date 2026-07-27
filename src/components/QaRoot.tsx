@@ -9,11 +9,33 @@
  *     handlers) — React never routes those through componentDidCatch — nor
  *     errors in async callbacks; those need their own handling if needed.
  *  2. QaProvider: wires up all runtime state.
- *  3. Visibility gating: renders the FAB (and panel) only when allowed.
- *  4. Hotkey: registers config.hotkey on document to toggle visibility.
+ *  3. Visibility gating: renders the whole widget (FAB included) only when
+ *     allowed — see `widgetShown` below.
+ *  4. Hotkey: registers config.hotkey on document to show/hide the widget
+ *     and open/close the panel.
  *  5. CaptureGate: mounts <CaptureMode> only when captureActive is true.
+ *  6. Always mounts <NoticeHost> (toast stack) once the widget is shown, and
+ *     mounts <TestAlongHud> in place of <QaPanel> while a guided walkthrough
+ *     is active.
  *
- * Visibility logic:
+ * v0.3 "Graphite" — widgetShown vs. isOpen split (this file):
+ *  Pre-0.3, a single `visible` boolean gated the whole widget AND doubled as
+ *  the hotkey target, so toggling the hotkey after the panel had been
+ *  manually closed made the FAB itself vanish — there was no way to tell
+ *  "hide everything" apart from "just close the panel". Those are now two
+ *  independent pieces of state:
+ *    - `widgetShown` (local to this component) — whether the widget (FAB
+ *      included) renders at all.
+ *    - `isOpen` (QaContext) — whether the panel is open. Unaffected by
+ *      whether the widget itself is shown.
+ *  The hotkey now behaves as: if the widget is currently hidden, show it AND
+ *  open the panel (so pressing it always lands somewhere useful); otherwise
+ *  it toggles ONLY the panel — the FAB never disappears again once the
+ *  widget has been shown.
+ *  While `testAlong.active`, <QaPanel> is suppressed (not rendered) in favor
+ *  of <TestAlongHud>, which replaces it as the bottom UI for the walkthrough.
+ *
+ * Visibility logic (widgetShown's initial value):
  *  - config.alwaysVisible === true → always show
  *  - config.visible === true       → always show
  *  - config.visible === false      → always hide
@@ -30,6 +52,8 @@ import type { ResolvedConfig } from '../config/schema';
 import { QaProvider, useQa } from '../context/QaContext';
 import QaFab from './QaFab';
 import QaPanel from './QaPanel';
+import NoticeHost from './NoticeHost';
+import TestAlongHud from './TestAlongHud';
 import CaptureMode from './CaptureMode';
 
 // ---------------------------------------------------------------------------
@@ -113,14 +137,18 @@ function CaptureGate() {
 // ---------------------------------------------------------------------------
 
 function QaRootInner({ config }: { config: ResolvedConfig }) {
+  const { isOpen, setIsOpen, testAlong } = useQa();
+
   const shouldShowInitially =
     config.alwaysVisible === true ||
     config.visible === true ||
     (config.visible === undefined && !isProduction());
 
-  const [visible, setVisible] = useState(shouldShowInitially);
+  // Whole-widget visibility (FAB included) — see the file-level doc comment
+  // for why this is now split from the panel's own `isOpen`.
+  const [widgetShown, setWidgetShown] = useState(shouldShowInitially);
 
-  // Register the hotkey to toggle visibility regardless of env.
+  // Register the hotkey to show/hide the widget and open/close the panel.
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const hk = parseHotkey(config.hotkey);
@@ -135,20 +163,31 @@ function QaRootInner({ config }: { config: ResolvedConfig }) {
         !!e.metaKey  === hk.meta
       ) {
         e.preventDefault();
-        setVisible((v) => !v);
+        if (!widgetShown) {
+          // Widget was fully hidden: bring it up AND open the panel — the
+          // hotkey should always land somewhere useful, not just reveal a
+          // closed FAB the tester then has to click separately.
+          setWidgetShown(true);
+          setIsOpen(true);
+        } else {
+          // Widget already shown: the FAB itself must never disappear again
+          // — from here on the hotkey only toggles the panel.
+          setIsOpen(!isOpen);
+        }
       }
     };
 
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [config.hotkey]);
+  }, [config.hotkey, widgetShown, isOpen, setIsOpen]);
 
-  if (!visible) return null;
+  if (!widgetShown) return null;
 
   return (
     <>
       <QaFab />
-      <QaPanel />
+      {testAlong.active ? <TestAlongHud /> : <QaPanel />}
+      <NoticeHost />
       <CaptureGate />
     </>
   );

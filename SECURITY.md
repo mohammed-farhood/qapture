@@ -2,7 +2,10 @@
 
 ## Security model
 
-Qapture is designed to have a minimal threat surface by construction.
+Qapture is designed to have a minimal threat surface by construction. (The one
+new capability v0.3.0 "Graphite" adds — runtime context capture — expands
+that surface slightly; it is documented below with explicit guarantees, not
+just mentioned in passing. See [Runtime context capture](#runtime-context-capture).)
 
 ### Zero AI, zero network, zero keys
 
@@ -23,6 +26,77 @@ Captured notes and screenshots are stored exclusively in the tester's browser:
 - **localStorage** — UI state stored under keys prefixed `${namespace}:`
 
 No data is transmitted anywhere. Data leaves the browser **only** when the tester explicitly clicks Export, which generates a local ZIP download. No automatic upload occurs.
+
+### Runtime context capture
+
+**New in v0.3.0 "Graphite".** `src/lib/contextBuffer.ts` wraps `console.error`,
+`console.warn`, the window `error`/`unhandledrejection` events, `fetch`, and
+`XMLHttpRequest` so that every captured note can carry the runtime facts
+around it — the console error and the failed request that happened moments
+before the tester clicked capture, not just their own description of "the
+button does nothing."
+
+**This is a real new privacy surface, and it is called out here explicitly —
+not just mentioned in passing:** the recorded events, plus a one-time
+environment snapshot (viewport, browser language, timezone, online state,
+optional page-load timing and JS heap size), are attached to the note's
+`context` field and **ship inside the ZIP the tester exports** — embedded in
+`notes.md` for every point, and in the "Copy as agent prompt" clipboard text
+for a single note. Nothing here is transmitted over the network; it travels
+exactly like the rest of a note (in-browser until export), but it is *new
+content* that previous versions never collected, so it gets its own section
+rather than a footnote.
+
+**Guarantees (read the source, not this summary, if you need to verify them —
+they live in `src/lib/contextBuffer.ts`):**
+
+- **Query strings are redacted from every recorded URL.** `redactUrl()` keeps
+  only the origin + pathname of any `fetch`/`XMLHttpRequest` URL (and of
+  `location.href` in the environment snapshot) and replaces a present query
+  string with a literal `?…` marker. Access tokens, session ids, and
+  password-reset codes that routinely travel in query strings are never
+  recorded, full stop.
+- **Request/response bodies and headers are never read or stored.** The
+  `fetch`/XHR wrappers observe only method, the (already redacted) URL, HTTP
+  status, duration, and — on failure — a short error string. They never touch
+  a `Request`/`Response` body or any header, so an `Authorization` header or a
+  JSON payload containing PII cannot end up in the buffer.
+- **No cookie, storage, or form value is ever touched.** The module never
+  reads `document.cookie`, `localStorage`, `sessionStorage`, or any form/input
+  value. Its entire capture surface is: console output, uncaught
+  errors/unhandled rejections, and network *metadata* as described above.
+- **The ring buffer is capped at 75 events** (`RING_CAP` in `contextBuffer.ts`).
+  Once full, the oldest events are dropped first, so a session left open for
+  hours cannot grow the buffer without bound. Individual console messages and
+  the captured-element HTML snippet used for forensics are separately capped
+  at roughly 600 characters each, so one giant log line or a huge DOM subtree
+  can't dominate a note.
+- **Install/uninstall is symmetric and idempotent.** `uninstallContextCapture()`
+  restores every wrapped global exactly (`console.error`/`warn`, `fetch`,
+  `XMLHttpRequest.prototype.open`/`send`, the `error`/`unhandledrejection`
+  listeners) and clears the buffer; calling install twice never double-wraps.
+
+**Per-element forensics** (`collectTargetForensics()`) — collected only for
+the specific element the tester clicked or drew a region around, not the rest
+of the page — is limited to a truncated, escaped `outerHTML` snippet (~600
+chars), a handful of computed style properties (`display`, `position`,
+`overflow`, `z-index`, `font-size`, `color`, `background-color`), and coarse
+accessibility facts (has an accessible name, is tab-reachable, a rough
+contrast flag). None of this reads page content outside that one element.
+
+**How to disable it entirely** — set `captureContext: false` in your
+`qa.config`:
+
+```ts
+const config: QaConfig = {
+  captureContext: false,
+};
+```
+
+With this set, `installContextCapture()` is never called at mount (no global
+is ever wrapped), and `QaContext.addNote()` skips context assembly for every
+note. No console/network history and no environment snapshot is collected or
+attached, regardless of what happens on the page during the session.
 
 ### Credentials: DEV / TEST / SEED only
 

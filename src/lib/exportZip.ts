@@ -2,47 +2,33 @@
  * exportZip.ts — bundle all points into a single ZIP (notes.md + screenshots/).
  *
  * Ported faithfully from qa-overlay/exportZip.js and extended in Phase 2
- * to include an AI handoff preamble at the top of notes.md.
+ * to include an AI handoff preamble at the top of notes.md, then in v0.3 to
+ * delegate each point's body to noteMarkdown.ts so a note reads identically
+ * here and in the "Copy as agent prompt" button (NoteList.tsx).
  *
  * File structure of notes.md:
  *   [AI handoff preamble — sections 1-10]
  *   ---NOTES---
  *   # {brand.label} Testing Notes
- *   Exported / Total points / per-point sections (UNCHANGED format)
+ *   Exported / Total points / per-point sections (each rendered by
+ *   noteMarkdown.ts's noteToMarkdown(), joined with a "---" divider)
  *
  * When config / preamble / journey are absent the preamble degrades
  * gracefully, marking each missing section as "(not provided)" or "(none)".
  *
- * Note: QaNote/QaTarget/QaRect types are defined locally here to avoid a
- * circular dependency with QaContext (which imports buildAndDownloadZip).
- * Schema types (QaJourneyLane, QaTheme, etc.) are safe to import from
- * schema.ts because schema.ts has no dependency on exportZip.ts.
+ * Note: `QaNote` is imported here with `import type`, which is erased at
+ * build time (esbuild/tsc both strip type-only imports) — so this does NOT
+ * introduce a runtime circular dependency with QaContext.tsx (which
+ * value-imports `buildAndDownloadZip` from this file). noteMarkdown.ts
+ * already relies on the same erasure. Schema types (QaJourneyLane, QaTheme,
+ * etc.) are likewise safe to import from schema.ts, which has no dependency
+ * on exportZip.ts at all.
  */
 
 import type { QaJourneyLane, QaTheme, QaCredential, QaPreamble } from '../config/schema';
+import type { QaNote } from '../context/QaContext';
 import { computeCoverage } from './coverage';
-
-// ---------------------------------------------------------------------------
-// Local aliases for QaNote / QaTarget / QaRect (avoid circular dep)
-// ---------------------------------------------------------------------------
-
-type ExportRect = { top: number; left: number; width: number; height: number };
-type ExportTarget = {
-  kind: 'element' | 'region';
-  selector?: string;
-  tagName?: string;
-  text?: string;
-  rect?: ExportRect;
-};
-type ExportNote = {
-  id: string;
-  url: string;
-  route: string;
-  timestamp: string;
-  description: string;
-  screenshot?: Blob;
-  target?: ExportTarget;
-};
+import { noteToMarkdown } from './noteMarkdown';
 
 // ---------------------------------------------------------------------------
 // Config shape accepted by buildAndDownloadZip
@@ -63,36 +49,8 @@ export type ExportConfig = {
 };
 
 // ---------------------------------------------------------------------------
-// Per-point formatter (UNCHANGED from baseline)
+// Per-point body — delegated to noteMarkdown.ts (see buildAndDownloadZip)
 // ---------------------------------------------------------------------------
-
-function fmtTarget(t: ExportTarget): string[] {
-  const lines: string[] = [];
-  lines.push(`- **Target:** ${t.kind === 'region' ? 'freeform region' : 'element'}`);
-  if (t.selector) lines.push(`- **Selector:** \`${t.selector}\``);
-  if (t.tagName)  lines.push(`- **Tag:** \`<${t.tagName}>\``);
-  if (t.text)     lines.push(`- **Text:** ${t.text}`);
-  if (t.rect) {
-    lines.push(
-      `- **Position:** top ${t.rect.top}, left ${t.rect.left}, ${t.rect.width}×${t.rect.height}`,
-    );
-  }
-  return lines;
-}
-
-function fmt(note: ExportNote, index: number): string {
-  const num   = index + 1;
-  const lines: string[] = [`## Point ${num}`];
-  lines.push(`- **Page:** ${note.route || note.url || '(unknown)'}`);
-  if (note.url && note.url !== note.route) lines.push(`- **Full URL:** ${note.url}`);
-  lines.push(`- **When:** ${note.timestamp}`);
-  if (note.target) {
-    lines.push(...fmtTarget(note.target));
-  }
-  if (note.screenshot) lines.push(`- **Screenshot:** screenshots/point-${num}.png`);
-  lines.push('', note.description || '(no description)', '', '---', '');
-  return lines.join('\n');
-}
 
 function safeName(name: string | undefined, stamp: string): string {
   const fallback = `qa-notes-${stamp.slice(0, 10)}`;
@@ -309,7 +267,7 @@ function buildPreamble(
  *   [AI handoff preamble]
  *   ---NOTES---
  *   # {brand.label} Testing Notes
- *   [per-point sections — identical format to the original baseline]
+ *   [per-point sections — each rendered by noteToMarkdown(), "---"-separated]
  *
  * @param notes        - the full list of QA notes to export
  * @param stamp        - ISO timestamp for the export header
@@ -318,7 +276,7 @@ function buildPreamble(
  * @param guideChecked - set of checked guide step keys for coverage computation
  */
 export async function buildAndDownloadZip(
-  notes:         ExportNote[],
+  notes:         QaNote[],
   stamp:         string,
   filename?:     string,
   config?:       ExportConfig,
@@ -353,12 +311,24 @@ export async function buildAndDownloadZip(
     '',
   ].join('\n');
 
+  // ── Per-point bodies ───────────────────────────────────────────────────────
+  // Delegated to noteMarkdown.ts so a note reads identically here and via the
+  // "Copy as agent prompt" button (NoteList.tsx) — carries severity/status/
+  // journeyRef/context (runtime events + env + forensics) automatically,
+  // since noteToMarkdown reads those straight off the QaNote.
+  const noteBlocks = notes.map((n, i) =>
+    noteToMarkdown(n, { brand: brandLabel, index: i + 1 }),
+  );
+  const notesBody = noteBlocks.length > 0
+    ? `${noteBlocks.join('\n\n---\n\n')}\n\n---\n`
+    : '';
+
   // ── Assemble notes.md ─────────────────────────────────────────────────────
   const notesMd =
     preambleMd +
     '\n\n---NOTES---\n\n' +
     notesHeader +
-    notes.map((n, i) => fmt(n, i)).join('\n');
+    notesBody;
 
   zip.file('notes.md', notesMd);
 

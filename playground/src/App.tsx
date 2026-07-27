@@ -10,24 +10,16 @@ if (typeof window !== 'undefined') {
 }
 
 // A demo config the Phase 1 runtime will consume. Kept here so the playground
-// doubles as the manual test harness (theme + graded journey + dev logins).
+// doubles as the manual test harness (graded journey + dev logins). No
+// `theme` key — custom themes were removed in v0.3.0 (a fixed design ships
+// instead), and leaving one here would only trigger validateConfig's new
+// deprecation warning on every playground load for no test value.
 const demoConfig = {
   namespace: 'playground',
   brand: { label: 'Qapture' },
   rtl: false,
   alwaysVisible: true,
   loginField: { en: 'Email', ar: 'البريد' },
-  theme: {
-    primary: '#6B2C3E',
-    primaryDark: '#4D1F2D',
-    accent: '#D4726B',
-    accentDark: '#B85E58',
-    sage: '#8B9D83',
-    cream: '#F5EBE0',
-    mauve: '#C9A9B4',
-    surface: '#FFFDFB',
-    ink: '#3A2A2E',
-  },
   credentials: [
     { role: 'Admin', login: 'admin@demo.test', password: 'Admin@123', seeded: true },
     // Duplicate `role` on purpose (test fixture for Bug #28): CredentialsSection
@@ -77,6 +69,38 @@ export function App() {
         <input className="demo" aria-label="Address line" placeholder="Address" />
         <p style={{ marginTop: 12 }}>
           <button className="demo" aria-label="Place order">Place order</button>
+        </p>
+      </div>
+
+      {/* Test fixtures (v0.3 "Graphite" context capture): scripts/browser-test.mjs
+          drains these into a note's context.events — a console.error the ring
+          buffer's console wrapper records verbatim, and a fetch() against a
+          domain reserved by RFC 2606 as always-unresolvable (".invalid"), so
+          the wrapped fetch's catch branch reliably records a real
+          kind:'network', status:null failure rather than a merely non-2xx
+          response. */}
+      <div className="card" id="diagnostics-fixtures">
+        <h2>Diagnostics fixtures</h2>
+        <p>For the context-capture ring buffer: a console error and a guaranteed-failing fetch.</p>
+        <p style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+          <button
+            className="demo"
+            aria-label="Trigger console error"
+            onClick={() =>
+              console.error('Qapture fixture: intentional console.error for context-capture testing')
+            }
+          >
+            Trigger console error
+          </button>
+          <button
+            className="demo"
+            aria-label="Trigger failing fetch"
+            onClick={() => {
+              fetch('https://qapture-test-fixture.invalid/fail').catch(() => {});
+            }}
+          >
+            Trigger failing fetch
+          </button>
         </p>
       </div>
 

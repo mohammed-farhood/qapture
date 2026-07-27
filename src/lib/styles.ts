@@ -2,11 +2,54 @@
  * styles.ts — Shadow-DOM stylesheet for qapture.
  *
  * All class names carry a `qa-` prefix to avoid collision with the host app.
- * Brand colours travel as inline `style` props in components; this file
- * handles structure, layout, typography, and the two animation keyframes.
+ *
+ * v0.3.0 "Graphite": qapture no longer supports custom theming. Every colour
+ * the widget uses is a fixed design token defined once, below, in the `:host`
+ * block — surfaces, ink, accent, semantic (danger/warn/success), borders,
+ * scrims, elevation, radius, fonts, motion, and the z-index scale. Components
+ * never receive colours as props; they reach for a token (`var(--qa-*)`) or
+ * one of the semantic utility classes below (`qa-bg-2`, `qa-text-danger`, …).
+ * `applyThemeVars`/`QaTheme` are gone from this file — see ShadowMount.ts.
  *
  * ─────────────────────────────────────────────────────────────────────────
  * AVAILABLE CLASS NAMES (for the component agent):
+ *
+ * DESIGN TOKENS (custom properties on :host — see the `:host` block in
+ * QA_CSS for the authoritative values)
+ *   Surfaces   --qa-surface-0/1/2/3
+ *   Ink        --qa-ink-hi/mid/lo/faint
+ *   Accent     --qa-accent  --qa-accent-hover  --qa-accent-active
+ *              --qa-on-accent  --qa-accent-tint  --qa-accent-border
+ *   Semantic   --qa-danger(-tint)  --qa-warn(-tint)  --qa-success(-tint)
+ *              --qa-neutral
+ *   Borders    --qa-border-subtle  --qa-border-strong
+ *   Scrims     --qa-scrim-dialog  --qa-scrim-capture  --qa-scrim-spot
+ *   Elevation  --qa-sheen  --qa-elev-1/2/3
+ *   Radius     --qa-radius-sm/md/lg
+ *   Fonts      --qa-font  --qa-font-mono
+ *   Motion     --qa-dur-1/2/3  --qa-ease  --qa-ease-out
+ *              (killed under prefers-reduced-motion)
+ *   Z-index    --qa-z-fab  --qa-z-panel  --qa-z-capture-dim
+ *              --qa-z-capture-highlight  --qa-z-capture-region-move
+ *              --qa-z-capture-region-handle  --qa-z-capture-hint
+ *              --qa-z-capture-ui  --qa-z-toast
+ *              (light-DOM flash box in highlight.ts uses a literal 10098 —
+ *              it lives outside the shadow root, so host-scoped vars can't
+ *              reach it)
+ *
+ * SEMANTIC UTILITIES (Graphite — components should prefer these over the
+ * legacy Tailwind-ish names below where both would do)
+ *   qa-bg-0  qa-bg-1  qa-bg-2  qa-bg-3
+ *   qa-bg-accent (bg accent + on-accent text; :hover → accent-hover)
+ *   qa-bg-accent-tint  qa-bg-danger-tint  qa-bg-warn-tint  qa-bg-success-tint
+ *   qa-text-hi  qa-text-mid  qa-text-lo  qa-text-faint
+ *   qa-text-accent  qa-text-on-accent  qa-text-danger  qa-text-warn  qa-text-success
+ *   qa-border-subtle  qa-border-strong  qa-border-accent  (colour only — combine with .qa-border)
+ *   qa-elev-1  qa-elev-2  qa-elev-3  (box-shadow incl. --qa-sheen)
+ *   qa-hover-bg-2 (:hover → surface-2)
+ *   qa-focus-ring (now :focus-visible → 2px solid accent outline)
+ *   qa-toast-viewport  qa-toast  qa-toast-in
+ *   qa-skeleton (surface-2 + qaShimmer pulse)
  *
  * RESET
  *   qa-box       — box-sizing: border-box on element
@@ -65,7 +108,7 @@
  *   qa-border        qa-border-2       qa-border-0
  *   qa-border-dashed
  *   qa-border-t      qa-border-b
- *   qa-border-white  qa-border-white-40
+ *   qa-border-white  qa-border-white-40  (→ border-strong token)
  *
  * ROUNDED
  *   qa-rounded       qa-rounded-md     qa-rounded-lg     qa-rounded-xl
@@ -95,16 +138,16 @@
  *   qa-touch-pan  — touch-action: pan-x pan-y
  *   (also bumps qa-text-10/qa-text-11 by +1px under @media (pointer: coarse))
  *
- * COLORS — text
+ * COLORS — text (legacy names, restyled onto Graphite tokens in place)
  *   qa-text-white     qa-text-current
- *   qa-text-slate-300 qa-text-slate-400 qa-text-slate-500
- *   qa-text-green-600
- *   qa-text-red-500   qa-text-red-600
+ *   qa-text-slate-300 (→ ink-faint)  qa-text-slate-400 (→ ink-lo)  qa-text-slate-500 (→ ink-mid)
+ *   qa-text-green-600 (→ success)
+ *   qa-text-red-500   qa-text-red-600   (→ danger)
  *
- * COLORS — background
- *   qa-bg-white       qa-bg-white-25    qa-bg-transparent
- *   qa-bg-black-3     (rgba 0,0,0,0.03)
- *   qa-bg-black-5     (rgba 0,0,0,0.05)
+ * COLORS — background (legacy names, restyled onto Graphite tokens in place)
+ *   qa-bg-white       (→ surface-1)     qa-bg-white-25    (→ surface-3)    qa-bg-transparent
+ *   qa-bg-black-3     (subtle graphite tint)
+ *   qa-bg-black-5     (subtle graphite tint, one step stronger)
  *
  * OPACITY
  *   qa-opacity-0   qa-opacity-30   qa-opacity-40   qa-opacity-50
@@ -113,14 +156,14 @@
  * INTERACTIONS / STATE
  *   qa-cursor-crosshair   qa-cursor-default   qa-cursor-pointer
  *   qa-pointer-events-none
- *   qa-focus-ring         (outline + ring on :focus)
+ *   qa-focus-ring         (:focus-visible → 2px solid accent outline)
  *   qa-disabled           (opacity 0.4, pointer-events none — via [disabled])
  *   qa-hover-bg-black-3:hover  → handled by qa-hover-bg-black-3
- *   qa-hover-bg-white-15 (hover: bg rgba(255,255,255,0.15))
+ *   qa-hover-bg-white-15 (hover → surface-2)
  *   qa-hover-opacity-80  (hover: opacity 0.8)
  *   qa-hover-opacity-100 (hover: opacity 1.0)
- *   qa-hover-text-red    (hover: color #ef4444)
- *   qa-hover-text-slate-600 (hover: color #475569)
+ *   qa-hover-text-red    (hover → danger)
+ *   qa-hover-text-slate-600 (hover → ink-hi)
  *   qa-group             (for group-hover triggers)
  *   qa-group-hover-opacity-80
  *
@@ -144,8 +187,6 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 
-import type { QaTheme } from '../config/schema';
-
 // ---------------------------------------------------------------------------
 // The static stylesheet
 // ---------------------------------------------------------------------------
@@ -153,6 +194,103 @@ import type { QaTheme } from '../config/schema';
 export const QA_CSS = `
 /* ── Reset ─────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
+
+/* ── Design tokens (Graphite — v0.3.0) ───────────────────────────────
+   Single source of truth for every colour, shadow, radius, font, motion
+   duration, and z-index the widget uses. Nothing here is themeable —
+   qapture 0.3.0 ships one fixed, self-contained design. */
+:host {
+  /* Surfaces */
+  --qa-surface-0: #101215;
+  --qa-surface-1: #181B20;
+  --qa-surface-2: #20242B;
+  --qa-surface-3: #2A2F37;
+
+  /* Ink */
+  --qa-ink-hi: #F4F5F7;
+  --qa-ink-mid: #A8AEB8;
+  --qa-ink-lo: #6B717C;
+  --qa-ink-faint: #4A4F58;
+
+  /* Accent */
+  --qa-accent: #4D9CFF;
+  --qa-accent-hover: #6FB0FF;
+  --qa-accent-active: #3B84E6;
+  --qa-on-accent: #0A0C10;
+  --qa-accent-tint: rgba(77,156,255,0.14);
+  --qa-accent-border: rgba(77,156,255,0.45);
+
+  /* Semantic */
+  --qa-danger: #FF6B6B;
+  --qa-danger-tint: rgba(255,107,107,0.14);
+  --qa-warn: #FBBF24;
+  --qa-warn-tint: rgba(251,191,36,0.14);
+  --qa-success: #34D399;
+  --qa-success-tint: rgba(52,211,153,0.14);
+  --qa-neutral: #5B616B;
+
+  /* Borders */
+  --qa-border-subtle: rgba(255,255,255,0.08);
+  --qa-border-strong: rgba(255,255,255,0.14);
+
+  /* Scrims */
+  --qa-scrim-dialog: rgba(8,9,12,0.50);
+  --qa-scrim-capture: rgba(8,9,12,0.32);
+  --qa-scrim-spot: rgba(8,9,12,0.55);
+
+  /* Elevation */
+  --qa-sheen: inset 0 1px 0 rgba(255,255,255,0.06);
+  --qa-elev-1: 0 1px 2px rgba(0,0,0,0.40);
+  --qa-elev-2: 0 8px 24px -8px rgba(0,0,0,0.55);
+  --qa-elev-3: 0 24px 60px -16px rgba(0,0,0,0.65);
+
+  /* Radius */
+  --qa-radius-sm: 6px;
+  --qa-radius-md: 10px;
+  --qa-radius-lg: 14px;
+
+  /* Fonts (same stack for Arabic — no separate Arabic typeface) */
+  --qa-font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --qa-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  /* Motion */
+  --qa-dur-1: 120ms;
+  --qa-dur-2: 180ms;
+  --qa-dur-3: 240ms;
+  --qa-ease: cubic-bezier(0.4,0,0.2,1);
+  --qa-ease-out: cubic-bezier(0.16,1,0.3,1);
+
+  /* Z-index scale */
+  --qa-z-fab: 9990;
+  --qa-z-panel: 9995;
+  --qa-z-capture-dim: 10090;
+  --qa-z-capture-highlight: 10092;
+  --qa-z-capture-region-move: 10093;
+  --qa-z-capture-region-handle: 10094;
+  --qa-z-capture-hint: 10095;
+  --qa-z-capture-ui: 10096;
+  --qa-z-toast: 10097;
+
+  font-family: var(--qa-font);
+  color: var(--qa-ink-hi);
+}
+
+/* Respect the user's OS-level motion preference: kill durations everywhere,
+   including the token defaults so any var(--qa-dur-*)-based rule inherits
+   the kill for free. */
+@media (prefers-reduced-motion: reduce) {
+  :host {
+    --qa-dur-1: 0ms;
+    --qa-dur-2: 0ms;
+    --qa-dur-3: 0ms;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* ── Position ──────────────────────────────────────────────────────── */
 .qa-fixed    { position: fixed; }
@@ -169,17 +307,18 @@ export const QA_CSS = `
 .qa-left-half { left: 50%; }
 .qa-right-0  { right: 0; }
 
-/* z-index */
+/* z-index — values mirror the --qa-z-* tokens above; class NAMES are kept
+   verbatim (scripts/browser-test.mjs string-matches .qa-z-10093/.qa-z-10094). */
 .qa-z-1     { z-index: 1; }
 .qa-z-50    { z-index: 50; }
 .qa-z-100   { z-index: 100; }
-.qa-z-10090 { z-index: 10090; }
-.qa-z-10092 { z-index: 10092; }
+.qa-z-10090 { z-index: var(--qa-z-capture-dim); }
+.qa-z-10092 { z-index: var(--qa-z-capture-highlight); }
 /* region-handle layering */
-.qa-z-10093 { z-index: 10093; }
-.qa-z-10094 { z-index: 10094; }
-.qa-z-10095 { z-index: 10095; }
-.qa-z-10096 { z-index: 10096; }
+.qa-z-10093 { z-index: var(--qa-z-capture-region-move); }
+.qa-z-10094 { z-index: var(--qa-z-capture-region-handle); }
+.qa-z-10095 { z-index: var(--qa-z-capture-hint); }
+.qa-z-10096 { z-index: var(--qa-z-capture-ui); }
 
 /* ── Display / Flex ─────────────────────────────────────────────────── */
 .qa-flex          { display: flex; }
@@ -293,7 +432,12 @@ export const QA_CSS = `
 .qa-border-t       { border-top-width: 1px; border-top-style: solid; }
 .qa-border-b       { border-bottom-width: 1px; border-bottom-style: solid; }
 .qa-border-white   { border-color: #ffffff; }
-.qa-border-white-40 { border-color: rgba(255,255,255,0.40); }
+.qa-border-white-40 { border-color: var(--qa-border-strong); }
+
+/* Semantic border colour (combine with .qa-border for width+style) */
+.qa-border-subtle { border-color: var(--qa-border-subtle); }
+.qa-border-strong { border-color: var(--qa-border-strong); }
+.qa-border-accent  { border-color: var(--qa-accent-border); }
 
 /* ── Rounded ────────────────────────────────────────────────────────── */
 .qa-rounded      { border-radius: 0.25rem; }
@@ -307,6 +451,13 @@ export const QA_CSS = `
 .qa-shadow-lg  { box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); }
 .qa-shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
 
+/* Semantic elevation — each layers --qa-sheen (a 1px inner highlight) on top
+   of the matching --qa-elev-* drop shadow, so raised surfaces read as
+   subtly lit from above rather than flat dark rectangles. */
+.qa-elev-1 { box-shadow: var(--qa-elev-1), var(--qa-sheen); }
+.qa-elev-2 { box-shadow: var(--qa-elev-2), var(--qa-sheen); }
+.qa-elev-3 { box-shadow: var(--qa-elev-3), var(--qa-sheen); }
+
 /* ── Typography ─────────────────────────────────────────────────────── */
 .qa-text-10   { font-size: 10px; }
 .qa-text-11   { font-size: 11px; }
@@ -317,7 +468,7 @@ export const QA_CSS = `
 .qa-font-medium   { font-weight: 500; }
 .qa-font-semibold { font-weight: 600; }
 .qa-font-bold     { font-weight: 700; }
-.qa-font-mono  { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.qa-font-mono  { font-family: var(--qa-font-mono); }
 .qa-leading-relaxed { line-height: 1.625; }
 .qa-truncate   { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qa-whitespace-pre-wrap { white-space: pre-wrap; }
@@ -340,19 +491,53 @@ export const QA_CSS = `
 /* ── Colors — text ──────────────────────────────────────────────────── */
 .qa-text-white      { color: #ffffff; }
 .qa-text-current    { color: currentColor; }
-.qa-text-slate-300  { color: #cbd5e1; }
-.qa-text-slate-400  { color: #94a3b8; }
-.qa-text-slate-500  { color: #64748b; }
-.qa-text-green-600  { color: #16a34a; }
-.qa-text-red-500    { color: #ef4444; }
-.qa-text-red-600    { color: #dc2626; }
+/* legacy slate scale, restyled onto the ink levels in place */
+.qa-text-slate-300  { color: var(--qa-ink-faint); }
+.qa-text-slate-400  { color: var(--qa-ink-lo); }
+.qa-text-slate-500  { color: var(--qa-ink-mid); }
+.qa-text-green-600  { color: var(--qa-success); }
+.qa-text-red-500    { color: var(--qa-danger); }
+.qa-text-red-600    { color: var(--qa-danger); }
+
+/* Semantic text levels */
+.qa-text-hi        { color: var(--qa-ink-hi); }
+.qa-text-mid       { color: var(--qa-ink-mid); }
+.qa-text-lo        { color: var(--qa-ink-lo); }
+.qa-text-faint     { color: var(--qa-ink-faint); }
+.qa-text-accent    { color: var(--qa-accent); }
+.qa-text-on-accent { color: var(--qa-on-accent); }
+.qa-text-danger    { color: var(--qa-danger); }
+.qa-text-warn      { color: var(--qa-warn); }
+.qa-text-success   { color: var(--qa-success); }
 
 /* ── Colors — background ────────────────────────────────────────────── */
-.qa-bg-white        { background-color: #ffffff; }
-.qa-bg-white-25     { background-color: rgba(255,255,255,0.25); }
+/* legacy names, restyled onto Graphite tokens in place — components keep
+   using these class names unchanged. */
+.qa-bg-white        { background-color: var(--qa-surface-1); }
+.qa-bg-white-25     { background-color: var(--qa-surface-3); }
 .qa-bg-transparent  { background-color: transparent; }
-.qa-bg-black-3      { background-color: rgba(0,0,0,0.03); }
-.qa-bg-black-5      { background-color: rgba(0,0,0,0.05); }
+/* These two were 3%/5% black tints for a light theme, which is inert on a
+   dark surface. Restyled as low-alpha WHITE lifts of the same two
+   intensities — still legible as a step above the base surface. */
+.qa-bg-black-3      { background-color: rgba(255,255,255,0.03); }
+.qa-bg-black-5      { background-color: rgba(255,255,255,0.05); }
+
+/* Semantic surfaces */
+.qa-bg-0 { background-color: var(--qa-surface-0); }
+.qa-bg-1 { background-color: var(--qa-surface-1); }
+.qa-bg-2 { background-color: var(--qa-surface-2); }
+.qa-bg-3 { background-color: var(--qa-surface-3); }
+
+.qa-bg-accent {
+  background-color: var(--qa-accent);
+  color: var(--qa-on-accent);
+}
+.qa-bg-accent:hover { background-color: var(--qa-accent-hover); }
+
+.qa-bg-accent-tint  { background-color: var(--qa-accent-tint); }
+.qa-bg-danger-tint  { background-color: var(--qa-danger-tint); }
+.qa-bg-warn-tint    { background-color: var(--qa-warn-tint); }
+.qa-bg-success-tint { background-color: var(--qa-success-tint); }
 
 /* ── Opacity ────────────────────────────────────────────────────────── */
 .qa-opacity-0   { opacity: 0; }
@@ -371,8 +556,10 @@ export const QA_CSS = `
 .qa-touch-none { touch-action: none; }
 .qa-touch-pan  { touch-action: pan-x pan-y; }
 
-.qa-focus-ring:focus {
-  outline: 2px solid var(--qa-primary, #4f46e5);
+/* Restyled onto :focus-visible (was :focus) so a mouse click no longer
+   leaves a persistent ring — only keyboard/AT focus does. */
+.qa-focus-ring:focus-visible {
+  outline: 2px solid var(--qa-accent);
   outline-offset: 2px;
 }
 
@@ -384,13 +571,14 @@ input:disabled,
 }
 
 /* Hover helpers */
-.qa-hover-bg-black-3:hover  { background-color: rgba(0,0,0,0.03); }
-.qa-hover-bg-black-5:hover  { background-color: rgba(0,0,0,0.05); }
-.qa-hover-bg-white-15:hover { background-color: rgba(255,255,255,0.15); }
+.qa-hover-bg-black-3:hover  { background-color: var(--qa-surface-2); }
+.qa-hover-bg-black-5:hover  { background-color: var(--qa-surface-3); }
+.qa-hover-bg-white-15:hover { background-color: var(--qa-surface-2); }
+.qa-hover-bg-2:hover        { background-color: var(--qa-surface-2); }
 .qa-hover-opacity-80:hover  { opacity: 0.80; }
 .qa-hover-opacity-100:hover { opacity: 1; }
-.qa-hover-text-red:hover    { color: #ef4444; }
-.qa-hover-text-slate-600:hover { color: #475569; }
+.qa-hover-text-red:hover    { color: var(--qa-danger); }
+.qa-hover-text-slate-600:hover { color: var(--qa-ink-hi); }
 
 /* Group-hover (child uses .qa-group-hover-opacity-80 inside a .qa-group parent) */
 .qa-group .qa-group-hover-opacity-80 { opacity: 0.40; }
@@ -414,13 +602,25 @@ input:disabled,
   50%       { opacity: 0.5; box-shadow: 0 0 0 8px transparent; }
 }
 
+@keyframes qaShimmer {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
 .qa-animate-spin {
   animation: qaSpin 1s linear infinite;
 }
 
 .qa-animate-pulse-accent {
   animation: qaPulse 2s ease-in-out infinite;
-  color: var(--qa-accent, #7c3aed);
+  color: var(--qa-accent);
+}
+
+/* Loading placeholder rows (NoteList while notesLoading && !notes.length) */
+.qa-skeleton {
+  background-color: var(--qa-surface-2);
+  border-radius: var(--qa-radius-sm);
+  animation: qaShimmer 1.4s ease-in-out infinite;
 }
 
 /* ── Print ──────────────────────────────────────────────────────────── */
@@ -507,6 +707,41 @@ input:disabled,
 
 /* ── Extra space-y ──────────────────────────────────────────────────── */
 .qa-space-y-1\\.5 > * + * { margin-top: 0.375rem; }
+
+/* ── Toast (NoticeHost) ──────────────────────────────────────────────── */
+.qa-toast-viewport {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 1rem;
+  z-index: var(--qa-z-toast);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.qa-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: min(92vw, 360px);
+  padding: 0.625rem 0.75rem;
+  background-color: var(--qa-surface-2);
+  border: 1px solid var(--qa-border-subtle);
+  border-radius: var(--qa-radius-md);
+  box-shadow: var(--qa-elev-2), var(--qa-sheen);
+  color: var(--qa-ink-hi);
+  font-size: 13px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity var(--qa-dur-2) var(--qa-ease-out),
+              transform var(--qa-dur-2) var(--qa-ease-out);
+}
+.qa-toast.qa-toast-in {
+  opacity: 1;
+  transform: translateY(0);
+}
 `;
 
 // ---------------------------------------------------------------------------
@@ -532,24 +767,4 @@ export function injectStyles(root: ShadowRoot): void {
   const style = document.createElement('style');
   style.textContent = QA_CSS;
   root.appendChild(style);
-}
-
-// ---------------------------------------------------------------------------
-// Theme variable application
-// ---------------------------------------------------------------------------
-
-/**
- * Set QA CSS custom properties on the shadow host element so that
- * `var(--qa-primary)` etc. resolve correctly inside the shadow tree.
- */
-export function applyThemeVars(host: HTMLElement, theme: QaTheme): void {
-  host.style.setProperty('--qa-primary',      theme.primary);
-  host.style.setProperty('--qa-primary-dark',  theme.primaryDark);
-  host.style.setProperty('--qa-accent',        theme.accent);
-  host.style.setProperty('--qa-accent-dark',   theme.accentDark);
-  host.style.setProperty('--qa-sage',          theme.sage);
-  host.style.setProperty('--qa-cream',         theme.cream);
-  host.style.setProperty('--qa-mauve',         theme.mauve);
-  host.style.setProperty('--qa-surface',       theme.surface);
-  host.style.setProperty('--qa-ink',           theme.ink);
 }

@@ -5,8 +5,9 @@
  * or skips invalid entries, and NEVER throws. Returns a fully-resolved config
  * plus human-readable warnings.
  *
- * Also exports DEFAULT_THEME so that defaults.ts can import it without
- * creating a circular dependency (defaults.ts → schema.ts, not the reverse).
+ * Custom themes were removed in Qapture 0.3.0 — QaConfig.theme is kept only
+ * so older config objects still type-check; it is IGNORED by validateConfig
+ * (a warning is pushed) and ResolvedConfig no longer carries a theme field.
  */
 
 // ---------------------------------------------------------------------------
@@ -16,7 +17,14 @@
 /** A bilingual string: either a plain string (language-neutral) or { en, ar? }. */
 export type QaBilingual = string | { en: string; ar?: string };
 
-/** Brand colour palette for the QA panel. All fields optional on input. */
+/**
+ * Brand colour palette for the QA panel.
+ *
+ * @deprecated Custom themes were removed in Qapture 0.3.0 — the widget now
+ * ships one fixed, self-contained design. This type is kept only so that
+ * existing `theme?: Partial<QaTheme>` config objects still type-check; it has
+ * no effect on the rendered UI.
+ */
 export type QaTheme = {
   primary: string;
   primaryDark: string;
@@ -46,6 +54,8 @@ export type QaRisk = 'red' | 'amber' | 'green';
 export type QaJourneyStep = {
   path: string;
   what: QaBilingual;
+  /** Optional "what pass looks like" — shown alongside `what` when present. */
+  expect?: QaBilingual;
   risk?: QaRisk;
   riskWhy?: string;
 };
@@ -88,7 +98,13 @@ export type QaPreamble = {
 export type QaConfig = {
   /** Storage + DB namespace. Defaults to 'qapture'. */
   namespace?: string;
-  /** Override any subset of the colour palette. */
+  /**
+   * Override any subset of the colour palette.
+   *
+   * @deprecated Custom themes were removed in Qapture 0.3.0 — the widget now
+   * ships one fixed, self-contained design. This key is IGNORED (a warning is
+   * pushed by validateConfig); remove it from your qa.config to silence it.
+   */
   theme?: Partial<QaTheme>;
   /** Panel brand label. */
   brand?: { label?: string };
@@ -113,6 +129,12 @@ export type QaConfig = {
   alwaysVisible?: boolean;
   /** Keyboard shortcut to toggle the panel. Default: 'shift+alt+q'. */
   hotkey?: string;
+  /**
+   * Whether to capture ambient runtime context (console errors/warnings,
+   * uncaught errors, network failures, env snapshot) alongside new notes.
+   * Default: true.
+   */
+  captureContext?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -121,7 +143,6 @@ export type QaConfig = {
 
 export type ResolvedConfig = {
   namespace: string;
-  theme: QaTheme;
   brand: { label: string };
   loginField: { en: string; ar?: string };
   credentials: QaCredential[];
@@ -139,26 +160,13 @@ export type ResolvedConfig = {
   visible: boolean | undefined;
   alwaysVisible: boolean;
   hotkey: string;
+  captureContext: boolean;
 };
 
 // ---------------------------------------------------------------------------
-// Built-in default theme (neutral indigo/slate palette)
-// Exported here so defaults.ts can import it without circular deps.
-// ---------------------------------------------------------------------------
-
-export const DEFAULT_THEME: QaTheme = {
-  primary:     '#4f46e5', // indigo-600
-  primaryDark: '#3730a3', // indigo-800
-  accent:      '#7c3aed', // violet-600
-  accentDark:  '#6d28d9', // violet-700
-  sage:        '#6b7280', // gray-500
-  cream:       '#f8fafc', // slate-50
-  mauve:       '#a78bfa', // violet-400
-  surface:     '#ffffff',
-  ink:         '#1f2937', // gray-800
-};
-
 // Inline defaults used by validateConfig (avoids importing from defaults.ts).
+// ---------------------------------------------------------------------------
+
 const DEFAULTS = {
   namespace:     'qapture',
   brandLabel:    'Qapture',
@@ -167,6 +175,7 @@ const DEFAULTS = {
   visible:       undefined as boolean | undefined,
   alwaysVisible: false,
   hotkey:        'shift+alt+q',
+  captureContext: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -191,22 +200,6 @@ function isValidBilingual(v: unknown): v is QaBilingual {
     return typeof o['en'] === 'string';
   }
   return false;
-}
-
-function coerceTheme(input: Partial<QaTheme> | undefined): QaTheme {
-  if (!input || typeof input !== 'object') return { ...DEFAULT_THEME };
-  const out: QaTheme = { ...DEFAULT_THEME };
-  const keys: (keyof QaTheme)[] = [
-    'primary', 'primaryDark', 'accent', 'accentDark',
-    'sage', 'cream', 'mauve', 'surface', 'ink',
-  ];
-  for (const k of keys) {
-    const v = input[k];
-    if (typeof v === 'string' && v.trim().length > 0) {
-      out[k] = v.trim();
-    }
-  }
-  return out;
 }
 
 function coerceCredentials(raw: unknown, warnings: string[]): QaCredential[] {
@@ -286,6 +279,13 @@ function coerceJourney(raw: unknown, warnings: string[]): QaJourneyLane[] {
         path: (s['path'] as string).trim(),
         what: s['what'] as QaBilingual,
       };
+      if (s['expect'] !== undefined) {
+        if (isValidBilingual(s['expect'])) {
+          step.expect = s['expect'] as QaBilingual;
+        } else {
+          warnings.push(`journey[${i}].steps[${j}] (path="${String(s['path'])}"): invalid "expect" — ignored`);
+        }
+      }
       if (s['risk'] !== undefined) {
         if (VALID_RISKS.has(s['risk'] as QaRisk)) {
           step.risk = s['risk'] as QaRisk;
@@ -345,7 +345,6 @@ export function validateConfig(
     return {
       config: {
         namespace:    DEFAULTS.namespace,
-        theme:        { ...DEFAULT_THEME },
         brand:        { label: DEFAULTS.brandLabel },
         loginField:   { ...DEFAULTS.loginField },
         credentials:  [],
@@ -355,6 +354,7 @@ export function validateConfig(
         visible:      DEFAULTS.visible,
         alwaysVisible: DEFAULTS.alwaysVisible,
         hotkey:       DEFAULTS.hotkey,
+        captureContext: DEFAULTS.captureContext,
       },
       warnings,
     };
@@ -365,7 +365,6 @@ export function validateConfig(
     return {
       config: {
         namespace:    DEFAULTS.namespace,
-        theme:        { ...DEFAULT_THEME },
         brand:        { label: DEFAULTS.brandLabel },
         loginField:   { ...DEFAULTS.loginField },
         credentials:  [],
@@ -375,6 +374,7 @@ export function validateConfig(
         visible:      DEFAULTS.visible,
         alwaysVisible: DEFAULTS.alwaysVisible,
         hotkey:       DEFAULTS.hotkey,
+        captureContext: DEFAULTS.captureContext,
       },
       warnings,
     };
@@ -387,8 +387,12 @@ export function validateConfig(
     ? (raw['namespace'] as string).trim()
     : DEFAULTS.namespace;
 
-  // theme
-  const theme = coerceTheme(raw['theme'] as Partial<QaTheme> | undefined);
+  // theme — removed in Qapture 0.3.0. Kept-but-ignored: warn, do not resolve.
+  if (raw['theme'] !== undefined) {
+    warnings.push(
+      'theme: custom themes were removed in Qapture 0.3.0 — the widget now ships one fixed, self-contained design. The "theme" key is ignored; remove it from your qa.config to silence this warning.'
+    );
+  }
 
   // brand
   let brandLabel = DEFAULTS.brandLabel;
@@ -432,6 +436,9 @@ export function validateConfig(
   const hotkey = isNonEmptyString(raw['hotkey'])
     ? (raw['hotkey'] as string).trim()
     : DEFAULTS.hotkey;
+  const captureContext = typeof raw['captureContext'] === 'boolean'
+    ? raw['captureContext']
+    : DEFAULTS.captureContext;
 
   // visible: true | false | undefined (sentinel for dev-only)
   let visible: boolean | undefined = DEFAULTS.visible;
@@ -446,7 +453,6 @@ export function validateConfig(
   return {
     config: {
       namespace,
-      theme,
       brand: { label: brandLabel },
       loginField,
       credentials,
@@ -456,6 +462,7 @@ export function validateConfig(
       visible,
       alwaysVisible,
       hotkey,
+      captureContext,
     },
     warnings,
   };

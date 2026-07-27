@@ -32,6 +32,20 @@
  *  - lucide-react → Icon
  *  - Tailwind classes → qa-* equivalents
  *
+ * v0.3 "Graphite" (this file):
+ *  - `theme` is gone from useQa() entirely — every colour below is a fixed
+ *    design token (var(--qa-*)) or one of styles.ts's semantic utility
+ *    classes, never a value read from context.
+ *  - Severity chip row (bug/question/polish, default 'bug') in the
+ *    annotation card, threaded into addNote()'s `severity` field.
+ *  - collectTargetForensics(el) runs the moment an 'element' (not 'region')
+ *    target is picked, and its result rides in local state to save() as
+ *    addNote()'s `forensics` field.
+ *  - clampRegionRect() floors every region rect to 8×8 and clamps it inside
+ *    the viewport, applied at drag-normalization time and on every touch
+ *    resize/move tick; a raw drag that's tiny on BOTH axes falls back to an
+ *    element-click selection instead of forcing a degenerate region.
+ *
  * Shadow-DOM / elementFromPoint note:
  *   The interceptor div lives inside the shadow root. Temporarily setting its
  *   pointer-events to 'none' lets document.elementFromPoint() return host
@@ -42,16 +56,48 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useQa } from '../context/QaContext';
 import type { QaTarget, QaRect } from '../context/QaContext';
-import { Icon } from '../icons/Icon';
+import { Icon, type IconName } from '../icons/Icon';
 import { captureRegion } from '../lib/capture';
 import { getStableSelector } from '../lib/selector';
 import { useCoarsePointer } from '../lib/coarse';
 import { lockPageScroll, unlockPageScroll } from '../lib/scrollLock';
+import { collectTargetForensics, type QaTargetForensics } from '../lib/contextBuffer';
 import LocationReveal from './LocationReveal';
 
 const DRAG_THRESHOLD = 6; // px before a mouse press becomes a region drag
 const TOUCH_DRAG_THRESHOLD = 12; // px before a touch press becomes a region drag
 const MIN_REGION_SIZE = 8; // px floor when resizing a region candidate
+
+/** Severity a tester can tag onto a note — mirrors QaNote['severity']. */
+type Severity = 'bug' | 'question' | 'polish';
+const SEVERITIES: readonly Severity[] = ['bug', 'question', 'polish'];
+const SEVERITY_ICON: Record<Severity, IconName> = {
+  bug: 'Bug',
+  question: 'AlertTriangle',
+  polish: 'Pencil',
+};
+const SEVERITY_LABEL_KEY: Record<Severity, string> = {
+  bug: 'sev_bug',
+  question: 'sev_question',
+  polish: 'sev_polish',
+};
+
+/**
+ * Floor a candidate/drag rect to a sane minimum (8×8) and clamp it fully
+ * inside the current viewport. Applied both when a mouse/touch drag is
+ * normalized into a region rect (onPointerUp) and on every touch resize/move
+ * tick (onHandlePointerMove), so a region candidate can never end up
+ * degenerate or drift off-screen.
+ */
+function clampRegionRect(rect: QaRect): QaRect {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : rect.left + rect.width;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : rect.top + rect.height;
+  const width = Math.min(Math.max(MIN_REGION_SIZE, rect.width), Math.max(MIN_REGION_SIZE, vw));
+  const height = Math.min(Math.max(MIN_REGION_SIZE, rect.height), Math.max(MIN_REGION_SIZE, vh));
+  const left = Math.min(Math.max(0, rect.left), Math.max(0, vw - width));
+  const top = Math.min(Math.max(0, rect.top), Math.max(0, vh - height));
+  return { top, left, width, height };
+}
 
 interface Hover { rect: QaRect; selector: string }
 interface DragState { x0: number; y0: number; rect: QaRect | null }
@@ -87,7 +133,7 @@ const REGION_HANDLES: { edge: ResizeEdge; top: string; left: string; cursor: str
 ];
 
 export default function CaptureMode() {
-  const { addNote, endCapture, t, dir, theme } = useQa();
+  const { addNote, endCapture, t, dir } = useQa();
   const coarse = useCoarsePointer();
   const layerRef = useRef<HTMLDivElement>(null);
   const overlayRootRef = useRef<HTMLDivElement>(null);
@@ -107,6 +153,12 @@ export default function CaptureMode() {
   // plain no_shot copy, since retrying would fail identically).
   const [captureError, setCaptureError] = useState(false);
   const [description, setDescription] = useState('');
+  const [severity, setSeverity] = useState<Severity>('bug');
+  // Forensics for the DOM element behind the CURRENT selection/candidate —
+  // collected the moment an 'element' (not 'region') target is picked, and
+  // threaded through local state to save() since save() no longer has a
+  // live element reference by then.
+  const [targetForensics, setTargetForensics] = useState<QaTargetForensics | undefined>(undefined);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   const activePointerId = useRef<number | null>(null);
@@ -167,6 +219,7 @@ export default function CaptureMode() {
     setCandidate(null);
     setHover(null);
     setRegionMode(false);
+    setSeverity('bug'); // fresh selection → fresh default severity
     setPhase('annotating');
     setCardIn(false); // reset: card will fade in on next frame
     await runCapture(sel.rect);
@@ -227,43 +280,58 @@ export default function CaptureMode() {
     activePointerId.current = null;
     const d = dragRef.current;
     dragRef.current = null;
+    setDrag(null);
     const threshold = pointerKind.current === 'mouse' ? DRAG_THRESHOLD : TOUCH_DRAG_THRESHOLD;
     const moved = d !== null && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) > threshold;
     scrollSnap.current = { x: window.scrollX, y: window.scrollY };
 
+    // A drag past the pointer-distance threshold can STILL be a degenerate
+    // rect on one axis (fast diagonal movement). Only treat it as a region
+    // once clampRegionRect has something meaningful to clamp — a raw rect
+    // that's tiny on BOTH axes falls through to the plain element-click path
+    // below instead of being forced up into a fake 8×8 region.
+    let regionRect: QaRect | null = null;
     if (moved && d) {
-      const rect: QaRect = {
+      const rawRect: QaRect = {
         left: Math.min(d.x0, e.clientX),
         top: Math.min(d.y0, e.clientY),
         width: Math.abs(e.clientX - d.x0),
         height: Math.abs(e.clientY - d.y0),
       };
-      setDrag(null);
-      const sel: Selection = { kind: 'region', rect };
+      if (rawRect.width >= MIN_REGION_SIZE || rawRect.height >= MIN_REGION_SIZE) {
+        regionRect = clampRegionRect(rawRect);
+      }
+    }
+
+    if (regionRect) {
+      const sel: Selection = { kind: 'region', rect: regionRect };
+      setTargetForensics(undefined); // regions have no single DOM target to inspect
       if (coarse) {
         setCandidate(sel);
         setPhase('confirming');
       } else {
         void beginAnnotation(sel);
       }
+      return;
+    }
+
+    const el = elementUnder(e.clientX, e.clientY);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const sel: Selection = {
+      kind: 'element',
+      rect: { top: r.top, left: r.left, width: r.width, height: r.height },
+      selector: getStableSelector(el),
+      text: ((el as HTMLElement).innerText ?? el.textContent ?? '').trim().slice(0, 120),
+      tagName: el.tagName.toLowerCase(),
+    };
+    setTargetForensics(collectTargetForensics(el));
+    if (coarse) {
+      setCandidate(sel);
+      setHover({ rect: sel.rect, selector: sel.selector || '' });
+      setPhase('confirming');
     } else {
-      const el = elementUnder(e.clientX, e.clientY);
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const sel: Selection = {
-        kind: 'element',
-        rect: { top: r.top, left: r.left, width: r.width, height: r.height },
-        selector: getStableSelector(el),
-        text: ((el as HTMLElement).innerText ?? el.textContent ?? '').trim().slice(0, 120),
-        tagName: el.tagName.toLowerCase(),
-      };
-      if (coarse) {
-        setCandidate(sel);
-        setHover({ rect: sel.rect, selector: sel.selector || '' });
-        setPhase('confirming');
-      } else {
-        void beginAnnotation(sel);
-      }
+      void beginAnnotation(sel);
     }
   };
 
@@ -300,25 +368,38 @@ export default function CaptureMode() {
     const dx = e.clientX - hd.startX;
     const dy = e.clientY - hd.startY;
     const { startRect, edge } = hd;
-    let { top, left, width, height } = startRect;
+
+    // Track the moving edge(s) against the FIXED opposite edge(s) — deriving
+    // width/height from raw (possibly edge-flipped) coordinates, same
+    // Math.min/abs normalization used by the desktop/touch drag-select path.
+    // clampRegionRect() below is what enforces the 8×8 floor + viewport
+    // bounds, so nothing here needs its own ad-hoc clamping.
+    let top = startRect.top;
+    let left = startRect.left;
+    let right = startRect.left + startRect.width;
+    let bottom = startRect.top + startRect.height;
 
     if (edge === 'move') {
       left = startRect.left + dx;
       top = startRect.top + dy;
+      right = left + startRect.width;
+      bottom = top + startRect.height;
     } else {
-      if (edge.includes('e')) width = Math.max(MIN_REGION_SIZE, startRect.width + dx);
-      if (edge.includes('w')) {
-        width = Math.max(MIN_REGION_SIZE, startRect.width - dx);
-        left = startRect.left + (startRect.width - width);
-      }
-      if (edge.includes('s')) height = Math.max(MIN_REGION_SIZE, startRect.height + dy);
-      if (edge.includes('n')) {
-        height = Math.max(MIN_REGION_SIZE, startRect.height - dy);
-        top = startRect.top + (startRect.height - height);
-      }
+      if (edge.includes('e')) right += dx;
+      if (edge.includes('w')) left += dx;
+      if (edge.includes('s')) bottom += dy;
+      if (edge.includes('n')) top += dy;
     }
 
-    setCandidate((prev) => (prev ? { ...prev, rect: { top, left, width, height } } : prev));
+    const rawRect: QaRect = {
+      left: Math.min(left, right),
+      top: Math.min(top, bottom),
+      width: Math.abs(right - left),
+      height: Math.abs(bottom - top),
+    };
+
+    const rect = clampRegionRect(rawRect);
+    setCandidate((prev) => (prev ? { ...prev, rect } : prev));
   }, []);
 
   const onHandlePointerUp = useCallback((e: React.PointerEvent) => {
@@ -354,7 +435,13 @@ export default function CaptureMode() {
       if (focusable.length === 0) { e.preventDefault(); return; }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      const active = document.activeElement as HTMLElement | null;
+      // Shadow-DOM-safe focus check: document.activeElement only reports the
+      // shadow HOST when focus is inside a shadow tree, so ask the overlay
+      // root's own root (the ShadowRoot in production) which of its
+      // descendants — if any — is actually focused. (Same pattern as
+      // QaPanel.tsx's keyboard-avoidance focus check.)
+      const rootNode = root.getRootNode() as Document | ShadowRoot;
+      const active = rootNode.activeElement as HTMLElement | null;
       const activeInside = !!active && root.contains(active);
       if (e.shiftKey) {
         if (!activeInside || active === first) { e.preventDefault(); last.focus(); }
@@ -395,7 +482,13 @@ export default function CaptureMode() {
       },
       scroll: { ...scrollSnap.current },
     };
-    await addNote({ description, screenshot: shot ?? undefined, target });
+    await addNote({
+      description,
+      screenshot: shot ?? undefined,
+      target,
+      severity,
+      forensics: selection.kind === 'element' ? targetForensics : undefined,
+    });
     endCapture();
   };
 
@@ -435,15 +528,14 @@ export default function CaptureMode() {
         style={{
           cursor: phase === 'selecting' && !coarse ? 'crosshair' : 'default',
           touchAction: coarse ? 'none' : 'auto',
-          background: 'rgba(58,42,46,0.18)',
+          background: 'var(--qa-scrim-capture)',
         }}
       />
 
       {/* ── Hint bar (desktop) ──────────────────────────────────────────── */}
       {phase === 'selecting' && !coarse && (
         <div
-          className="qa-fixed qa-left-half qa-top-4 qa-z-10095 qa-translate-x-neg-half qa-flex qa-items-center qa-gap-3 qa-rounded-full qa-px-4 qa-py-2 qa-text-sm qa-text-white qa-shadow-lg"
-          style={{ background: theme.primary }}
+          className="qa-fixed qa-left-half qa-top-4 qa-z-10095 qa-translate-x-neg-half qa-flex qa-items-center qa-gap-3 qa-rounded-full qa-border qa-border-subtle qa-bg-2 qa-px-4 qa-py-2 qa-text-sm qa-text-hi qa-elev-2"
         >
           <span className="qa-flex qa-items-center qa-gap-1.5">
             <Icon name="MousePointerClick" size={16} />
@@ -456,8 +548,8 @@ export default function CaptureMode() {
           </span>
           <button
             onClick={() => endCapture()}
-            className="qa-tap-icon qa-ms-1 qa-rounded-full qa-border qa-border-white-40 qa-px-2 qa-py-0.5 qa-text-xs qa-hover-bg-white-15"
-            style={{ background: 'transparent', color: '#fff', cursor: 'pointer' }}
+            className="qa-tap-icon qa-ms-1 qa-rounded-full qa-border qa-border-white-40 qa-px-2 qa-py-0.5 qa-text-xs qa-text-hi qa-hover-bg-white-15"
+            style={{ background: 'transparent', cursor: 'pointer' }}
           >
             Esc
           </button>
@@ -467,8 +559,7 @@ export default function CaptureMode() {
       {/* ── Hint bar (touch) ────────────────────────────────────────────── */}
       {phase === 'selecting' && coarse && (
         <div
-          className="qa-fixed qa-left-half qa-top-4 qa-z-10095 qa-translate-x-neg-half qa-flex qa-items-center qa-gap-3 qa-rounded-full qa-px-4 qa-py-2 qa-text-sm qa-text-white qa-shadow-lg"
-          style={{ background: theme.primary }}
+          className="qa-fixed qa-left-half qa-top-4 qa-z-10095 qa-translate-x-neg-half qa-flex qa-items-center qa-gap-3 qa-rounded-full qa-border qa-border-subtle qa-bg-2 qa-px-4 qa-py-2 qa-text-sm qa-text-hi qa-elev-2"
         >
           <span className="qa-flex qa-items-center qa-gap-1.5">
             <Icon name="MousePointerClick" size={16} />
@@ -491,8 +582,8 @@ export default function CaptureMode() {
           </button>
           <button
             onClick={() => endCapture()}
-            className="qa-tap-icon qa-ms-1 qa-rounded-full qa-border qa-border-white-40 qa-px-2 qa-py-0.5 qa-text-xs qa-hover-bg-white-15"
-            style={{ background: 'transparent', color: '#fff', cursor: 'pointer' }}
+            className="qa-tap-icon qa-ms-1 qa-rounded-full qa-border qa-border-white-40 qa-px-2 qa-py-0.5 qa-text-xs qa-text-hi qa-hover-bg-white-15"
+            style={{ background: 'transparent', cursor: 'pointer' }}
           >
             Esc
           </button>
@@ -509,12 +600,12 @@ export default function CaptureMode() {
             width: activeRect.width,
             height: activeRect.height,
             pointerEvents: confirmingRegion ? 'auto' : 'none',
-            outline: `2px ${isRegion ? 'dashed' : 'solid'} ${theme.accent}`,
+            outline: `2px ${isRegion ? 'dashed' : 'solid'} var(--qa-accent)`,
             outlineOffset: '1px',
-            background: `${theme.accent}1f`,
+            background: 'var(--qa-accent-tint)',
             boxShadow:
               phase === 'annotating'
-                ? '0 0 0 9999px rgba(58,42,46,0.28)'
+                ? '0 0 0 9999px var(--qa-scrim-spot)'
                 : 'none',
           }}
         >
@@ -526,7 +617,7 @@ export default function CaptureMode() {
                 top: '-1.5rem',
                 left: 0,
                 maxWidth: '260px',
-                background: theme.primary,
+                background: 'var(--qa-surface-3)',
               }}
             >
               {hover.selector}
@@ -539,7 +630,7 @@ export default function CaptureMode() {
               style={{
                 bottom: '-1.5rem',
                 right: 0,
-                background: theme.accentDark,
+                background: 'var(--qa-accent-active)',
               }}
             >
               {Math.round(drag.rect.width)} × {Math.round(drag.rect.height)}
@@ -573,7 +664,7 @@ export default function CaptureMode() {
                     transform: 'translate(-50%, -50%)',
                     touchAction: 'none',
                     cursor,
-                    background: `${theme.accent}33`,
+                    background: 'var(--qa-accent-tint)',
                   }}
                 >
                   <span
@@ -581,7 +672,7 @@ export default function CaptureMode() {
                     style={{
                       width: 16,
                       height: 16,
-                      background: theme.accent,
+                      background: 'var(--qa-accent)',
                       border: '2px solid #fff',
                       boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
                       pointerEvents: 'none',
@@ -601,30 +692,30 @@ export default function CaptureMode() {
           dir={dir}
           role="group"
           aria-label={candidate.kind === 'region' ? t('confirm_region') : t('use_this')}
-          className="qa-fixed qa-z-10096 qa-flex qa-items-center qa-gap-2 qa-rounded-full qa-border qa-px-3 qa-py-2 qa-shadow-lg"
+          className="qa-fixed qa-z-10096 qa-flex qa-items-center qa-gap-2 qa-rounded-full qa-border qa-px-3 qa-py-2 qa-elev-2"
           style={{
             ...confirmPopStyle,
-            background: theme.surface,
-            borderColor: `${theme.primary}22`,
+            background: 'var(--qa-surface-1)',
+            borderColor: 'var(--qa-border-subtle)',
           }}
         >
           <button
             onClick={() => void beginAnnotation(candidate)}
-            className="qa-tap qa-flex qa-items-center qa-gap-1.5 qa-rounded-full qa-px-3 qa-py-2 qa-text-sm qa-font-semibold qa-text-white"
-            style={{ background: theme.accent, border: 'none', cursor: 'pointer' }}
+            className="qa-tap qa-flex qa-items-center qa-gap-1.5 qa-rounded-full qa-px-3 qa-py-2 qa-text-sm qa-font-semibold qa-bg-accent"
+            style={{ border: 'none', cursor: 'pointer' }}
           >
             <Icon name="Check" size={16} />
             {t('use_this')}
           </button>
           <button
-            onClick={() => { setCandidate(null); setHover(null); setPhase('selecting'); }}
-            className="qa-tap qa-rounded-full qa-border qa-px-3 qa-py-2 qa-text-sm"
-            style={{
-              borderColor: `${theme.primary}33`,
-              color: theme.primary,
-              background: 'transparent',
-              cursor: 'pointer',
+            onClick={() => {
+              setCandidate(null);
+              setHover(null);
+              setPhase('selecting');
+              setTargetForensics(undefined);
             }}
+            className="qa-tap qa-rounded-full qa-border qa-border-subtle qa-px-3 qa-py-2 qa-text-sm qa-text-mid"
+            style={{ background: 'transparent', cursor: 'pointer' }}
           >
             {t('adjust')}
           </button>
@@ -636,22 +727,14 @@ export default function CaptureMode() {
         <div
           data-qa-overlay="true"
           dir={dir}
-          className={`qa-fixed qa-z-10096 qa-w-320 qa-overflow-hidden qa-rounded-xl qa-border qa-shadow-2xl qa-card-anim${cardIn ? ' qa-card-in' : ''}`}
+          className={`qa-fixed qa-z-10096 qa-w-320 qa-overflow-hidden qa-rounded-xl qa-border qa-border-subtle qa-elev-3 qa-card-anim${cardIn ? ' qa-card-in' : ''}`}
           style={{
             ...popStyle,
-            background: theme.surface,
-            borderColor: `${theme.primary}22`,
-            fontFamily:
-              dir === 'rtl'
-                ? "'Tajawal', sans-serif"
-                : "'Nunito', system-ui, sans-serif",
+            background: 'var(--qa-surface-1)',
           }}
         >
           {/* card header */}
-          <div
-            className="qa-flex qa-items-center qa-gap-2 qa-px-3 qa-py-2 qa-text-white"
-            style={{ background: theme.primary }}
-          >
+          <div className="qa-flex qa-items-center qa-gap-2 qa-px-3 qa-py-2 qa-bg-2 qa-border-b qa-border-subtle qa-text-hi">
             <Icon
               name={selection.kind === 'region' ? 'Square' : 'MousePointerClick'}
               size={16}
@@ -662,7 +745,7 @@ export default function CaptureMode() {
             <button
               onClick={() => endCapture()}
               className="qa-tap-icon qa-ms-auto qa-opacity-80 qa-hover-opacity-100"
-              style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#fff' }}
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--qa-ink-hi)' }}
             >
               <Icon name="X" size={16} />
             </button>
@@ -674,15 +757,12 @@ export default function CaptureMode() {
             <div
               className="qa-flex qa-min-h-16 qa-items-center qa-justify-center qa-rounded-lg qa-border"
               style={{
-                borderColor: `${theme.primary}1a`,
-                background: theme.cream,
+                borderColor: 'var(--qa-border-subtle)',
+                background: 'var(--qa-surface-0)',
               }}
             >
               {capturing ? (
-                <span
-                  className="qa-flex qa-items-center qa-gap-2 qa-py-4 qa-text-xs"
-                  style={{ color: theme.primary }}
-                >
+                <span className="qa-flex qa-items-center qa-gap-2 qa-py-4 qa-text-xs qa-text-accent">
                   <Icon name="Loader2" size={16} className="qa-animate-spin" />
                   {t('capturing')}
                 </span>
@@ -700,8 +780,7 @@ export default function CaptureMode() {
                   <button
                     type="button"
                     onClick={() => selection && void runCapture(selection.rect)}
-                    className="qa-tap qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-md qa-border qa-px-2 qa-py-1 qa-text-xs qa-focus-ring"
-                    style={{ borderColor: `${theme.primary}33`, color: theme.primary }}
+                    className="qa-tap qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-md qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-xs qa-text-mid qa-focus-ring"
                   >
                     <Icon name="RotateCcw" size={13} />
                     {t('retry')}
@@ -716,6 +795,39 @@ export default function CaptureMode() {
 
             <LocationReveal target={selection as QaTarget} />
 
+            {/* severity chip row — default 'bug', threaded into addNote on save */}
+            <div
+              role="group"
+              aria-label={t('severity_label')}
+              className="qa-flex qa-items-center qa-flex-wrap qa-gap-1.5"
+            >
+              <span className="qa-text-11 qa-text-mid qa-me-1">{t('severity_label')}</span>
+              {SEVERITIES.map((sev) => {
+                const active = severity === sev;
+                const toneClass =
+                  sev === 'bug'
+                    ? 'qa-bg-danger-tint qa-text-danger'
+                    : sev === 'question'
+                      ? 'qa-bg-warn-tint qa-text-warn'
+                      : 'qa-bg-accent-tint qa-text-accent';
+                return (
+                  <button
+                    key={sev}
+                    type="button"
+                    onClick={() => setSeverity(sev)}
+                    aria-pressed={active}
+                    className={`qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-11 qa-focus-ring ${
+                      active ? toneClass : 'qa-bg-2 qa-text-mid'
+                    }`}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <Icon name={SEVERITY_ICON[sev]} size={12} />
+                    {t(SEVERITY_LABEL_KEY[sev])}
+                  </button>
+                );
+              })}
+            </div>
+
             <textarea
               ref={taRef}
               value={description}
@@ -725,16 +837,15 @@ export default function CaptureMode() {
               }}
               rows={3}
               placeholder={t('annotate_placeholder')}
-              className="qa-w-full qa-resize-y qa-rounded-lg qa-border qa-px-2 qa-py-1.5 qa-text-sm qa-focus-ring"
-              style={{ borderColor: `${theme.primary}33`, background: '#fff', color: 'inherit' }}
+              className="qa-w-full qa-resize-y qa-rounded-lg qa-border qa-border-subtle qa-bg-0 qa-text-hi qa-px-2 qa-py-1.5 qa-text-sm qa-focus-ring"
             />
 
             <div className="qa-flex qa-items-center qa-gap-2">
               <button
                 onClick={() => void save()}
                 disabled={!description.trim()}
-                className="qa-tap qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1.5 qa-rounded-lg qa-px-3 qa-py-2 qa-text-sm qa-font-semibold qa-text-white"
-                style={{ background: theme.accent, border: 'none', cursor: 'pointer' }}
+                className="qa-tap qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1.5 qa-rounded-lg qa-px-3 qa-py-2 qa-text-sm qa-font-semibold qa-bg-accent"
+                style={{ border: 'none', cursor: 'pointer' }}
               >
                 <Icon name="Check" size={16} />
                 {t('save_point')}
@@ -745,14 +856,11 @@ export default function CaptureMode() {
                   setSelection(null);
                   setShot(null);
                   setDescription('');
+                  setSeverity('bug');
+                  setTargetForensics(undefined);
                 }}
-                className="qa-tap qa-rounded-lg qa-border qa-px-3 qa-py-2 qa-text-sm"
-                style={{
-                  borderColor: `${theme.primary}33`,
-                  color: theme.primary,
-                  background: 'transparent',
-                  cursor: 'pointer',
-                }}
+                className="qa-tap qa-rounded-lg qa-border qa-border-subtle qa-px-3 qa-py-2 qa-text-sm qa-text-mid"
+                style={{ background: 'transparent', cursor: 'pointer' }}
               >
                 {t('reselect')}
               </button>

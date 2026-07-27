@@ -2,7 +2,11 @@
  * genConfig — assemble the text of qa.config.ts (or qa.config.js).
  *
  * The generated file exports a single default object that matches QaConfig:
- *   namespace / theme / brand / loginField / credentials / journey / preamble
+ *   namespace / brand / loginField / credentials / journey / preamble
+ *
+ * As of v0.3.0, custom themes are deprecated and ignored (the widget ships
+ * one fixed, self-contained Graphite design) — the generator no longer
+ * detects or emits a `theme` block at all.
  *
  * All unknown/undetected values are left as 'TODO:' strings with explanatory
  * inline comments so the developer knows exactly what to fill in.
@@ -10,11 +14,9 @@
  * Does NOT write any files — returns the text only. Writing is handled by init.ts.
  */
 
-import type { ThemeDraft } from '../detectors/detectTheme.js';
 import type { JourneyDraft, JourneyLane, JourneyStep } from '../detectors/detectRoutes.js';
 import type { CredentialDraft } from '../detectors/detectCredentials.js';
 import { CREDENTIALS_BANNER } from '../detectors/detectCredentials.js';
-import { PLACEHOLDER } from '../detectors/detectTheme.js';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -23,7 +25,6 @@ export interface GenConfigOptions {
   namespace:    string;
   /** true → emit qa.config.ts; false → emit qa.config.js */
   isTypeScript: boolean;
-  theme:        ThemeDraft;
   journey:      JourneyDraft;
   credentials:  CredentialDraft[];
   /** Optional detected framework hints for doc comments. */
@@ -40,23 +41,6 @@ export interface GenConfigResult {
 function singleQuote(s: string): string {
   // Escape single quotes inside the string
   return `'${s.replace(/'/g, "\\'")}'`;
-}
-
-function serializeTheme(theme: ThemeDraft): string {
-  const lines: string[] = [];
-  const keys = Object.keys(theme) as Array<keyof ThemeDraft>;
-
-  for (const key of keys) {
-    const val = theme[key];
-    const isPlaceholder = val === PLACEHOLDER;
-    if (isPlaceholder) {
-      lines.push(`    ${key}: ${singleQuote(val)}, // TODO: replace with your brand colour`);
-    } else {
-      lines.push(`    ${key}: ${singleQuote(val)},`);
-    }
-  }
-
-  return `  theme: {\n${lines.join('\n')}\n  }`;
 }
 
 function serializeCredentials(creds: CredentialDraft[]): string {
@@ -158,7 +142,7 @@ function serializePreamble(): string {
  * Generate the full text of qa.config.ts or qa.config.js.
  */
 export function genConfigText(opts: GenConfigOptions): GenConfigResult {
-  const { namespace, isTypeScript, theme, journey, credentials, frameworkHints = [] } = opts;
+  const { namespace, isTypeScript, journey, credentials, frameworkHints = [] } = opts;
 
   const filename = isTypeScript ? 'qa.config.ts' : 'qa.config.js';
 
@@ -189,7 +173,6 @@ export function genConfigText(opts: GenConfigOptions): GenConfigResult {
     .filter(l => l !== '')
     .join('\n');
 
-  const themeBlock       = serializeTheme(theme);
   const credentialsBlock = serializeCredentials(credentials);
   const journeyBlock     = serializeJourney(journey);
   const preambleBlock    = serializePreamble();
@@ -198,7 +181,9 @@ export function genConfigText(opts: GenConfigOptions): GenConfigResult {
     `const config${typeAnnotation} = {`,
     `  namespace: ${singleQuote(namespace)},`,
     ``,
-    themeBlock + ',',
+    `  // NOTE: custom themes were removed in Qapture 0.3.0 — the widget now`,
+    `  // ships one fixed, self-contained design. There is no \`theme\` key to`,
+    `  // fill in here any more.`,
     ``,
     `  brand: {`,
     `    label: 'TODO: Your Project Name', // displayed in the QA panel header`,

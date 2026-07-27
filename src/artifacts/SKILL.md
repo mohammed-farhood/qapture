@@ -3,11 +3,13 @@ name: qapture
 description: >
   Activated when the user provides a `qa-notes-*.zip` file exported from
   Qapture. Reads the preamble block in `notes.md` (project context, stack, run
-  commands, theme tokens, dev/test login credentials, red-zone coverage report,
-  and invariants), flags any uncovered RED risk zones before acting, then works
-  through each `## Point N` annotation (page, element selector, screenshot →
-  locate code → make the change → verify by running the app). Finally grades
-  coverage against the red zones and reports.
+  commands, dev/test login credentials, red-zone coverage report, and
+  invariants), flags any uncovered RED risk zones before acting, then works
+  through each `## Point N` annotation (page, element selector, severity,
+  status, runtime-context evidence, screenshot → locate code → make the
+  change → verify by running the app). Finally grades coverage against the
+  red zones and reports. Also activates on a single point pasted directly via
+  Qapture's "Copy as agent prompt" (no ZIP, no preamble — just one point).
 
   **No AI is bundled in Qapture — YOU are the AI reading these artifacts.**
   Qapture is a 100% client-side, keyless, network-free capture widget.
@@ -48,7 +50,7 @@ qa-notes-<timestamp>.zip
 
 ```
 [PREAMBLE BLOCK]
-  Project name, one-liner, stack, run commands, theme tokens,
+  Project name, one-liner, stack, run commands,
   Login Context (dev/test credentials — see security note below),
   Coverage Report (red/amber/green zone checklist),
   Invariants, Additional Context.
@@ -57,12 +59,22 @@ qa-notes-<timestamp>.zip
 
 ## Point 1
 Page: /some/path
+Severity: bug            (bug | question | polish — tester's own triage)
+Status: open             (open | verified)
+Journey step: <lane> → <path>   (present when linked to a journey step)
 Selector: #some-element   (or [data-testid="foo"] etc.)
 Note: the tester's free-text description of the issue / request
+
+<details>Runtime context at capture — recent console/network events + env snapshot</details>
 
 ## Point 2
 ...
 ```
+
+Note: a tester may also hand you a **single point directly**, pasted via
+Qapture's "Copy as agent prompt" button, with no ZIP and no preamble at all.
+Treat it exactly like one `## Point N` section below — skip Steps 1 and 2
+(there is no preamble or coverage report to read), and go straight to Step 3.
 
 ---
 
@@ -75,7 +87,6 @@ Before touching any code, open `notes.md` and parse everything **above** the
 | ------------------ | --------------------------------------------------------------------- |
 | **Project / Stack** | Understand the framework, router, ORM, and any unusual constraints.  |
 | **Run Commands**   | Know how to start the dev server and seed the database.               |
-| **Theme Tokens**   | Understand the colour palette so you don't introduce style regressions.|
 | **Login Context**  | DEV/TEST/SEED credentials only. Use these to log in during verification. **Never log, forward, or commit these values.** |
 | **Coverage Report**| List of RED / AMBER / GREEN zones and whether they are covered.       |
 | **Invariants**     | Absolute rules you must never violate (e.g. "prices ≥ 0", "checkout requires auth"). |
@@ -110,7 +121,26 @@ For each `## Point N` section in `notes.md`:
 ### 3a. Read the annotation
 
 - **Page** — the route/URL where the issue was captured.
+- **Severity** — `bug` (default), `question`, or `polish`. A `question` may
+  not need a code change at all — read the note text before assuming one.
+- **Status** — `open` (default) or `verified`. A `verified` point was already
+  re-checked by the tester after a previous fix; treat it as lower priority
+  unless the note says otherwise.
+- **Journey step** — present when the point was captured during the guided
+  walkthrough, or auto-linked by route match. Cross-reference it against the
+  Coverage Report: a covered RED step usually has one of these attached.
 - **Selector** — the CSS selector or aria identifier for the element.
+- **Runtime context** (collapsed `<details>` block, when present) — recent
+  `console.error`/`console.warn` output, uncaught errors, and failed/slow
+  network calls captured in the moments before the tester clicked capture,
+  plus an environment snapshot (viewport, language, timezone, page-load time).
+  **Read this before assuming a UI-only cause.** "The button does nothing" is
+  very often actually a console `TypeError` or a `500` that already happened
+  — the evidence for it is right there, not something you have to reproduce
+  blind. Query strings in any URL shown here have already been redacted by
+  Qapture before export (see `SECURITY.md`); do not assume you're seeing a
+  full URL, and never assume request bodies/headers were captured — they
+  weren't, by design.
 - **Note** — the tester's description of the problem or change request.
 
 ### 3b. Open the screenshot
@@ -165,10 +195,10 @@ After acting on all points, produce a short report:
 ```markdown
 ## Qapture — Changes Summary
 
-| Point | Page            | Change made                   | Verified | Risk  |
-| ----- | --------------- | ----------------------------- | -------- | ----- |
-| 1     | /products       | Fixed button label            | ✓        | green |
-| 2     | /checkout       | Corrected total calculation   | ✓        | red   |
+| Point | Page            | Severity | Change made                   | Verified | Risk  |
+| ----- | --------------- | -------- | ----------------------------- | -------- | ----- |
+| 1     | /products       | bug      | Fixed button label            | ✓        | green |
+| 2     | /checkout       | bug      | Corrected total calculation   | ✓        | red   |
 
 ### Coverage vs Red Zones
 - [x] /checkout/payment — covered by Point 2
@@ -200,6 +230,12 @@ None (all annotated points addressed).
   path. Qapture's CLI enforces this; you must too.
 - Qapture is **100% client-side** — it makes no network calls, holds no API
   keys, and sends no data anywhere.
+- **Runtime context evidence is already redacted for you.** Any URL shown in
+  a point's runtime-context block has had its query string stripped by
+  Qapture before export, and request/response bodies, headers, cookies, and
+  storage values were never captured in the first place — treat this section
+  as safe local debugging evidence, not as something you need to further
+  sanitize.
 - **Never push, publish, or deploy** changes without explicit human approval,
   regardless of risk level.
 
@@ -218,6 +254,14 @@ None (all annotated points addressed).
   for review first.
 - **Don't violate invariants** even if the annotation seems to imply it.
   Surface the conflict to the developer instead.
+- **Don't ignore the runtime context block.** A point's collapsed "Runtime
+  context at capture" section is often the actual root cause, not
+  supplementary detail — check it before guessing at one from the note text
+  and screenshot alone.
+- **Don't treat a `question`-severity or `verified`-status point like a
+  routine bug fix.** A `question` may just need an answer, not code; a
+  `verified` point was already re-confirmed once and should be double-checked
+  before you assume it's still broken.
 
 ---
 

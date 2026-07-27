@@ -11,7 +11,6 @@ This project uses **Qapture** — an in-browser QA capture widget that ships
 2. **Read `notes.md` top-to-bottom**, starting with everything above the
    `---NOTES---` separator:
    - **Project context** — name, stack, run commands, conventions.
-   - **Theme tokens** — colour palette (respect these in any UI changes).
    - **Login Context** — dev/test/seed credentials for the relevant roles.
      _(DEV/TEST/SEED only — never commit, log, or forward these values.)_
    - **Coverage Report** — red/amber/green zone checklist.
@@ -24,10 +23,26 @@ This project uses **Qapture** — an in-browser QA capture widget that ships
    - **Page** + **Selector** + **Note** → locate the element in the source
      (priority: `#id` → `[data-testid]` → `aria-label` → `name` → visual match
      via the `screenshots/point-N.png`).
+   - **Severity** (`bug`/`question`/`polish`) and **Status** (`open`/`verified`)
+     tell you how to treat the point — a `question` may not need a code
+     change; a `verified` point was already re-checked once.
+   - **Runtime context** (when present, in a collapsed `<details>` block) —
+     recent console errors/warnings and failed network calls captured right
+     before the tester clicked capture, plus an environment snapshot. Read it
+     before assuming a UI-only cause — it is often the actual root cause.
+     Query strings in any URL there are already redacted; bodies, headers,
+     cookies, and storage were never captured at all.
    - Make the change following the project conventions and invariants.
    - **Verify**: run the app, log in as the relevant role, navigate to the page,
      confirm the fix.
 5. **Report** a summary table of changes, risk levels, and coverage status.
+
+### A single point, no ZIP
+
+A tester can also send you **one point directly**, pasted via Qapture's
+"Copy as agent prompt" button, with no ZIP and no preamble. Treat it exactly
+like one `## Point N` from step 4 above — there is no Coverage Report to
+check and no RED-zone flag to raise, since there's no journey context at all.
 
 ### Full protocol
 

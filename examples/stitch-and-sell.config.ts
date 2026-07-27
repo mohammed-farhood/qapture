@@ -4,7 +4,6 @@
  * This is the complete, graded journey map for the Stitch & Sell Iraqi
  * handmade-goods marketplace. It demonstrates every qapture config feature:
  *
- *   - Full 9-token QaTheme override (burgundy / terracotta palette)
  *   - Bilingual (en + ar) role labels, step instructions, and credential hints
  *   - 5 journey lanes: Public, Buyer, Seller, Admin, Super admin
  *   - 32 steps graded: 14 red / 11 amber / 7 green
@@ -14,25 +13,19 @@
  * CREDENTIALS ARE FAKE / SEED PLACEHOLDERS.
  * Replace login and password values with your actual seeded test values.
  * Never commit real production credentials.
+ *
+ * NOTE (v0.3.0 "Graphite"): this example previously included a full 9-token
+ * QaTheme override (burgundy / terracotta palette) here. Custom themes were
+ * removed in this release — the widget now ships one fixed, self-contained
+ * dark design — so that block has been deleted entirely. Do not add a
+ * `theme:` key back to your config; it is ignored (with a console warning)
+ * by `validateConfig`.
  */
 
 import type { QaConfig } from 'qapture2';
 
 const config: QaConfig = {
   namespace: 'stitch-and-sell',
-
-  // ── Brand palette: burgundy / terracotta / sage / cream / mauve ──────────
-  theme: {
-    primary:     '#6B2C3E', // burgundy
-    primaryDark: '#4D1F2D',
-    accent:      '#D4726B', // terracotta
-    accentDark:  '#B85E58',
-    sage:        '#8B9D83',
-    cream:       '#F5EBE0',
-    mauve:       '#C9A9B4',
-    surface:     '#FFFDFB',
-    ink:         '#3A2A2E',
-  },
 
   brand: { label: 'Stitch & Sell QA' },
 

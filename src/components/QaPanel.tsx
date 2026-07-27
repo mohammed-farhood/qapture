@@ -11,6 +11,27 @@
  *  - BRAND, THEME imports removed → useQa() values
  *  - Tailwind classes → qa-* equivalents
  *  - Tab key changed 'creds' → 'logins' to match QaContext type
+ *
+ * v0.3 "Graphite" (this file):
+ *  - `theme` is gone from QaContextValue — every inline `theme.primary` /
+ *    `theme.accent` / `theme.surface` / `theme.cream` colour has been
+ *    replaced by a Graphite design token or semantic utility class
+ *    (`qa-bg-1`, `qa-bg-0`, `qa-text-hi`, `qa-border-subtle`, `var(--qa-*)`…).
+ *  - Header restyled to a flat `qa-bg-1` strip (the old diagonal
+ *    primary→accent gradient is gone) with a minimal wordmark: a 6px accent
+ *    square + a 13px/600 sans-serif label (the old Cormorant Garamond serif
+ *    styling is gone — the whole widget now uses one font stack for every
+ *    language, per the design tokens).
+ *  - A global capture icon button (Crosshair) sits in the header next to
+ *    Export, calling `startCapture()` directly from the panel chrome instead
+ *    of only from the Notes tab's primary CTA.
+ *  - Export-name dialog: clicking the scrim backdrop dismisses it (the card
+ *    itself stops that click from propagating), and a document-level Escape
+ *    listener closes it while open — added only while `naming` is true and
+ *    removed the moment it closes or the panel unmounts.
+ *  - "Clear all" now calls the undo-capable `clearNotes()` (soft-clear with a
+ *    5s Undo toast) instead of the old synchronous `clearAll`. The existing
+ *    inline "Delete all N? Yes/No" confirm step is unchanged.
  */
 
 import {
@@ -97,9 +118,10 @@ const PANEL_TRANSITION_WITH_LIFT =
 export default function QaPanel() {
   const {
     isOpen, activeTab, setActiveTab,
-    notes, exportZip, isExporting, clearAll,
+    notes, exportZip, isExporting, clearNotes,
+    startCapture,
     t, lang, setLang, dir,
-    brand, theme,
+    brand,
     journey, guideChecked,
   } = useQa();
 
@@ -260,6 +282,20 @@ export default function QaPanel() {
     if (!isOpen) setKeyboardLift(0);
   }, [isOpen]);
 
+  // ── Export-name dialog: Escape closes it while open ─────────────────────
+  // Document-level (rather than an onKeyDown on the filename input alone) so
+  // Escape works no matter what's focused inside the dialog. Attached only
+  // while `naming` is true and removed the moment it closes (including via
+  // the phase==='hidden' reset above) or this component unmounts.
+  useEffect(() => {
+    if (!naming) return undefined;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNaming(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [naming]);
+
   // Re-derived at render time (rather than trusted straight from state) so a
   // lift can never apply on a non-coarse pointer or in the side-sheet even
   // for one stale frame (e.g. right after a mouse is attached).
@@ -297,7 +333,7 @@ export default function QaPanel() {
       data-qa-overlay="true"
       dir={dir}
       onTransitionEnd={handleTransitionEnd}
-      className={`qa-fixed qa-flex qa-flex-col qa-overflow-hidden qa-rounded-2xl qa-border qa-shadow-2xl qa-print-hidden qa-w-panel qa-max-h-74vh qa-panel-anim${showIn ? ' qa-panel-in' : ''}`}
+      className={`qa-fixed qa-flex qa-flex-col qa-overflow-hidden qa-rounded-2xl qa-border qa-border-subtle qa-elev-3 qa-print-hidden qa-w-panel qa-max-h-74vh qa-bg-1 qa-panel-anim${showIn ? ' qa-panel-in' : ''}`}
       style={{
         // Floating popover position (default). Fully overridden below when
         // docked as an iPad-landscape side-sheet.
@@ -311,13 +347,7 @@ export default function QaPanel() {
         // full height — neutralize it only in the docked sheet variant.
         maxHeight: isIpadLandscape ? 'none' : undefined,
         borderRadius: isIpadLandscape ? 0 : undefined,
-        background: theme.surface,
-        borderColor: `${theme.primary}22`,
-        fontFamily:
-          lang === 'ar'
-            ? "'Tajawal', sans-serif"
-            : "'Nunito', system-ui, sans-serif",
-        zIndex: 9990,
+        zIndex: 'var(--qa-z-panel)',
         // Keyboard-avoidance lift (coarse/touch only — see effect above).
         // undefined ⇒ !keyboardLiftActive, so desktop and the iPad-landscape
         // side-sheet render this property exactly as before (the class's own
@@ -325,54 +355,62 @@ export default function QaPanel() {
         transition: keyboardLiftActive ? PANEL_TRANSITION_WITH_LIFT : undefined,
       }}
     >
-      {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div
-        className="qa-flex qa-items-center qa-gap-2 qa-px-4 qa-py-3 qa-text-white"
-        style={{ backgroundImage: `linear-gradient(135deg, ${theme.primary}, ${theme.accent})` }}
-      >
-        {/* brand label */}
-        <span
-          className="qa-text-sm qa-font-bold qa-dir-ltr"
-          style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", letterSpacing: '-0.02em' }}
-          dir="ltr"
-        >
-          {brand.label}
+      {/* ── Header — flat qa-bg-1 strip, no gradient ────────────────────── */}
+      <div className="qa-flex qa-items-center qa-gap-2 qa-px-4 qa-py-3 qa-bg-1">
+        {/* wordmark: accent 6px square + 13px/600 label (no serif) */}
+        <span className="qa-flex qa-items-center qa-gap-1.5 qa-dir-ltr" dir="ltr">
+          <span
+            aria-hidden="true"
+            className="qa-shrink-0"
+            style={{ width: 6, height: 6, background: 'var(--qa-accent)' }}
+          />
+          <span className="qa-text-hi" style={{ fontSize: 13, fontWeight: 600 }}>
+            {brand.label}
+          </span>
         </span>
+
         {/* note count badge */}
-        <span className="qa-rounded-full qa-bg-white-25 qa-px-2 qa-text-xs qa-font-medium">
+        <span className="qa-rounded-full qa-bg-3 qa-text-mid qa-px-2 qa-text-xs qa-font-medium">
           {notes.length}
         </span>
 
         {/* EN / ع language toggle */}
         <div
-          className="qa-ms-auto qa-flex qa-items-center qa-overflow-hidden qa-rounded-lg qa-text-11 qa-font-semibold"
+          className="qa-ms-auto qa-flex qa-items-center qa-overflow-hidden qa-rounded-lg qa-text-11 qa-font-semibold qa-bg-2"
           dir="ltr"
-          style={{ background: 'rgba(255,255,255,0.15)' }}
         >
           {(['en', 'ar'] as const).map((l) => (
             <button
               key={l}
               onClick={() => setLang(l)}
-              className="qa-px-2 qa-py-1 qa-transition qa-tap"
-              style={{
-                background: lang === l ? '#ffffff' : 'transparent',
-                color: lang === l ? theme.primary : '#fff',
-                border: 'none',
-                cursor: 'pointer',
-              }}
+              className={`qa-px-2 qa-py-1 qa-transition qa-tap ${
+                lang === l ? 'qa-bg-accent' : 'qa-bg-transparent qa-text-mid'
+              }`}
+              style={{ border: 'none', cursor: 'pointer' }}
             >
               {l === 'en' ? 'EN' : 'ع'}
             </button>
           ))}
         </div>
 
+        {/* global capture button */}
+        <button
+          onClick={startCapture}
+          title={t('capture_cta')}
+          aria-label={t('capture_cta')}
+          className="qa-tap-icon qa-rounded-lg qa-border qa-border-subtle qa-bg-transparent qa-text-hi qa-hover-bg-2 qa-transition"
+          style={{ cursor: 'pointer' }}
+        >
+          <Icon name="Crosshair" size={16} />
+        </button>
+
         {/* export button */}
         <button
           onClick={openNaming}
           disabled={!notes.length || isExporting}
           title={t('export')}
-          className="qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-lg qa-px-2.5 qa-py-1.5 qa-text-xs qa-font-medium qa-hover-bg-white-15 qa-tap"
-          style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', cursor: 'pointer' }}
+          className="qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-lg qa-border qa-border-subtle qa-bg-transparent qa-px-2.5 qa-py-1.5 qa-text-xs qa-font-medium qa-text-hi qa-hover-bg-2 qa-transition qa-tap"
+          style={{ cursor: 'pointer' }}
         >
           <Icon
             name={isExporting ? 'Loader2' : 'Download'}
@@ -388,18 +426,14 @@ export default function QaPanel() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         t={t}
-        theme={theme}
         lang={lang}
       />
 
       {/* separator */}
-      <div className="qa-h-px" style={{ background: `${theme.primary}14` }} />
+      <div className="qa-h-px qa-bg-3" />
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}
-      <div
-        className="qa-flex-1 qa-space-y-3 qa-overflow-y-auto qa-p-3"
-        style={{ background: `${theme.cream}80` }}
-      >
+      <div className="qa-flex-1 qa-space-y-3 qa-overflow-y-auto qa-p-3 qa-bg-0">
         {activeTab === 'notes' && (
           <>
             <NoteEditor />
@@ -407,11 +441,11 @@ export default function QaPanel() {
             {notes.length > 0 && (
               <div className="qa-pt-1 qa-text-center">
                 {confirmClear ? (
-                  <span className="qa-text-xs qa-text-slate-500">
+                  <span className="qa-text-xs qa-text-mid">
                     {t('delete_all_q', { n: notes.length })}{' '}
                     <button
-                      onClick={() => { void clearAll(); setConfirmClear(false); }}
-                      className="qa-font-semibold qa-text-red-600 qa-tap"
+                      onClick={() => { void clearNotes(); setConfirmClear(false); }}
+                      className="qa-font-semibold qa-text-danger qa-tap"
                       style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
                     >
                       {t('yes')}
@@ -419,8 +453,8 @@ export default function QaPanel() {
                     {' / '}
                     <button
                       onClick={() => setConfirmClear(false)}
-                      className="qa-tap"
-                      style={{ color: theme.primary, background: 'transparent', border: 'none', cursor: 'pointer' }}
+                      className="qa-text-accent qa-tap"
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
                     >
                       {t('no')}
                     </button>
@@ -428,7 +462,7 @@ export default function QaPanel() {
                 ) : (
                   <button
                     onClick={() => setConfirmClear(true)}
-                    className="qa-inline-flex qa-items-center qa-gap-1 qa-text-xs qa-text-slate-400 qa-hover-text-red"
+                    className="qa-inline-flex qa-items-center qa-gap-1 qa-text-xs qa-text-lo qa-hover-text-red"
                     style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
                   >
                     <Icon name="Trash" size={12} />
@@ -447,21 +481,18 @@ export default function QaPanel() {
       {naming && (
         <div
           className="qa-absolute qa-inset-0 qa-z-50 qa-flex qa-items-center qa-justify-center qa-p-5"
-          style={{ background: 'rgba(58,42,46,0.45)' }}
+          style={{ background: 'var(--qa-scrim-dialog)' }}
+          onClick={() => setNaming(false)}
         >
           <div
-            className="qa-w-full qa-rounded-xl qa-border qa-bg-white qa-p-4 qa-shadow-2xl"
-            style={{ borderColor: `${theme.primary}22` }}
+            className="qa-w-full qa-rounded-xl qa-border qa-border-subtle qa-bg-2 qa-p-4 qa-elev-3"
+            onClick={(e) => e.stopPropagation()}
           >
-            <p
-              className="qa-mb-2 qa-text-sm qa-font-semibold"
-              style={{ color: theme.ink }}
-            >
+            <p className="qa-mb-2 qa-text-sm qa-font-semibold qa-text-hi">
               {t('export_name_title')}
             </p>
             <div
-              className="qa-flex qa-items-center qa-rounded-lg qa-border qa-dir-ltr"
-              style={{ borderColor: `${theme.primary}33` }}
+              className="qa-flex qa-items-center qa-rounded-lg qa-border qa-border-subtle qa-dir-ltr"
             >
               <input
                 autoFocus
@@ -469,21 +500,17 @@ export default function QaPanel() {
                 onChange={(e) => setFilename(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') doExport();
-                  if (e.key === 'Escape') setNaming(false);
                 }}
                 placeholder={t('export_name_placeholder')}
                 className="qa-min-w-0 qa-flex-1 qa-rounded-lg qa-px-2 qa-py-1.5 qa-text-sm qa-border-0"
                 style={{ outline: 'none', background: 'transparent', color: 'inherit' }}
               />
-              <span className="qa-px-2 qa-text-xs qa-text-slate-400">.zip</span>
+              <span className="qa-px-2 qa-text-xs qa-text-lo">.zip</span>
             </div>
 
             {/* soft gate: warn when red zones remain uncovered — export is not blocked */}
             {namingCoverage && namingCoverage.uncoveredReds.length > 0 && (
-              <p
-                className="qa-mt-2 qa-text-11"
-                style={{ color: '#F59E0B' }}
-              >
+              <p className="qa-mt-2 qa-text-11 qa-text-warn">
                 {lang === 'ar'
                   ? `⚠ ${namingCoverage.uncoveredReds.length} منطقة/مناطق حمراء لم يتم التحقق منها — تصدير على أي حال؟`
                   : `⚠ ${namingCoverage.uncoveredReds.length} red zone(s) not yet verified — export anyway?`}
@@ -493,21 +520,16 @@ export default function QaPanel() {
             <div className="qa-mt-3 qa-flex qa-gap-2">
               <button
                 onClick={doExport}
-                className="qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1.5 qa-rounded-lg qa-px-3 qa-py-2 qa-text-sm qa-font-semibold qa-text-white qa-tap"
-                style={{ background: theme.accent, border: 'none', cursor: 'pointer' }}
+                className="qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1.5 qa-rounded-lg qa-bg-accent qa-px-3 qa-py-2 qa-text-sm qa-font-semibold qa-tap"
+                style={{ border: 'none', cursor: 'pointer' }}
               >
                 <Icon name="Check" size={16} />
                 {t('export')}
               </button>
               <button
                 onClick={() => setNaming(false)}
-                className="qa-inline-flex qa-items-center qa-gap-1 qa-rounded-lg qa-border qa-px-3 qa-py-2 qa-text-sm qa-tap"
-                style={{
-                  borderColor: `${theme.primary}33`,
-                  color: theme.primary,
-                  background: 'transparent',
-                  cursor: 'pointer',
-                }}
+                className="qa-inline-flex qa-items-center qa-gap-1 qa-rounded-lg qa-border qa-border-subtle qa-px-3 qa-py-2 qa-text-sm qa-text-hi qa-tap"
+                style={{ background: 'transparent', cursor: 'pointer' }}
               >
                 <Icon name="X" size={16} />
                 {t('cancel')}
@@ -528,13 +550,11 @@ function TabsBar({
   activeTab,
   setActiveTab,
   t,
-  theme,
   lang,
 }: {
   activeTab: 'notes' | 'logins' | 'guide';
   setActiveTab: (tab: 'notes' | 'logins' | 'guide') => void;
   t: (key: string) => string;
-  theme: { primary: string; accent: string };
   lang: string;
 }) {
   const tabRefs   = useRef<(HTMLButtonElement | null)[]>([]);
@@ -570,7 +590,7 @@ function TabsBar({
   }, [reposition]);
 
   return (
-    <div ref={containerRef} className="qa-flex qa-px-2 qa-pt-2 qa-relative">
+    <div ref={containerRef} className="qa-flex qa-px-2 qa-pt-2 qa-relative qa-bg-1">
       {TABS.map((tab, i) => {
         const on = activeTab === tab.key;
         return (
@@ -578,13 +598,10 @@ function TabsBar({
             key={tab.key}
             ref={(el) => { tabRefs.current[i] = el; }}
             onClick={() => setActiveTab(tab.key)}
-            className="qa-relative qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1.5 qa-py-2 qa-text-sm qa-font-medium qa-transition qa-tap"
-            style={{
-              color: on ? theme.primary : '#94a3b8',
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-            }}
+            className={`qa-relative qa-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1.5 qa-py-2 qa-text-sm qa-font-medium qa-transition qa-tap ${
+              on ? 'qa-text-accent' : 'qa-text-mid'
+            }`}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
           >
             <Icon name={tab.icon} size={16} />
             {t(tab.labelKey)}
@@ -595,7 +612,7 @@ function TabsBar({
       <span
         ref={barRef}
         className="qa-tab-indicator"
-        style={{ background: theme.accent }}
+        style={{ background: 'var(--qa-accent)' }}
         aria-hidden="true"
       />
     </div>

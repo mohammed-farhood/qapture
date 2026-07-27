@@ -7,6 +7,12 @@
  *  - lucide-react → Icon
  *  - THEME import removed → useQa().theme
  *  - flashLocate imported from ../lib/highlight
+ *
+ * v0.3 "Graphite": `theme` removed from useQa() — every colour below reads a
+ * fixed token (CSS custom property) or semantic utility class instead. No new
+ * behavior otherwise; flashLocate(target) drops its (now-removed) colors
+ * argument per contract §3 — highlight.ts paints with fixed Graphite
+ * constants on its own.
  */
 
 import { useState } from 'react';
@@ -16,7 +22,7 @@ import { Icon } from '../icons/Icon';
 import { flashLocate } from '../lib/highlight';
 
 export default function LocationReveal({ target }: { target?: QaTarget | null }) {
-  const { t, theme } = useQa();
+  const { t } = useQa();
   const [open, setOpen] = useState(false);
 
   if (!target) return null;
@@ -24,20 +30,17 @@ export default function LocationReveal({ target }: { target?: QaTarget | null })
   const r = target.rect;
 
   return (
-    <div
-      className="qa-rounded-lg qa-border"
-      style={{ borderColor: `${theme.primary}1a`, background: theme.cream }}
-    >
+    <div className="qa-rounded-lg qa-border qa-border-subtle qa-bg-2">
       {/* header row */}
       <div className="qa-flex qa-items-center qa-gap-1.5 qa-px-2 qa-py-1.5 qa-text-11">
-        <Icon name="CheckCircle2" size={14} style={{ color: theme.sage }} />
-        <span className="qa-font-medium" style={{ color: theme.ink }}>
+        <Icon name="CheckCircle2" size={14} className="qa-text-success" />
+        <span className="qa-font-medium qa-text-hi">
           {t('loc_captured')}
         </span>
         <button
           onClick={() => setOpen((o) => !o)}
-          className="qa-ms-auto qa-inline-flex qa-items-center qa-gap-1 qa-font-medium qa-tap"
-          style={{ color: theme.primary, background: 'transparent', border: 'none', cursor: 'pointer' }}
+          className="qa-ms-auto qa-inline-flex qa-items-center qa-gap-1 qa-font-medium qa-tap qa-text-accent"
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
         >
           {open ? t('loc_hide') : t('loc_show')}
           <Icon
@@ -53,15 +56,12 @@ export default function LocationReveal({ target }: { target?: QaTarget | null })
 
       {/* details */}
       {open && (
-        <div
-          className="qa-space-y-1 qa-px-2 qa-pb-2 qa-text-11 qa-dir-ltr"
-          style={{ color: theme.ink }}
-        >
+        <div className="qa-space-y-1 qa-px-2 qa-pb-2 qa-text-11 qa-dir-ltr qa-text-hi">
           {target.selector && (
             <div className="qa-flex qa-gap-1">
               <span className="qa-opacity-50">selector</span>
               <code
-                className="qa-min-w-0 qa-flex-1 qa-truncate qa-rounded qa-bg-white qa-px-1"
+                className="qa-min-w-0 qa-flex-1 qa-truncate qa-rounded qa-bg-3 qa-px-1"
                 title={target.selector}
               >
                 {target.selector}
@@ -71,7 +71,7 @@ export default function LocationReveal({ target }: { target?: QaTarget | null })
           {target.tagName && (
             <div>
               <span className="qa-opacity-50">tag </span>
-              <code className="qa-rounded qa-bg-white qa-px-1">
+              <code className="qa-rounded qa-bg-3 qa-px-1">
                 &lt;{target.tagName}&gt;
               </code>
             </div>
@@ -90,9 +90,9 @@ export default function LocationReveal({ target }: { target?: QaTarget | null })
             </div>
           )}
           <button
-            onClick={() => flashLocate(target, { primary: theme.primary, accent: theme.accent })}
-            className="qa-mt-1 qa-inline-flex qa-items-center qa-gap-1 qa-rounded-md qa-px-2 qa-py-1 qa-font-medium qa-text-white qa-tap"
-            style={{ background: theme.accent, border: 'none', cursor: 'pointer' }}
+            onClick={() => flashLocate(target)}
+            className="qa-mt-1 qa-inline-flex qa-items-center qa-gap-1 qa-rounded-md qa-px-2 qa-py-1 qa-font-medium qa-tap qa-bg-accent"
+            style={{ border: 'none', cursor: 'pointer' }}
           >
             <Icon name="Crosshair" size={12} />
             <Icon name="MapPinned" size={12} />

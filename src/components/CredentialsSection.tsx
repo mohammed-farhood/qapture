@@ -7,10 +7,18 @@
  *  - CREDENTIALS, LOGIN_FIELD, THEME imports removed → useQa() values
  *  - pick() from strings replaced by useQa().pick
  *  - navigator.clipboard guarded
+ *
+ * v0.3 "Graphite":
+ *  - `theme` removed from useQa() — every colour below reads a fixed token
+ *    (CSS custom property) or semantic utility class instead.
+ *  - Clipboard copy now always gives feedback: notify(t('copied')) on
+ *    success, notify(t('copy_failed')) when the Clipboard API is unavailable
+ *    or the write throws (previously both were silent no-ops).
  */
 
 import { useState } from 'react';
 import { useQa } from '../context/QaContext';
+import type { QaContextValue } from '../context/QaContext';
 import { Icon } from '../icons/Icon';
 
 // ---------------------------------------------------------------------------
@@ -56,7 +64,18 @@ function EyeIcon({ open, size = 12, className }: { open: boolean; size?: number;
 
 const MASK = '••••••••';
 
-function CopyField({ value, ink, maskable = false }: { value: string; ink: string; maskable?: boolean }) {
+function CopyField({
+  value,
+  maskable = false,
+  notify,
+  t,
+}: {
+  value: string;
+  maskable?: boolean;
+  /** Passed down from useQa() by CredentialsSection so a copy attempt can toast. */
+  notify: QaContextValue['notify'];
+  t: QaContextValue['t'];
+}) {
   const [done, setDone] = useState(false);
   // Default stays "shown" — matches the pre-existing plaintext behavior, with
   // an added ability to toggle it off (Bug #27). Not a behavior change.
@@ -64,13 +83,19 @@ function CopyField({ value, ink, maskable = false }: { value: string; ink: strin
 
   const copy = async () => {
     if (value === '—') return;
-    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {
+      // No Clipboard API available (older browser / insecure context) — this
+      // used to be a silent no-op. Give the tester an explicit signal instead.
+      notify(t('copy_failed'), { tone: 'error', id: 'credentials-copy-failed' });
+      return;
+    }
     try {
       await navigator.clipboard.writeText(value);
       setDone(true);
       setTimeout(() => setDone(false), 1100);
+      notify(t('copied'), { tone: 'success', id: 'credentials-copy' });
     } catch {
-      // clipboard write failed — silently ignore
+      notify(t('copy_failed'), { tone: 'error', id: 'credentials-copy-failed' });
     }
   };
 
@@ -80,16 +105,16 @@ function CopyField({ value, ink, maskable = false }: { value: string; ink: strin
   return (
     <span className="qa-inline-flex qa-items-center qa-gap-1">
       <button
-        onClick={copy}
+        onClick={() => void copy()}
         disabled={value === '—'}
         dir="ltr"
         className="qa-group qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-md qa-px-1.5 qa-py-0.5 qa-font-mono qa-text-xs qa-hover-bg-black-5"
         style={{ background: 'transparent', border: 'none', cursor: value === '—' ? 'default' : 'pointer' }}
       >
-        <span style={{ color: ink }}>{displayValue}</span>
+        <span className="qa-text-hi">{displayValue}</span>
         {value !== '—' && (
           done
-            ? <Icon name="Check" size={12} className="qa-text-green-600" />
+            ? <Icon name="Check" size={12} className="qa-text-success" />
             : <Icon name="Copy" size={12} className="qa-opacity-40 qa-group-hover-opacity-80" />
         )}
       </button>
@@ -114,7 +139,7 @@ function CopyField({ value, ink, maskable = false }: { value: string; ink: strin
 // ---------------------------------------------------------------------------
 
 export default function CredentialsSection() {
-  const { loginsUsed, toggleLogin, t, lang, pick, loginField, credentials, theme } = useQa();
+  const { loginsUsed, toggleLogin, t, lang, pick, loginField, credentials, notify } = useQa();
 
   const usedCount = credentials.filter((c) => loginsUsed.has(c.role)).length;
   const field = pick(loginField);
@@ -125,8 +150,8 @@ export default function CredentialsSection() {
       <div className="qa-flex qa-items-center qa-justify-between qa-gap-2 qa-text-xs">
         <span className="qa-text-slate-500">{t('login_with', { field })}</span>
         <span
-          className="qa-shrink-0 qa-rounded-full qa-px-2 qa-py-0.5 qa-font-medium qa-text-white"
-          style={{ background: theme.sage }}
+          className="qa-shrink-0 qa-rounded-full qa-px-2 qa-py-0.5 qa-font-medium"
+          style={{ background: 'var(--qa-success)', color: 'var(--qa-on-accent)' }}
         >
           {t('used_count', { n: usedCount, m: credentials.length })}
         </span>
@@ -140,15 +165,12 @@ export default function CredentialsSection() {
         return (
           <div
             key={`${c.role}-${i}`}
-            className="qa-rounded-xl qa-border qa-p-2.5 qa-shadow-sm qa-transition"
-            style={{
-              borderColor: used ? theme.sage : `${theme.primary}14`,
-              background: used ? `${theme.sage}12` : '#fff',
-            }}
+            className={`qa-rounded-xl qa-border qa-p-2.5 qa-elev-1 qa-transition ${used ? 'qa-bg-success-tint' : 'qa-bg-1'}`}
+            style={{ borderColor: used ? 'var(--qa-success)' : 'var(--qa-border-subtle)' }}
           >
             <div className="qa-flex qa-items-center qa-gap-2">
-              <Icon name="CircleUser" size={16} className="qa-shrink-0" style={{ color: theme.primary }} />
-              <span className="qa-text-sm qa-font-semibold" style={{ color: theme.ink }}>
+              <Icon name="CircleUser" size={16} className="qa-shrink-0 qa-text-accent" />
+              <span className="qa-text-sm qa-font-semibold qa-text-hi">
                 {label}
               </span>
               {c.hint && (
@@ -159,9 +181,8 @@ export default function CredentialsSection() {
               <button
                 onClick={() => toggleLogin(c.role)}
                 disabled={!c.seeded}
-                className="qa-ms-auto qa-inline-flex qa-items-center qa-gap-1 qa-text-xs"
+                className={`qa-ms-auto qa-inline-flex qa-items-center qa-gap-1 qa-text-xs ${used ? 'qa-text-success' : 'qa-text-lo'}`}
                 style={{
-                  color: used ? theme.sage : '#94a3b8',
                   background: 'transparent',
                   border: 'none',
                   cursor: c.seeded ? 'pointer' : 'default',
@@ -174,9 +195,9 @@ export default function CredentialsSection() {
 
             {c.seeded && (
               <div className="qa-mt-1.5 qa-flex qa-flex-wrap qa-items-center qa-gap-x-3 qa-gap-y-1 qa-ps-6">
-                <CopyField value={c.login} ink={theme.ink} />
+                <CopyField value={c.login} notify={notify} t={t} />
                 <span className="qa-text-slate-300">·</span>
-                <CopyField value={c.password} ink={theme.ink} maskable />
+                <CopyField value={c.password} notify={notify} t={t} maskable />
               </div>
             )}
           </div>

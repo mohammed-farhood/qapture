@@ -5,13 +5,18 @@
  * one amber (important but recoverable), one red (irreversible / financial).
  *
  * Everything not specified here uses built-in defaults:
- *   namespace  → 'qapture'
- *   theme      → indigo/violet palette
- *   loginField → 'Username'
- *   credentials → []
- *   preamble   → null
- *   hotkey     → Shift+Alt+Q
- *   visible    → dev-only (hidden in production)
+ *   namespace      → 'qapture'
+ *   loginField     → 'Username'
+ *   credentials    → []
+ *   preamble       → null
+ *   hotkey         → Shift+Alt+Q
+ *   visible        → dev-only (hidden in production)
+ *   captureContext → true (records recent console/network events into each
+ *                    note — see SECURITY.md; set to `false` to disable)
+ *
+ * NOTE (v0.3.0 "Graphite"): custom themes were removed in this release — the
+ * widget now ships one fixed, self-contained dark design. There is no more
+ * `theme` key to set here; a leftover one is ignored with a console warning.
  *
  * Drop in near your app root to get started immediately:
  *
