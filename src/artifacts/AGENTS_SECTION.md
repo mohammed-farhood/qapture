@@ -19,7 +19,19 @@ This project uses **Qapture** — an in-browser QA capture widget that ships
 3. **Flag uncovered RED zones** before acting. RED = money / auth / irreversible
    state. If any red zone has no annotation in this ZIP, report it and ask the
    developer whether to proceed.
-4. **Act on each `## Point N`** annotation:
+4. **Triage the whole batch before touching code.** Read every point first —
+   points on different pages can share one root cause (check their runtime
+   context for a repeated failing URL or error message) and deserve one fix,
+   not N. Write the plan down before editing anything.
+5. **Orchestrate, don't grind through it yourself.** For anything past a
+   single trivial point: you're the brain, not the muscle. Spawn one Sonnet
+   subagent per point/cluster (model pinned explicitly on every call, never
+   inherited; effort is your judgment call per task), parallelized across
+   points that touch disjoint files — never two agents on the same file. You
+   supervise by checking what each subagent's report actually claims and by
+   running the project's own verify/test command yourself afterward, not by
+   rereading every diff or trusting a subagent's "done."
+6. **Each point/cluster, before fixing:**
    - **Page** + **Selector** + **Note** → locate the element in the source
      (priority: `#id` → `[data-testid]` → `aria-label` → `name` → visual match
      via the `screenshots/point-N.png`).
@@ -28,21 +40,32 @@ This project uses **Qapture** — an in-browser QA capture widget that ships
      change; a `verified` point was already re-checked once.
    - **Runtime context** (when present, in a collapsed `<details>` block) —
      recent console errors/warnings and failed network calls captured right
-     before the tester clicked capture, plus an environment snapshot. Read it
-     before assuming a UI-only cause — it is often the actual root cause.
-     Query strings in any URL there are already redacted; bodies, headers,
-     cookies, and storage were never captured at all.
-   - Make the change following the project conventions and invariants.
-   - **Verify**: run the app, log in as the relevant role, navigate to the page,
-     confirm the fix.
-5. **Report** a summary table of changes, risk levels, and coverage status.
+     before the tester clicked capture, plus an environment snapshot, plus
+     **forensics** (contrast/accessibility flags on the captured element) when
+     present — treat these as objective acceptance criteria, not just the
+     tester's prose. Read it before assuming a UI-only cause. Query strings in
+     any URL there are already redacted; bodies, headers, cookies, and storage
+     were never captured at all.
+   - **Reproduce it live first** — run the app, log in as the relevant role,
+     navigate to the page, actually trigger the failure — before writing a
+     fix. A static screenshot can hide a stale report or an interaction-only
+     bug.
+   - Make the change following the project conventions and invariants, then
+     re-verify the same repro.
+7. **Report** a summary table of changes, risk levels, and coverage status,
+   plus a `### Suggestions` section for anything noticed beyond the reported
+   points. Whether you may *implement* an extra idea (not just suggest it)
+   follows the same red/amber/green gating as everything else: green — do it
+   inline; amber — do it and disclose it; red — propose only, never touch it.
 
 ### A single point, no ZIP
 
 A tester can also send you **one point directly**, pasted via Qapture's
 "Copy as agent prompt" button, with no ZIP and no preamble. Treat it exactly
-like one `## Point N` from step 4 above — there is no Coverage Report to
-check and no RED-zone flag to raise, since there's no journey context at all.
+like one point from step 6 above — there's nothing to cluster or triage with
+only one point, and there's no Coverage Report to check or RED-zone flag to
+raise, since there's no journey context at all. Just fix it yourself if it's
+trivial, or spawn a single subagent if it isn't.
 
 ### Full protocol
 

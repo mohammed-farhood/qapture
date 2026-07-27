@@ -88,6 +88,21 @@ severity/status, a runtime-evidence buffer attached to every note, a
 - 29 new i18n keys added to `src/lib/strings.ts` in both English and Arabic
   for all of the above (capture retry, severity/status labels, walkthrough
   copy, notices, copy-prompt, etc.).
+- **Orchestration protocol for the hosting agent** (`SKILL.md`,
+  `AGENTS_SECTION.md`). The hosting AI is now instructed to triage the whole
+  batch of points before touching code — clustering points that share a root
+  cause via their runtime-context evidence into one fix instead of N — then
+  orchestrate rather than work serially: spawn one Sonnet subagent per
+  point/cluster (model pinned explicitly, effort chosen per task, parallel
+  only across points touching disjoint files), reproduce each issue live
+  before fixing it, and treat forensics (contrast/accessibility flags) as
+  objective acceptance criteria alongside the tester's own description.
+  Supervision is by reality-check (read what a subagent's report claims,
+  always read RED-zone diffs directly, run the project's own verify command
+  independently) rather than rereading every diff. Adjacent improvements the
+  agent notices are always welcome as suggestions in the final report;
+  whether they may be implemented without being asked follows the same
+  red/amber/green gating as any other change.
 
 ### Fixed
 
