@@ -102,6 +102,10 @@ export default function CaptureMode() {
   const [shot, setShot] = useState<Blob | null>(null);
   const [shotUrl, setShotUrl] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
+  // Distinguishes a BROKEN render (html2canvas threw/timed out — worth a
+  // Retry) from a degenerate selection that never attempted one (shows the
+  // plain no_shot copy, since retrying would fail identically).
+  const [captureError, setCaptureError] = useState(false);
   const [description, setDescription] = useState('');
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -131,24 +135,21 @@ export default function CaptureMode() {
     return el;
   }, []);
 
-  // ── Begin annotation phase ───────────────────────────────────────────────
-  const beginAnnotation = useCallback(async (sel: Selection) => {
-    setSelection(sel);
-    setCandidate(null);
-    setHover(null);
-    setRegionMode(false);
-    setPhase('annotating');
-    setCardIn(false); // reset: card will fade in on next frame
+  // ── Screenshot render ────────────────────────────────────────────────────
+  // Split out from beginAnnotation so Retry can re-run it against the SAME
+  // selection without disturbing the annotation the tester has already typed.
+  const runCapture = useCallback(async (rect: QaRect) => {
     setCapturing(true);
+    setCaptureError(false);
     lockPageScroll();
     try {
-      const blob = await captureRegion(sel.rect, scrollSnap.current);
-      if (!mountedRef.current) {
-        // Component is gone — don't setState; revoke immediately so we
-        // don't leave an orphaned blob URL behind.
-        if (blob) URL.revokeObjectURL(URL.createObjectURL(blob));
-        return;
-      }
+      const outcome = await captureRegion(rect, scrollSnap.current);
+      // Component is gone — don't setState. Nothing to revoke either: no
+      // object URL is created for this blob unless we reach setShotUrl below.
+      if (!mountedRef.current) return;
+
+      const blob = outcome.status === 'ok' ? outcome.blob : null;
+      setCaptureError(outcome.status === 'failed');
       setShot(blob);
       setShotUrl((old) => {
         if (old) URL.revokeObjectURL(old);
@@ -159,6 +160,17 @@ export default function CaptureMode() {
       if (mountedRef.current) setCapturing(false);
     }
   }, []);
+
+  // ── Begin annotation phase ───────────────────────────────────────────────
+  const beginAnnotation = useCallback(async (sel: Selection) => {
+    setSelection(sel);
+    setCandidate(null);
+    setHover(null);
+    setRegionMode(false);
+    setPhase('annotating');
+    setCardIn(false); // reset: card will fade in on next frame
+    await runCapture(sel.rect);
+  }, [runCapture]);
 
   // Trigger card fade-in one frame after phase switches to annotating
   useEffect(() => {
@@ -680,6 +692,21 @@ export default function CaptureMode() {
                   alt="capture"
                   className="qa-max-h-32 qa-rounded-md"
                 />
+              ) : captureError ? (
+                // The render broke rather than being skipped — offer a retry
+                // against the same selection instead of a dead-end message.
+                <span className="qa-flex qa-flex-col qa-items-center qa-gap-2 qa-py-3">
+                  <span className="qa-text-xs qa-text-red-600">{t('capture_failed')}</span>
+                  <button
+                    type="button"
+                    onClick={() => selection && void runCapture(selection.rect)}
+                    className="qa-tap qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-md qa-border qa-px-2 qa-py-1 qa-text-xs qa-focus-ring"
+                    style={{ borderColor: `${theme.primary}33`, color: theme.primary }}
+                  >
+                    <Icon name="RotateCcw" size={13} />
+                    {t('retry')}
+                  </button>
+                </span>
               ) : (
                 <span className="qa-py-4 qa-text-xs qa-text-slate-400">
                   {t('no_shot')}

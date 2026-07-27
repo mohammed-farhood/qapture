@@ -59,12 +59,15 @@ export function mountQaStudio(config: ResolvedConfig): QaStudioInstance {
       // Remove the shadow host from the document
       if (host.parentNode) host.remove();
 
-      // Clean up any light-DOM flash boxes injected by highlight.ts.
-      // These are direct children of <body> with data-qa-overlay but are
-      // NOT the <qapture> host element (already removed above).
+      // Clean up any light-DOM flash boxes injected by highlight.ts — plain
+      // <div data-qa-overlay> children of <body>. The :not(qapture-overlay)
+      // guard matters: destroy() can run AFTER a replacement instance has
+      // already mounted its own host (React StrictMode remounts, and the
+      // deferred teardown in index.ts), and a bare [data-qa-overlay] sweep
+      // would tear that live host out of the document.
       if (typeof document !== 'undefined') {
         document.body
-          .querySelectorAll(':scope > [data-qa-overlay]')
+          .querySelectorAll(':scope > [data-qa-overlay]:not(qapture-overlay)')
           .forEach((el) => el.remove());
       }
     },

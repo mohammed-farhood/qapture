@@ -64,6 +64,36 @@ type LangMap = {
   adjust: string;
   resize: string;
   confirm_region: string;
+  // — v0.3 "Graphite" —
+  capture_failed: string;
+  retry: string;
+  persist_failed: string;
+  note_deleted: string;
+  notes_cleared: string;
+  undo: string;
+  export_done: string;
+  export_failed: string;
+  copied: string;
+  copy_failed: string;
+  copy_prompt: string;
+  severity_label: string;
+  sev_bug: string;
+  sev_question: string;
+  sev_polish: string;
+  status_open: string;
+  status_verified: string;
+  context_attached: string;
+  start_walkthrough: string;
+  step_of: string;
+  next_step: string;
+  prev_step: string;
+  mark_pass: string;
+  mark_fail: string;
+  capture_here: string;
+  exit_walkthrough: string;
+  evidence_n: string;
+  no_evidence: string;
+  expected_label: string;
 };
 
 export type StrKey = keyof LangMap;
@@ -119,6 +149,35 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     adjust:                'Adjust',
     resize:                'Resize',
     confirm_region:        'Confirm region',
+    capture_failed:        'Screenshot failed',
+    retry:                 'Retry',
+    persist_failed:        'Storage full — this note may not survive a reload',
+    note_deleted:          'Note deleted',
+    notes_cleared:         'All notes cleared',
+    undo:                  'Undo',
+    export_done:           'Export downloaded',
+    export_failed:         'Export failed',
+    copied:                'Copied',
+    copy_failed:           'Copy failed',
+    copy_prompt:           'Copy as agent prompt',
+    severity_label:        'Severity',
+    sev_bug:               'Bug',
+    sev_question:          'Question',
+    sev_polish:            'Polish',
+    status_open:           'Open',
+    status_verified:       'Verified',
+    context_attached:      '{n} runtime events attached',
+    start_walkthrough:     'Start walkthrough',
+    step_of:               'Step {n} of {m}',
+    next_step:             'Next',
+    prev_step:             'Back',
+    mark_pass:             'Pass',
+    mark_fail:             'Fail',
+    capture_here:          'Capture here',
+    exit_walkthrough:      'Exit',
+    evidence_n:            '{n} attached',
+    no_evidence:           'ticked, no capture',
+    expected_label:        'Expected',
   },
   ar: {
     tab_notes:             'الملاحظات',
@@ -170,6 +229,35 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     adjust:                'تعديل',
     resize:                'تغيير الحجم',
     confirm_region:        'تأكيد المنطقة',
+    capture_failed:        'فشل التقاط الصورة',
+    retry:                 'إعادة المحاولة',
+    persist_failed:        'مساحة التخزين ممتلئة — قد لا تبقى هذه الملاحظة بعد إعادة التحميل',
+    note_deleted:          'تم حذف الملاحظة',
+    notes_cleared:         'تم مسح جميع الملاحظات',
+    undo:                  'تراجع',
+    export_done:           'تم تنزيل الملف',
+    export_failed:         'فشل التصدير',
+    copied:                'تم النسخ',
+    copy_failed:           'فشل النسخ',
+    copy_prompt:           'نسخ كموجّه للوكيل',
+    severity_label:        'الأهمية',
+    sev_bug:               'خلل',
+    sev_question:          'سؤال',
+    sev_polish:            'تحسين',
+    status_open:           'مفتوح',
+    status_verified:       'تم التحقق',
+    context_attached:      '{n} من أحداث التشغيل مرفقة',
+    start_walkthrough:     'ابدأ الجولة',
+    step_of:               'الخطوة {n} من {m}',
+    next_step:             'التالي',
+    prev_step:             'السابق',
+    mark_pass:             'نجاح',
+    mark_fail:             'فشل',
+    capture_here:          'التقط هنا',
+    exit_walkthrough:      'خروج',
+    evidence_n:            '{n} مرفق',
+    no_evidence:           'مُعلّم بدون التقاط',
+    expected_label:        'المتوقع',
   },
 };
 

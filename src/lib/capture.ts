@@ -30,17 +30,81 @@ import type { QaRect } from '../context/QaContext';
 
 const HTML2CANVAS_TIMEOUT_MS = 10000;
 
+/** Background used when the page declares no opaque background of its own. */
+const FALLBACK_PAGE_BACKGROUND = '#ffffff';
+
+/**
+ * The result of a capture attempt.
+ *  - 'ok'     → a PNG blob was produced
+ *  - 'empty'  → nothing was attempted (SSR, or a degenerate sub-2px rect)
+ *  - 'failed' → html2canvas threw, timed out, or toBlob() yielded null
+ *
+ * 'empty' and 'failed' are deliberately distinct: only 'failed' is worth
+ * offering the tester a Retry for — 'empty' would fail again identically.
+ */
+export type CaptureOutcome =
+  | { status: 'ok'; blob: Blob }
+  | { status: 'empty' }
+  | { status: 'failed' };
+
 /**
  * Race a promise against a timeout, resolving to null if the timeout wins.
  * Used so a hung html2canvas() call (known to happen on pages with heavy
  * CSS filters/SVG/cross-origin images) can't leave capture mode stuck
  * forever — the caller's null-on-failure contract still holds.
+ *
+ * The timer is cleared in .finally() so a fast-resolving capture doesn't
+ * leave a pending timeout holding the event loop open.
  */
 export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
     promise,
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
-  ]);
+    new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), ms);
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+/** True for `transparent` and any rgb()/rgba() colour with a zero alpha. */
+function isTransparent(color: string): boolean {
+  const c = (color || '').trim().toLowerCase();
+  if (!c || c === 'transparent') return true;
+  const m = c.match(/^rgba?\(([^)]+)\)$/);
+  if (!m) return false;
+  // Handles both legacy `rgba(0, 0, 0, 0)` and modern `rgb(0 0 0 / 0)`.
+  const parts = m[1].split(/[,/\s]+/).filter(Boolean);
+  return parts.length >= 4 && parseFloat(parts[3]) === 0;
+}
+
+/**
+ * The colour the captured region should be composited onto.
+ *
+ * html2canvas renders `document.body`, and passing `backgroundColor: null`
+ * makes that render transparent. Most real sites paint their page background
+ * on `<html>` (or on neither, relying on the browser's white default), NOT on
+ * `<body>` — so a transparent render produced screenshots whose background was
+ * empty pixels. A tight element crop hid it (the element covered the hole),
+ * but a dragged region over page whitespace exported a fully blank PNG, and
+ * every capture rendered wrongly against a dark viewer.
+ *
+ * So: use the first opaque background from body → documentElement, and fall
+ * back to white, which is what the browser itself would paint.
+ */
+function resolvePageBackground(): string {
+  if (typeof getComputedStyle !== 'function') return FALLBACK_PAGE_BACKGROUND;
+  for (const el of [document.body, document.documentElement]) {
+    if (!el) continue;
+    try {
+      const bg = getComputedStyle(el).backgroundColor;
+      if (!isTransparent(bg)) return bg;
+    } catch {
+      // getComputedStyle can throw on detached/exotic nodes — keep looking.
+    }
+  }
+  return FALLBACK_PAGE_BACKGROUND;
 }
 
 function toBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
@@ -66,14 +130,17 @@ function toBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
  *   omitted. Passing an explicit snapshot keeps the crop correct even if
  *   momentum/inertial scrolling shifts the page while the html2canvas chunk
  *   is being dynamically imported.
- * @returns PNG Blob, or null if capture fails or SSR
+ * @returns a CaptureOutcome — 'ok' with the PNG blob, 'empty' when nothing was
+ *   attempted (SSR / degenerate rect), or 'failed' when the render broke.
  */
 export async function captureRegion(
   rect: QaRect,
   scroll?: { x: number; y: number }
-): Promise<Blob | null> {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return null;
-  if (!rect || rect.width < 2 || rect.height < 2) return null;
+): Promise<CaptureOutcome> {
+  if (typeof document === 'undefined' || typeof window === 'undefined') {
+    return { status: 'empty' };
+  }
+  if (!rect || rect.width < 2 || rect.height < 2) return { status: 'empty' };
 
   // Snapshot the scroll position now (before the async import below) so a
   // caller-supplied snapshot — or this fallback — can't be shifted by scroll
@@ -93,7 +160,8 @@ export async function captureRegion(
         scale,
         useCORS: true,
         allowTaint: true,
-        backgroundColor: null,
+        // The page's own background, never null — see resolvePageBackground().
+        backgroundColor: resolvePageBackground(),
         logging: false,
         scrollX: sx,
         scrollY: sy,
@@ -108,11 +176,12 @@ export async function captureRegion(
       }),
       HTML2CANVAS_TIMEOUT_MS
     );
-    if (!canvas) return null;
-    return await toBlob(canvas);
+    if (!canvas) return { status: 'failed' };
+    const blob = await toBlob(canvas);
+    return blob ? { status: 'ok', blob } : { status: 'failed' };
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[QA] region capture failed:', err);
-    return null;
+    return { status: 'failed' };
   }
 }

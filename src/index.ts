@@ -81,7 +81,18 @@ export function initQaStudio(config?: QaConfig): { destroy(): void } {
 export function Qapture({ config }: { config?: QaConfig }): null {
   useEffect(() => {
     const instance = initQaStudio(config);
-    return () => instance.destroy();
+    return () => {
+      // Deferred, NOT synchronous. This cleanup runs while React is still
+      // rendering (StrictMode double-invokes effects in dev, and any parent
+      // unmount lands here mid-pass), and instance.destroy() calls
+      // root.unmount() on a SEPARATE React root. Unmounting one root from
+      // inside another root's render is what produces React's "Attempted to
+      // synchronously unmount a root while React was already rendering"
+      // error in every StrictMode consumer app. A microtask lets the current
+      // render pass finish first; ShadowMount's destroy() is written to stay
+      // correct even when a replacement instance has already mounted.
+      queueMicrotask(() => instance.destroy());
+    };
     // intentionally [] — mount once; remount is user-driven
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
