@@ -25,6 +25,14 @@
  *                      at pointer-up so momentum scrolling can't shift crop.
  *
  * Everything here carries data-qa-overlay so it is excluded from html2canvas.
+ * NOTE: data-qa-overlay is shared by every top-level widget piece (FAB, panel,
+ * notice host, test-along HUD, this component, and highlight.ts's flash box)
+ * purely for that exclusion purpose — it does NOT uniquely identify this
+ * component's own subtree, since document order puts <QaFab> and friends
+ * before this component (see QaRoot.tsx). Consumers that need to scope
+ * specifically to "is this element inside CaptureMode's own overlay" (e.g.
+ * the focus-trap test) must use the more specific `data-qa-capture-root`
+ * attribute on the outer div immediately below instead.
  *
  * Ported from CaptureMode.jsx:
  *  - framer-motion removed → CSS card-anim / card-in classes for fade-in
@@ -196,16 +204,28 @@ export default function CaptureMode() {
     lockPageScroll();
     try {
       const outcome = await captureRegion(rect, scrollSnap.current);
-      // Component is gone — don't setState. Nothing to revoke either: no
-      // object URL is created for this blob unless we reach setShotUrl below.
-      if (!mountedRef.current) return;
-
       const blob = outcome.status === 'ok' ? outcome.blob : null;
+      // Create the object URL unconditionally once we have a blob — this
+      // async chain (dynamic import(html2canvas) + a real canvas render)
+      // may well finish AFTER Escape has already cancelled and unmounted
+      // this component. Only the destination for that URL depends on
+      // mount state below: never setState on an unmounted component, and
+      // never leave the blob: URL registration dangling either way.
+      const url = blob ? URL.createObjectURL(blob) : null;
+
+      if (!mountedRef.current) {
+        // Component is gone — nothing to show this to. Revoke immediately
+        // instead of orphaning the blob: URL (it isn't reclaimed by normal
+        // GC; only an explicit revoke frees it).
+        if (url) URL.revokeObjectURL(url);
+        return;
+      }
+
       setCaptureError(outcome.status === 'failed');
       setShot(blob);
       setShotUrl((old) => {
         if (old) URL.revokeObjectURL(old);
-        return blob ? URL.createObjectURL(blob) : null;
+        return url;
       });
     } finally {
       unlockPageScroll();
@@ -516,7 +536,7 @@ export default function CaptureMode() {
   const confirmingRegion = phase === 'confirming' && candidate?.kind === 'region' && coarse;
 
   return (
-    <div data-qa-overlay="true" ref={overlayRootRef}>
+    <div data-qa-overlay="true" data-qa-capture-root="true" ref={overlayRootRef}>
       {/* ── Dimmed interceptor ───────────────────────────────────────────── */}
       <div
         ref={layerRef}

@@ -172,13 +172,25 @@ function buildPreamble(
   }
 
   // ── 6. Login Context ──────────────────────────────────────────────────────
+  // Only credentials explicitly flagged `seeded: true` — i.e. pulled by the
+  // `qapture init` detector from .env.example / seeder files, or hand-marked
+  // seeded by whoever wrote the config — get their password exported in the
+  // clear. `seeded` is the one signal the schema already gives us that a
+  // value is synthetic/throwaway rather than something a human typed in by
+  // hand (which could, by mistake, be a real account). Manually-entered
+  // credentials without that flag are redacted by default: the export is
+  // built for third-party (coding-agent) handoff, so nothing here should
+  // assume a password is safe to leak just because someone put it in
+  // `credentials:` — an unflagged row still shows role/login/hint so the
+  // handoff stays useful, it just withholds the password.
   const creds: QaCredential[] = config.credentials ?? [];
+  const redactedCount = creds.filter((c) => !c.seeded).length;
   let credBlock: string;
   if (creds.length > 0) {
     const credRows = creds.map((c) => [
       c.role,
       c.login,
-      c.password || '(none)',
+      c.seeded ? (c.password || '(none)') : '(redacted — not marked seeded)',
       c.seeded ? 'seeded' : 'manual',
       c.hint?.en ?? '—',
     ]);
@@ -189,10 +201,15 @@ function buildPreamble(
   } else {
     credBlock = '(not provided)';
   }
+  const redactionNote = redactedCount > 0
+    ? ` ${redactedCount} credential${redactedCount === 1 ? '' : 's'} above ${redactedCount === 1 ? 'is' : 'are'} ` +
+      'not marked `seeded: true`, so its password was withheld from this export — set `seeded: true` ' +
+      'in `credentials` only for synthetic/throwaway values (e.g. from a seed script), never for a real account.'
+    : '';
   sections.push(
     `## Login Context\n\n${credBlock}\n\n` +
     '> **WARNING:** These are DEV/TEST/SEED credentials only. ' +
-    'Never forward, commit, or use in production.',
+    `Never forward, commit, or use in production.${redactionNote}`,
   );
 
   // ── 7. Coverage Report ────────────────────────────────────────────────────

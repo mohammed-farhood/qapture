@@ -25,8 +25,20 @@
  *    state while IndexedDB is still answering.
  *  - Soft-delete: `deleteNote`/`clearNotes` remove from state immediately but
  *    only commit the IDB write 5s later, giving the tester a real Undo. A
- *    `beforeunload` + unmount flush guarantees a closed tab never silently
- *    resurrects a note the tester believed was gone.
+ *    `beforeunload` + unmount flush attempts that commit immediately if the
+ *    tab closes mid-window — but per the IndexedDB/HTML spec, async work
+ *    kicked off inside `beforeunload` has NO guarantee of finishing before
+ *    the page is torn down, so that flush alone can't be trusted to land.
+ *    The actual guarantee comes from a second, durable mechanism: the
+ *    instant a note enters its undo window, its id is written to
+ *    `pendingDeleteIds` in localStorage — a genuinely *synchronous* write,
+ *    unlike IDB — and on the NEXT load any id still listed there is
+ *    re-deleted and filtered out of the initial view before the tester ever
+ *    sees it, regardless of whether the original IDB transaction ever
+ *    completed. (This assumes localStorage itself is reachable; in the rare
+ *    environments where it isn't, `createStorage` already degrades to an
+ *    in-memory fallback everywhere else in this file, and this
+ *    reconciliation degrades along with it.)
  *  - Test-along: a guided step-by-step mode over `config.journey`, with its
  *    own pass/fail grading (`guideFailed`, mirroring `guideChecked`'s
  *    persistence) and an evidence index so each step can show which notes
@@ -46,7 +58,7 @@ import {
 } from 'react';
 import type { ResolvedConfig, QaBilingual, QaCredential, QaJourneyLane, QaPreamble } from '../config/schema';
 import { matchRouteToSteps, type QaJourneyRef } from '../lib/journeyMatch';
-import { drainSinceLastNote, collectEnvSnapshot, type QaNoteContext, type QaTargetForensics } from '../lib/contextBuffer';
+import { drainSinceLastNote, collectEnvSnapshot, redactUrl, type QaNoteContext, type QaTargetForensics } from '../lib/contextBuffer';
 import { createStorage } from '../lib/storage';
 import { createIdb } from '../lib/idb';
 import { translate, pick as pickFn } from '../lib/strings';
@@ -272,10 +284,13 @@ const QaContext = createContext<QaContextValue | null>(null);
 
 // localStorage keys (relative to the namespace, no full prefix needed here
 // since createStorage prepends `${namespace}:` automatically)
-const LANG_KEY         = 'lang';
-const GUIDE_KEY        = 'guide';
-const GUIDE_FAILED_KEY = 'guideFailed';
-const LOGIN_KEY        = 'logins';
+const LANG_KEY          = 'lang';
+const GUIDE_KEY         = 'guide';
+const GUIDE_FAILED_KEY  = 'guideFailed';
+const LOGIN_KEY         = 'logins';
+// Durable marker for soft-deletes/clears that are mid-undo-window when the
+// tab closes — see the "Soft-delete" note in the file header comment above.
+const PENDING_DELETE_KEY = 'pendingDeleteIds';
 
 // Notice queue rules (contract §5).
 const NOTICE_QUEUE_CAP     = 3;
@@ -348,10 +363,48 @@ export function QaProvider({
   });
 
   // ── Pending soft-delete / soft-clear (undo window) ──────────────────────
-  const pendingDeletes = useRef<Map<string, { note: QaNote; index: number; timer: ReturnType<typeof setTimeout> }>>(
+  // `afterId` anchors the restore to the note that sat immediately after the
+  // deleted one (in newest-first order) at delete-time, rather than a raw
+  // numeric index — an index captured at delete-time goes stale the moment
+  // any other note is added/removed during the undo window, which can splice
+  // the restored note into the wrong relative position. `afterId` is looked
+  // up fresh (via findIndex) at undo-time; null means the deleted note was
+  // the oldest (last in the array), so it restores back to the end.
+  const pendingDeletes = useRef<Map<string, { note: QaNote; afterId: string | null; timer: ReturnType<typeof setTimeout> }>>(
     new Map(),
   );
   const pendingClear = useRef<{ notes: QaNote[]; timer: ReturnType<typeof setTimeout> } | null>(null);
+
+  // ── Durable pending-delete marker (localStorage) ─────────────────────────
+  // IndexedDB writes started from 'beforeunload' have no platform guarantee
+  // of completing before the tab is torn down, so `flushPendingDeletes`
+  // below cannot, by itself, promise a soft-deleted note stays gone. These
+  // three helpers back that promise with a plain, SYNCHRONOUS localStorage
+  // write instead: the moment a note enters its undo window its id lands
+  // here, and it's only cleared once the real IDB delete is confirmed to
+  // have completed. Anything still listed on the next load gets reconciled
+  // (see the mount effect below) regardless of what happened to the
+  // original transaction.
+  const readPendingDeleteIds = useCallback((): Set<string> => {
+    return new Set(storage.getJSON<string[]>(PENDING_DELETE_KEY, []));
+  }, [storage]);
+
+  const addPendingDeleteIds = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    const current = readPendingDeleteIds();
+    for (const id of ids) current.add(id);
+    storage.setJSON(PENDING_DELETE_KEY, [...current]);
+  }, [storage, readPendingDeleteIds]);
+
+  const removePendingDeleteIds = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    const current = readPendingDeleteIds();
+    let changed = false;
+    for (const id of ids) {
+      if (current.delete(id)) changed = true;
+    }
+    if (changed) storage.setJSON(PENDING_DELETE_KEY, [...current]);
+  }, [storage, readPendingDeleteIds]);
 
   // ── Load notes from IDB on mount ─────────────────────────────────────────
   useEffect(() => {
@@ -359,7 +412,26 @@ export function QaProvider({
     idb.getAll()
       .then((rows) => {
         if (!alive) return;
-        const sorted = (rows as QaNote[]).slice().sort((a, b) =>
+        let live = rows as QaNote[];
+
+        // Reconcile deletes that were mid-undo-window when the tab last
+        // closed. `pendingDeleteIds` was written synchronously the instant
+        // each delete/clear started, so — unlike the beforeunload IDB
+        // flush — it's guaranteed to have survived even if the tab was
+        // torn down before the actual IDB transaction finished. Anything
+        // still listed here means "the tester already dismissed this note
+        // last session"; finish the delete now (a no-op if it already
+        // landed) and strip it from the very first render so it never
+        // flashes back into view.
+        const pendingIds = storage.getJSON<string[]>(PENDING_DELETE_KEY, []);
+        if (pendingIds.length > 0) {
+          const pendingSet = new Set(pendingIds);
+          live = live.filter((n) => !pendingSet.has(n.id));
+          for (const id of pendingIds) void idb.delete(id);
+          storage.setJSON(PENDING_DELETE_KEY, []);
+        }
+
+        const sorted = live.slice().sort((a, b) =>
           a.timestamp < b.timestamp ? 1 : -1,
         );
         setNotes(sorted);
@@ -371,7 +443,7 @@ export function QaProvider({
         if (alive) setNotesLoading(false);
       });
     return () => { alive = false; };
-  }, [idb]);
+  }, [idb, storage]);
 
   // ── Actions — i18n ───────────────────────────────────────────────────────
 
@@ -539,7 +611,12 @@ export function QaProvider({
       forensics?: QaTargetForensics;
     }): Promise<void> => {
       const loc = safeLocation();
-      const route = loc.pathname + loc.search;
+      // Query strings routinely carry tokens/session ids (see redactUrl()'s
+      // doc comment in contextBuffer.ts) and every note ships in an exported
+      // ZIP handed to a third-party agent — so `route`/`url` get the exact
+      // same redaction contextBuffer.ts already applies to every recorded
+      // network/env URL, never the raw `location` value.
+      const route = loc.pathname + (loc.search ? '?…' : '');
 
       // journeyRef: current test-along step, else the first matching journey
       // step for this route, else undefined.
@@ -565,7 +642,7 @@ export function QaProvider({
 
       const note: QaNote = {
         id: uid(),
-        url: loc.href,
+        url: redactUrl(loc.href),
         route,
         timestamp: nowIso(),
         description: (input.description || '').trim(),
@@ -628,32 +705,43 @@ export function QaProvider({
   /**
    * Soft-delete: the note disappears from state (and thus the UI) right away,
    * but the real idb.delete() is deferred SOFT_DELETE_MS so the Undo action on
-   * the toast can restore it at its original index. A tab closed mid-window
-   * is handled by the beforeunload/unmount flush effect below.
+   * the toast can restore it. Restore position is anchored to the id of the
+   * note that sat immediately after it (not a numeric index, which would go
+   * stale if another note is added/removed during the undo window). The
+   * beforeunload/unmount flush effect below makes a best-effort attempt to
+   * commit early if the tab closes mid-window, but the actual guarantee that
+   * the note stays gone comes from `pendingDeleteIds` (written synchronously
+   * just below) plus the reconciliation pass in the mount effect above.
    */
   const deleteNote = useCallback(async (id: string): Promise<void> => {
     let removedNote: QaNote | null = null;
-    let removedIndex = -1;
+    let removedAfterId: string | null = null;
+    let found = false;
     setNotes((prev) => {
       const idx = prev.findIndex((n) => n.id === id);
       if (idx === -1) return prev;
-      removedIndex = idx;
+      found = true;
       removedNote = prev[idx];
+      removedAfterId = prev[idx + 1]?.id ?? null;
       return prev.filter((n) => n.id !== id);
     });
-    if (!removedNote || removedIndex === -1) return;
+    if (!removedNote || !found) return;
 
     const noteToRestore = removedNote;
-    const indexToRestore = removedIndex;
+    const afterIdToRestore = removedAfterId;
 
     const existingPending = pendingDeletes.current.get(id);
     if (existingPending) clearTimeout(existingPending.timer);
 
+    // Durable marker FIRST (synchronous), so it lands even if the tab closes
+    // in the instant between this line and the setTimeout below.
+    addPendingDeleteIds([id]);
+
     const timer = setTimeout(() => {
       pendingDeletes.current.delete(id);
-      void idb.delete(id);
+      void idb.delete(id).then(() => removePendingDeleteIds([id]));
     }, SOFT_DELETE_MS);
-    pendingDeletes.current.set(id, { note: noteToRestore, index: indexToRestore, timer });
+    pendingDeletes.current.set(id, { note: noteToRestore, afterId: afterIdToRestore, timer });
 
     notify(t('note_deleted'), {
       duration: SOFT_DELETE_MS,
@@ -665,16 +753,25 @@ export function QaProvider({
           if (!pending) return; // window already elapsed, or already flushed
           clearTimeout(pending.timer);
           pendingDeletes.current.delete(id);
+          removePendingDeleteIds([id]); // undone — no longer pending a delete
           setNotes((prev) => {
             if (prev.some((n) => n.id === id)) return prev; // already back
             const next = prev.slice();
-            next.splice(Math.min(pending.index, next.length), 0, pending.note);
+            // Re-resolve the anchor's CURRENT index at undo-time: if it's
+            // still around, restore right before it; if it's gone (itself
+            // deleted, or there was no "after" note to begin with), fall
+            // back to the end of the list.
+            const anchorIndex = pending.afterId != null
+              ? next.findIndex((n) => n.id === pending.afterId)
+              : -1;
+            const insertAt = anchorIndex === -1 ? next.length : anchorIndex;
+            next.splice(insertAt, 0, pending.note);
             return next;
           });
         },
       },
     });
-  }, [idb, notify, t]);
+  }, [idb, notify, t, addPendingDeleteIds, removePendingDeleteIds]);
 
   /** Soft-clear: same snapshot + delayed-commit + Undo pattern as deleteNote. */
   const clearNotes = useCallback(async (): Promise<void> => {
@@ -684,19 +781,38 @@ export function QaProvider({
       return [];
     });
 
-    // A full clear supersedes any in-flight single-note soft-deletes: cancel
-    // their timers and dismiss their Undo toasts (their notes are already
-    // gone from `notes`, so they're included in `snapshot` above).
+    // A full clear supersedes any in-flight single-note soft-deletes: their
+    // notes are already gone from `notes` (removed by their own deleteNote
+    // call), so they're NOT in `snapshot` above and the clear's own
+    // idb.delete-per-snapshot-id commit (below) will never touch them.
+    // Cancelling their timer without acting would orphan them in IDB
+    // (deleted from no in-memory tracking structure, but never actually
+    // removed from the store) until a reload resurrects them. Since their
+    // note is already invisible in the view and their individual Undo
+    // affordance is being replaced by the clear's own Undo, commit their
+    // real delete right now instead of leaving it to a timer that's being
+    // cancelled.
     if (pendingClear.current) clearTimeout(pendingClear.current.timer);
     for (const [pendingId, pending] of pendingDeletes.current) {
       clearTimeout(pending.timer);
       dismissNotice(`delete-${pendingId}`);
+      void idb.delete(pendingId).then(() => removePendingDeleteIds([pendingId]));
     }
     pendingDeletes.current.clear();
 
+    // Durable marker FIRST (synchronous) — see deleteNote for why.
+    const snapshotIds = snapshot.map((n) => n.id);
+    addPendingDeleteIds(snapshotIds);
+
     const timer = setTimeout(() => {
       pendingClear.current = null;
-      void idb.clear();
+      // Delete only the ids that were in THIS clear's snapshot — a blanket
+      // idb.clear() would also wipe any note added to the store during the
+      // undo window (e.g. via addNote()), which is unrelated data the
+      // tester never asked to delete.
+      void Promise.all(snapshot.map((n) => idb.delete(n.id))).then(() =>
+        removePendingDeleteIds(snapshotIds),
+      );
     }, SOFT_DELETE_MS);
     pendingClear.current = { notes: snapshot, timer };
 
@@ -710,30 +826,41 @@ export function QaProvider({
           if (!pending) return;
           clearTimeout(pending.timer);
           pendingClear.current = null;
+          removePendingDeleteIds(pending.notes.map((n) => n.id)); // undone
           setNotes(pending.notes);
         },
       },
     });
-  }, [idb, notify, dismissNotice, t]);
+  }, [idb, notify, dismissNotice, t, addPendingDeleteIds, removePendingDeleteIds]);
 
   /**
    * Commit every pending soft-delete/clear for real, right now. Called on
-   * beforeunload AND provider-unmount so closing the tab (or the host
-   * unmounting the widget) mid-undo-window can't silently resurrect a note
-   * the tester believed was gone.
+   * beforeunload AND provider-unmount as a best-effort attempt to land the
+   * IDB write early. This is NOT itself the guarantee that a closed tab
+   * can't resurrect a note — per spec, async work started inside
+   * 'beforeunload' has no guarantee of completing before teardown. The
+   * actual guarantee is `pendingDeleteIds` (see deleteNote/clearNotes)
+   * plus the reconciliation pass in the mount effect above, which cleans up
+   * anything this flush didn't manage to finish in time.
    */
   const flushPendingDeletes = useCallback(() => {
     for (const [pendingId, pending] of pendingDeletes.current) {
       clearTimeout(pending.timer);
-      void idb.delete(pendingId);
+      void idb.delete(pendingId).then(() => removePendingDeleteIds([pendingId]));
     }
     pendingDeletes.current.clear();
     if (pendingClear.current) {
+      const { notes: clearedNotes } = pendingClear.current;
       clearTimeout(pendingClear.current.timer);
       pendingClear.current = null;
-      void idb.clear();
+      // Same rationale as the deferred-commit branch in clearNotes(): only
+      // delete the ids from this clear's snapshot, never the whole store.
+      const clearedIds = clearedNotes.map((n) => n.id);
+      void Promise.all(clearedNotes.map((n) => idb.delete(n.id))).then(() =>
+        removePendingDeleteIds(clearedIds),
+      );
     }
-  }, [idb]);
+  }, [idb, removePendingDeleteIds]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;

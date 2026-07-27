@@ -55,11 +55,11 @@ function installUrlLog() {
   const origRevoke = URL.revokeObjectURL.bind(URL);
   URL.createObjectURL = (obj) => {
     const u = origCreate(obj);
-    window.__qaUrlLog.push({ type: 'create', url: u });
+    window.__qaUrlLog.push({ type: 'create', url: u, t: Date.now(), stack: new Error().stack });
     return u;
   };
   URL.revokeObjectURL = (u) => {
-    window.__qaUrlLog.push({ type: 'revoke', url: u });
+    window.__qaUrlLog.push({ type: 'revoke', url: u, t: Date.now(), stack: new Error().stack });
     return origRevoke(u);
   };
 }
@@ -1212,7 +1212,9 @@ try {
       await page3.keyboard.press('Tab'); // forward tabs
       const inside = await page3.evaluate(() => {
         const sr = window.__qaSR();
-        const overlayRoot = sr.querySelector('[data-qa-overlay]');
+        // See note below (Shift+Tab loop) on why this must be the
+        // CaptureMode-specific marker, not the shared data-qa-overlay one.
+        const overlayRoot = sr.querySelector('[data-qa-capture-root]');
         const active = sr.activeElement;
         return !!overlayRoot && !!active && overlayRoot.contains(active);
       });
@@ -1224,7 +1226,16 @@ try {
       await page3.keyboard.up('Shift');
       const inside = await page3.evaluate(() => {
         const sr = window.__qaSR();
-        const overlayRoot = sr.querySelector('[data-qa-overlay]');
+        // NOTE: data-qa-overlay is a SHARED marker (FAB, panel, notice host,
+        // test-along HUD, CaptureMode itself, and highlight.ts's flash box
+        // all carry it, purely so html2canvas excludes them from screenshots).
+        // QaFab renders before CaptureMode in QaRoot's tree, so a plain
+        // `sr.querySelector('[data-qa-overlay]')` resolves to the bare FAB
+        // <button> (no children) — containment against THAT can never be
+        // true for anything except the FAB itself, which made this assertion
+        // falsely fail on tab 0 regardless of whether focus actually stayed
+        // inside CaptureMode. Use CaptureMode's own specific marker instead.
+        const overlayRoot = sr.querySelector('[data-qa-capture-root]');
         const active = sr.activeElement;
         return !!overlayRoot && !!active && overlayRoot.contains(active);
       });
@@ -1335,8 +1346,10 @@ try {
     // queued, which avoids an unrelated same-batch scheduling ambiguity
     // between two independent state updates; it's still "immediately", well
     // before the capture can possibly have resolved.
+    const tClick = Date.now();
     await page4.mouse.click(pt4.x, pt4.y);
     await sleep(20);
+    const tEscape = Date.now();
     await page4.keyboard.press('Escape');
 
     // The old version of this check just waited a fixed 2500ms and asserted
@@ -1348,25 +1361,59 @@ try {
     // proved nothing about revoke behavior specifically.
     //
     // First, explicitly wait for (and require) at least one createObjectURL
-    // call — i.e. confirm the capture actually progressed far enough to
-    // produce a blob — before we ask whether it was revoked. Empirically
-    // (see task notes) the FIXED code's create(+immediate-revoke, since the
-    // component is already unmounted) reliably lands within ~1s of the
-    // click; this timeout is well beyond that with margin to spare.
+    // call FROM CAPTUREMODE'S OWN runCapture() code path — i.e. confirm the
+    // capture actually progressed far enough to produce a blob — before we
+    // ask whether it was revoked. Empirically (see task notes) the FIXED
+    // code's create(+immediate-revoke, since the component is already
+    // unmounted) reliably lands within ~1s of the click; this timeout is
+    // well beyond that with margin to spare.
+    //
+    // Scoped to CaptureMode.tsx specifically (via the call-site stack, which
+    // installUrlLog captures on every create/revoke) rather than "any create
+    // at all" — this page's Notes tab can independently mount NoteList rows
+    // that own their own legitimate, correctly-cleaned-up thumbnail object
+    // URLs (see NoteList.tsx's useObjectUrl), and Escape here calls
+    // endCapture() with its default reopen=true, which reopens the panel and
+    // can remount NoteList right in this same window. An unscoped check both
+    // (a) could pass vacuously on a NoteList create instead of a real
+    // CaptureMode one, and (b) could fail on a NoteList URL that is not yet
+    // due to be revoked (its row is still mounted) — neither says anything
+    // about CaptureMode's own leak behavior, which is what this test claims
+    // to verify. (Filtering happens inside the page.evaluate/waitForFunction
+    // closures below, not here — those run in the browser and can't close
+    // over a Node-side helper.)
     const CREATE_WAIT_MS = 5000;
     let sawCreate = true;
     try {
       await page4.waitForFunction(
-        (from) => window.__qaUrlLog.slice(from).some((e) => e.type === 'create'),
+        (from) => window.__qaUrlLog.slice(from).some((e) => e.type === 'create' && typeof e.stack === 'string' && e.stack.includes('CaptureMode.tsx')),
         { timeout: CREATE_WAIT_MS },
         markIndex,
       );
     } catch {
       sawCreate = false;
     }
+
+    // Failure-only diagnostics: this assertion has been observed to flake
+    // once under heavy CPU load (all 5 pages + IndexedDB + html2canvas +
+    // clipboard spies sharing one Chrome process) without reproducing in
+    // isolation. Rather than only "reproduced or not", dump the wall-clock
+    // timeline (click/Escape times + every create/revoke with ms-since-click)
+    // so a future flake can actually be diagnosed from the failure output.
+    const dumpTimeline = async () => {
+      const entries = await page4.evaluate((from) => window.__qaUrlLog.slice(from), markIndex);
+      const rel = (t) => `${t - tClick}ms`;
+      const lines = [
+        `  click: t=0 (${new Date(tClick).toISOString()})`,
+        `  Escape: t=${rel(tEscape)}`,
+        ...entries.map((e) => `  ${e.type}: t=${rel(e.t)} url=${e.url}\n${e.stack}`),
+      ];
+      return lines.length > 2 ? lines.join('\n') : `${lines.join('\n')}\n  (no create/revoke observed at all)`;
+    };
+
     if (!sawCreate) {
       throw new Error(
-        `Bug #19: no createObjectURL call was observed within ${CREATE_WAIT_MS}ms of an Escape-cancelled capture — the abandoned capture's continuation never completed, so revoke behavior couldn't even be exercised (on the fixed code this reliably fires within ~1s)`,
+        `Bug #19: no createObjectURL call was observed within ${CREATE_WAIT_MS}ms of an Escape-cancelled capture — the abandoned capture's continuation never completed, so revoke behavior couldn't even be exercised (on the fixed code this reliably fires within ~1s)\n${await dumpTimeline()}`,
       );
     }
 
@@ -1376,13 +1423,20 @@ try {
 
     const outstanding = await page4.evaluate((from) => {
       const entries = window.__qaUrlLog.slice(from);
-      const created = entries.filter((e) => e.type === 'create').map((e) => e.url);
+      const isCaptureMode = (e) => typeof e.stack === 'string' && e.stack.includes('CaptureMode.tsx');
+      const created = entries.filter((e) => e.type === 'create' && isCaptureMode(e)).map((e) => e.url);
+      // A CaptureMode-created URL can legitimately be revoked either by
+      // runCapture's own "unmounted, revoke immediately" branch (still
+      // stamped CaptureMode.tsx) or by the shotUrl cleanup effect — both are
+      // CaptureMode's own code, so isCaptureMode() covers both revoke sites.
+      // Revokes are NOT filtered further than that: only requiring the URL
+      // itself to be one CaptureMode created is enough to prove a match.
       const revokedSet = new Set(entries.filter((e) => e.type === 'revoke').map((e) => e.url));
       return created.filter((u) => !revokedSet.has(u));
     }, markIndex);
 
     if (outstanding.length > 0) {
-      throw new Error(`Bug #19: ${outstanding.length} blob URL(s) created during a capture cancelled mid-flight (Escape before html2canvas finished) were never revoked: ${JSON.stringify(outstanding)}`);
+      throw new Error(`Bug #19: ${outstanding.length} blob URL(s) created during a capture cancelled mid-flight (Escape before html2canvas finished) were never revoked: ${JSON.stringify(outstanding)}\n${await dumpTimeline()}`);
     }
     console.log('27. Bug #19: capture cancelled mid-flight (Escape before html2canvas finished) DID create a blob URL (confirmed, not vacuous) and it was revoked with zero outstanding: ok');
   }

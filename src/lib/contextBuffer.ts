@@ -42,7 +42,14 @@ export type QaEnvSnapshot = {
 };
 
 export type QaTargetForensics = {
-  /** Truncated, escaped outerHTML of the captured element. */
+  /**
+   * Truncated outerHTML of the captured element. Live-value-bearing
+   * attributes (`value`, `checked`, `selected`) and `<textarea>` text
+   * content are stripped from the element AND every descendant before
+   * capture — see `sanitizeForForensics` — so this can never carry a real
+   * password/email/PII field value, matching the "no form value is ever
+   * touched" guarantee in SECURITY.md.
+   */
   html?: string;
   styles?: Record<string, string>;
   a11y?: {
@@ -71,6 +78,23 @@ const MAX_HTML_CHARS = 600;
 
 let ring: QaContextEvent[] = [];
 let installed = false;
+/**
+ * Nested-mount reference count. React StrictMode's dev-mode double-invoke
+ * (effect runs → cleanup runs → effect runs again) combined with this
+ * widget's DEFERRED destroy() (queued via queueMicrotask specifically so it
+ * never unmounts one React root synchronously while another is still
+ * rendering — see the doc comment on <Qapture>'s effect in index.ts) means
+ * the SECOND (surviving) mount's installContextCapture() call can run and
+ * correctly no-op (capture already active) BEFORE the FIRST (StrictMode
+ * throwaway) mount's deferred destroy() finally fires. With a plain
+ * boolean, that deferred uninstallContextCapture() call tore down
+ * console.error/fetch/XHR wrapping entirely — silently killing context
+ * capture for the still-live surviving instance, even though its own widget
+ * kept working normally otherwise. Counting nested install() calls and only
+ * actually restoring the originals once the count returns to zero keeps
+ * capture alive for as long as ANY mounted instance still wants it.
+ */
+let refCount = 0;
 
 /** Index into `ring` marking what has already been attached to a note. */
 let drainedUpTo = 0;
@@ -147,6 +171,7 @@ export function redactUrl(raw: string): string {
  * twice and recurse through the saved original.
  */
 export function installContextCapture(): void {
+  refCount += 1;
   if (installed) return;
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
   installed = true;
@@ -241,9 +266,14 @@ export function installContextCapture(): void {
   }
 }
 
-/** Restore every wrapped global. Safe to call when not installed. */
+/**
+ * Restore every wrapped global. Safe to call when not installed. Only
+ * actually restores once the nested-mount refCount returns to zero — see
+ * the comment on `refCount` above.
+ */
 export function uninstallContextCapture(): void {
-  if (!installed) return;
+  if (refCount > 0) refCount -= 1;
+  if (!installed || refCount > 0) return;
   installed = false;
 
   if (original.consoleError) console.error = original.consoleError;
@@ -332,6 +362,35 @@ function parseRgb(color: string): [number, number, number] | null {
 }
 
 /**
+ * Attributes that mirror a field's current value in the raw DOM/HTML
+ * (uncontrolled/plain HTML forms, autofill, and server-rendered forms all
+ * routinely set these) rather than being purely structural. Forensics must
+ * never ship one of these — see PRIVACY note at the top of this file and
+ * SECURITY.md's "no form value is ever touched" guarantee.
+ */
+const SENSITIVE_FORENSICS_ATTRS = ['value', 'checked', 'selected'];
+
+/**
+ * Returns a detached clone of `el` with every live field value scrubbed from
+ * it AND all of its descendants — a tester can capture a container element
+ * (a form, a card) that merely *contains* a password/email input, not just
+ * the input itself, so this has to walk the whole subtree rather than just
+ * `el`. `<textarea>` stores its live value as text content rather than an
+ * attribute, so that is cleared too.
+ */
+function sanitizeForForensics(el: Element): Element {
+  const clone = el.cloneNode(true) as Element;
+  const nodes: Element[] = [clone, ...Array.from(clone.querySelectorAll('*'))];
+  for (const node of nodes) {
+    for (const attr of SENSITIVE_FORENSICS_ATTRS) {
+      if (node.hasAttribute(attr)) node.removeAttribute(attr);
+    }
+    if (node.tagName === 'TEXTAREA') node.textContent = '';
+  }
+  return clone;
+}
+
+/**
  * Facts about the captured element itself — what it actually is in the DOM,
  * how it's styled, and whether it's reachable. Answers the questions an agent
  * would otherwise have to ask ("is it a real <button>?", "is it even
@@ -342,7 +401,7 @@ export function collectTargetForensics(el: Element): QaTargetForensics {
   if (!el || typeof window === 'undefined') return out;
 
   try {
-    out.html = clip(el.outerHTML, MAX_HTML_CHARS);
+    out.html = clip(sanitizeForForensics(el).outerHTML, MAX_HTML_CHARS);
   } catch {
     // Detached or exotic node.
   }

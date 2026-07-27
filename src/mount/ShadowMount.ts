@@ -62,7 +62,15 @@ export function mountQaStudio(config: ResolvedConfig): QaStudioInstance {
 
   return {
     destroy() {
-      uninstallContextCapture();
+      // Mirror the mount-time condition exactly: uninstallContextCapture()
+      // decrements a shared nested-mount refCount (see contextBuffer.ts), so
+      // an instance that never incremented it (captureContext: false) must
+      // never decrement it either — otherwise it could consume a ref-count
+      // token that belongs to a DIFFERENT, still-live instance and cause a
+      // premature restore of the wrapped globals out from under it.
+      if (config.captureContext !== false) {
+        uninstallContextCapture();
+      }
 
       try {
         root.unmount();
