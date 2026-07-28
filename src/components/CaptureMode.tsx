@@ -513,18 +513,41 @@ export default function CaptureMode() {
   };
 
   // ── Popover placement (reused for the annotating card + confirm toolbar) ─
+  //
+  // The annotation card's real height varies a lot (screenshot preview,
+  // location-reveal toggle, severity chips, description, footer) and grows
+  // over time as features are added — a fixed height guess here previously
+  // decided "does it fit below?" and got that wrong once the card grew past
+  // the guess, placing it below an element that was itself already low on
+  // the page. The result: the card's footer (Save/Cancel) rendered past the
+  // bottom of the viewport with no way to reach it — capture-mode locks page
+  // scroll (see lockPageScroll() below), and the card itself had no internal
+  // scroll of its own, so it was genuinely stuck off-screen.
+  //
+  // Fixed two ways, belt-and-suspenders like clampRegionRect() above:
+  //  1. Pick whichever side (above/below the target) has MORE room, instead
+  //     of guessing a fixed card height — this is right far more often.
+  //  2. Independent of that guess, cap maxHeight to whatever room is
+  //     actually available on the chosen side and let the card scroll
+  //     internally (see the qa-overflow-y-auto class below) — so even a
+  //     wrong above/below guess, or a card taller than fits either way,
+  //     never leaves any part of it unreachable.
   const popStyleFor = useCallback((r: QaRect): React.CSSProperties => {
     if (typeof window === 'undefined') return {};
-    const below = r.top + r.height + 12;
-    const placeAbove = below + 220 > window.innerHeight;
-    const top = placeAbove ? Math.max(12, r.top - 12) : below;
+    const margin = 12;
+    const spaceBelow = window.innerHeight - (r.top + r.height + margin);
+    const spaceAbove = r.top - margin;
+    const placeAbove = spaceBelow < spaceAbove;
+    const top = placeAbove ? Math.max(margin, r.top - margin) : r.top + r.height + margin;
     let left = r.left;
     left = Math.min(left, window.innerWidth - 340);
-    left = Math.max(12, left);
+    left = Math.max(margin, left);
+    const available = (placeAbove ? spaceAbove : spaceBelow) - margin;
     return {
       top,
       left,
       transform: placeAbove ? 'translateY(-100%)' : 'none',
+      maxHeight: `max(${margin * 4}px, ${Math.max(0, available)}px)`,
     };
   }, []);
 
@@ -750,6 +773,15 @@ export default function CaptureMode() {
           className={`qa-fixed qa-z-10096 qa-w-320 qa-overflow-hidden qa-rounded-xl qa-border qa-border-subtle qa-elev-3 qa-card-anim${cardIn ? ' qa-card-in' : ''}`}
           style={{
             ...popStyle,
+            // popStyle's maxHeight caps this to whatever room is actually
+            // available above/below the target; overflowY lets the card
+            // itself scroll internally rather than ever rendering content
+            // (most importantly the Save button) somewhere the page's own
+            // scroll — locked during capture — can't reach. overflowX stays
+            // hidden so the qa-overflow-hidden class's rounded-corner
+            // clipping is preserved on that axis.
+            overflowY: 'auto',
+            overflowX: 'hidden',
             background: 'var(--qa-surface-1)',
           }}
         >

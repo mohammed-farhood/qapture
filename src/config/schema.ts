@@ -311,6 +311,60 @@ function coerceJourney(raw: unknown, warnings: string[]): QaJourneyLane[] {
   return out;
 }
 
+/**
+ * If this config clearly supports Arabic somewhere — loginField.ar, a
+ * journey lane's role, a credential's roleAr/hint.ar — flag every OTHER
+ * bilingual field that's missing its "ar" half: a plain string (QaBilingual
+ * accepts one, but it can never carry a translation) or an {en}-only object.
+ *
+ * Silent when the config never uses Arabic anywhere: an English-only project
+ * shouldn't get a warning it has no way to act on. But once ANY field proves
+ * the project cares about Arabic-language testers, every other field that
+ * silently falls back to English is a real gap, not a style choice — a
+ * `journey[].steps[].what` is the exact prose a tester reads to know what to
+ * test; a plain string there just IS the English text, permanently, no
+ * matter what language the reader is testing in.
+ */
+function warnMissingArabic(
+  loginField: { en: string; ar?: string },
+  credentials: QaCredential[],
+  journey: QaJourneyLane[],
+  warnings: string[],
+): void {
+  const hasAr = (v: QaBilingual | undefined): boolean =>
+    typeof v === 'object' && v !== null && isNonEmptyString(v.ar);
+
+  const usesArabic =
+    isNonEmptyString(loginField.ar) ||
+    credentials.some((c) => isNonEmptyString(c.roleAr) || hasAr(c.hint)) ||
+    journey.some((lane) => hasAr(lane.role) || lane.steps.some((s) => hasAr(s.what) || hasAr(s.expect)));
+
+  if (!usesArabic) return;
+
+  const missing: string[] = [];
+  for (const lane of journey) {
+    for (const step of lane.steps) {
+      if (!hasAr(step.what)) missing.push(`journey "${lane.id}" → ${step.path} (what)`);
+      if (step.expect !== undefined && !hasAr(step.expect)) {
+        missing.push(`journey "${lane.id}" → ${step.path} (expect)`);
+      }
+    }
+  }
+  for (const c of credentials) {
+    if (!isNonEmptyString(c.roleAr)) missing.push(`credentials role="${c.role}" (roleAr)`);
+    if (c.hint !== undefined && !hasAr(c.hint)) missing.push(`credentials role="${c.role}" (hint.ar)`);
+  }
+
+  if (!missing.length) return;
+
+  const LIMIT = 6;
+  const shown = missing.slice(0, LIMIT).join('; ');
+  const rest = missing.length > LIMIT ? ` (+${missing.length - LIMIT} more)` : '';
+  warnings.push(
+    `Arabic is used elsewhere in this config, but ${missing.length} bilingual field(s) have no "ar" and will show English to an Arabic-language tester: ${shown}${rest}. Every {en, ar} pair needs BOTH filled in — a plain string or an {en}-only object reads identically to a bilingual field that was simply never translated.`
+  );
+}
+
 function coercePreamble(raw: unknown): QaPreamble | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -449,6 +503,8 @@ export function validateConfig(
       warnings.push('visible: expected boolean — using default (dev-only)');
     }
   }
+
+  warnMissingArabic(loginField, credentials, journey, warnings);
 
   return {
     config: {

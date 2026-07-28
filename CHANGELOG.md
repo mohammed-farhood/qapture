@@ -3,7 +3,38 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.3.0] "Graphite" — 2026-07-28
+## [0.3.1] — 2026-07-28
+
+Two real bugs found within hours of 0.3.0 shipping, by actually installing it
+into a live project rather than only the playground.
+
+### Fixed
+
+- **The capture-mode annotation card could render partially off-screen with
+  no way to reach it.** Its above/below placement guessed a fixed ~220px
+  card height to decide which side had room; the card has grown well past
+  that since (severity chips, forensics, screenshot preview), so the guess
+  was routinely wrong, and the card had no internal scroll of its own — with
+  page scroll locked during capture, the Save button could be genuinely
+  unreachable. Fixed two ways: the placement now picks whichever side
+  (above/below the selected element) has more room instead of guessing a
+  height, and — independent of that heuristic ever being right — the card is
+  now capped to whatever room is actually available and scrolls internally,
+  so no part of it can ever be stuck beyond both the viewport and the page's
+  own (locked) scroll.
+- **A bilingual field silently missing its Arabic translation had no
+  signal at all.** `QaBilingual` (`journey[].steps[].what`/`expect`,
+  `credentials[].hint`, etc.) accepts a plain string or an `{en}`-only
+  object as a language-neutral fallback — correct for a project that never
+  uses Arabic, but silent and easy to miss in a bilingual one, where it just
+  reads as "this text was never translated" to whoever switches the widget
+  to Arabic. `validateConfig` now detects when a config clearly supports
+  Arabic elsewhere (`loginField.ar`, a journey role, a credential's
+  `roleAr`/`hint.ar`) and, only then, warns with the exact list of fields
+  still missing their `ar` half. Silent for English-only configs — nothing
+  to act on there.
+
+
 
 A breaking release. The widget's chrome is rebuilt on a fixed, self-contained
 dark design ("Graphite") with custom themes removed entirely, and a batch of
