@@ -3,7 +3,7 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.3.0] "Graphite" — Unreleased
+## [0.3.0] "Graphite" — 2026-07-28
 
 A breaking release. The widget's chrome is rebuilt on a fixed, self-contained
 dark design ("Graphite") with custom themes removed entirely, and a batch of
