@@ -25,7 +25,14 @@ Captured notes and screenshots are stored exclusively in the tester's browser:
 - **IndexedDB** — notes stored in `${namespace}-db` (object stores: `notes`, `meta`)
 - **localStorage** — UI state stored under keys prefixed `${namespace}:`
 
-No data is transmitted anywhere. Data leaves the browser **only** when the tester explicitly clicks Export, which generates a local ZIP download. No automatic upload occurs.
+No data is transmitted anywhere. Data leaves the browser **only** when the tester explicitly asks for it:
+
+- **Export** generates a local ZIP download.
+- **Share** (v0.5, where the platform supports it) hands that same ZIP to the operating system's share sheet. The file goes from the page to the OS; where it travels next is the tester's choice. Qapture never uploads it.
+- **Save to a folder** (v0.4) writes notes to a directory the tester picked themselves, on their own disk.
+- **Automatic backups** (v0.5) are ordinary local downloads to the browser's download location, on the same origin, with no network involved.
+
+No automatic upload occurs in any of these paths.
 
 ### Runtime context capture
 

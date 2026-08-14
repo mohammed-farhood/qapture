@@ -58,11 +58,13 @@ import {
 } from 'react';
 import type { ResolvedConfig, QaBilingual, QaCredential, QaJourneyLane, QaPreamble } from '../config/schema';
 import { matchRouteToSteps, type QaJourneyRef } from '../lib/journeyMatch';
-import { drainSinceLastNote, readRecentSteps, collectEnvSnapshot, redactUrl, type QaNoteContext, type QaTargetForensics } from '../lib/contextBuffer';
+import { drainSinceLastNote, readRecentSteps, collectEnvSnapshot, redactUrl, onIssue, type QaIssue, type QaNoteContext, type QaTargetForensics } from '../lib/contextBuffer';
 import { createStorage } from '../lib/storage';
 import { createIdb } from '../lib/idb';
 import { translate, pick as pickFn } from '../lib/strings';
-import { buildAndDownloadZip } from '../lib/exportZip';
+import { buildAndDownloadZip, buildZipBlob, exportFileName } from '../lib/exportZip';
+import { canShareFiles, shareZipFile, type ShareOutcome } from '../lib/shareZip';
+import { captureRegion } from '../lib/capture';
 import {
   getExactCaptureStatus,
   isExactCaptureSupported,
@@ -162,6 +164,15 @@ export type QaNote = {
   status?: 'open' | 'fixed' | 'verified';
   journeyRef?: QaJourneyRef;
   context?: QaNoteContext;
+  /**
+   * v0.5 — proof of a re-test. When a note in the `fixed` state is re-checked,
+   * Qapture re-shoots the same target and stores the new image here, beside
+   * the original. "Is it actually fixed?" stops being a memory exercise: the
+   * before and after sit next to each other in the note, the export and the
+   * folder report.
+   */
+  afterScreenshot?: Blob;
+  afterAt?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -312,8 +323,11 @@ export type QaContextValue = {
   clearNotes: () => Promise<void>;
 
   // Actions — capture mode
-  startCapture: () => void;
+  /** @param prefill - seed the annotation box (the error catcher uses this). */
+  startCapture: (prefill?: string) => void;
   endCapture: (reopen?: boolean) => void;
+  /** Text the annotation box should open with, consumed by CaptureMode. */
+  capturePrefill: string;
 
   // Actions — guide + logins
   toggleGuide: (key: string) => void;
@@ -370,6 +384,27 @@ export type QaContextValue = {
   setAutoBackup: (on: boolean) => void;
   /** How many notes between automatic backups. */
   autoBackupEvery: number;
+
+  // ── v0.5 ─────────────────────────────────────────────────────────────────
+  /** Offer to capture crashes and failed requests the tester may not have seen. */
+  errorCatcher: boolean;
+  setErrorCatcher: (on: boolean) => void;
+  /** Whether this browser can hand a file to the OS share sheet. */
+  canShare: boolean;
+  /** Build the ZIP and offer it to the share sheet. */
+  shareExport: (filename?: string) => Promise<ShareOutcome>;
+  /**
+   * Set when a share was refused because the tap had gone stale — the archive
+   * is built and waiting for one fresh tap. See shareZip.ts.
+   */
+  pendingShare: { blob: Blob; filename: string } | null;
+  /** Share the already-built archive. MUST be called straight from a click. */
+  sharePending: () => Promise<ShareOutcome>;
+  /** Re-shoot a note's target now and store it as the "after" image. */
+  retestNote: (id: string) => Promise<boolean>;
+  /** True until the tester dismisses the first-run card. */
+  showWelcome: boolean;
+  dismissWelcome: () => void;
 
   // ── v0.4: note filtering + view modes ────────────────────────────────────
   filter: QaNoteFilter;
@@ -437,6 +472,8 @@ const LAST_CAMPAIGN_KEY = 'lastCampaign';    // {project, campaign, tester}
 // v0.5
 const AUTO_BACKUP_KEY   = 'autoBackup';      // '0' to opt out
 const AUTO_BACKUP_AT_KEY = 'autoBackupAt';   // note count of the last backup
+const ERROR_CATCHER_KEY = 'errorCatcher';    // '0' to opt out
+const WELCOME_SEEN_KEY  = 'welcomeSeen';
 
 // Notice queue rules (contract §5).
 const NOTICE_QUEUE_CAP     = 3;
@@ -446,6 +483,12 @@ const NOTICE_DURATION_ERROR = 6000;
 const SOFT_DELETE_MS = 5000;
 /** Notes between automatic backup downloads (v0.5). */
 const AUTO_BACKUP_EVERY = 5;
+/**
+ * Quiet period after an error prompt. Long enough that a page throwing in a
+ * loop can't turn into a wall of toasts, short enough that a second, genuinely
+ * different failure a minute later still gets offered.
+ */
+const ISSUE_PROMPT_COOLDOWN_MS = 45000;
 
 // ---------------------------------------------------------------------------
 // Provider
@@ -570,6 +613,19 @@ export function QaProvider({
   const [compactCapture, setCompactCaptureState] = useState<boolean>(
     () => storage.getItem(COMPACT_KEY) === '1',
   );
+  // v0.5
+  const [capturePrefill, setCapturePrefill] = useState('');
+  const [errorCatcher, setErrorCatcherState] = useState<boolean>(
+    () => storage.getItem(ERROR_CATCHER_KEY) !== '0',
+  );
+  const [pendingShare, setPendingShare] = useState<{ blob: Blob; filename: string } | null>(null);
+  const [showWelcome, setShowWelcome] = useState<boolean>(
+    () => storage.getItem(WELCOME_SEEN_KEY) !== '1',
+  );
+  // One prompt per outage, not one per thrown error.
+  const lastIssuePromptAt = useRef(0);
+  const promptedIssues = useRef<Set<string>>(new Set());
+
   // v0.5: automatic backup for everyone who can't use folder saving.
   const [autoBackup, setAutoBackupState] = useState<boolean>(
     () => storage.getItem(AUTO_BACKUP_KEY) !== '0',
@@ -1191,8 +1247,9 @@ export function QaProvider({
 
   // ── Actions — capture mode ───────────────────────────────────────────────
 
-  const startCapture = useCallback(() => {
+  const startCapture = useCallback((prefill?: string) => {
     setIsOpen(false);
+    setCapturePrefill(prefill ?? '');
     setCaptureActive(true);
     // Re-acquire the tab stream for a tester who already opted into exact
     // screenshots. This runs inside the click that started capture, which is
@@ -1487,6 +1544,168 @@ export function QaProvider({
     });
   }, [notes, filter, currentRoute]);
 
+  // ── v0.5: error catcher ──────────────────────────────────────────────────
+
+  const setErrorCatcher = useCallback((on: boolean) => {
+    setErrorCatcherState(on);
+    storage.setItem(ERROR_CATCHER_KEY, on ? '1' : '0');
+  }, [storage]);
+
+  /**
+   * Offer to capture things that broke without the tester noticing.
+   *
+   * The context buffer has always seen every uncaught error and failed
+   * request; until now it only attached them to notes the tester thought to
+   * file. The most valuable bug is the one nobody reported because nobody
+   * saw it — a crash behind a spinner, a 500 on a background save — so when
+   * one happens we offer a one-tap capture with the error already written
+   * into the note.
+   *
+   * Restraint is the whole design here. A prompt that fires on every console
+   * line, or three times for one broken page, gets dismissed reflexively and
+   * then ignored forever, so: only real breakage (see announce() in
+   * contextBuffer.ts), never while the tester is already capturing, never the
+   * same message twice, and at most one per cooldown.
+   */
+  useEffect(() => {
+    if (!errorCatcher) return undefined;
+    return onIssue((issue: QaIssue) => {
+      if (captureActive) return;
+      const now = Date.now();
+      if (now - lastIssuePromptAt.current < ISSUE_PROMPT_COOLDOWN_MS) return;
+      const key = issue.summary.slice(0, 120);
+      if (promptedIssues.current.has(key)) return;
+
+      lastIssuePromptAt.current = now;
+      promptedIssues.current.add(key);
+
+      const headline = issue.summary.length > 90 ? `${issue.summary.slice(0, 90)}…` : issue.summary;
+      notify(t('issue_spotted'), {
+        tone: 'error',
+        id: 'issue-spotted',
+        duration: 9000,
+        action: {
+          label: t('issue_capture'),
+          // Seed the note with what actually broke, so the tester adds
+          // context instead of transcribing an error message.
+          onAction: () => startCapture(`${t('issue_prefill')}: ${headline}`),
+        },
+      });
+    });
+  }, [errorCatcher, captureActive, notify, t, startCapture]);
+
+  // ── v0.5: sharing ────────────────────────────────────────────────────────
+
+  const canShare = canShareFiles();
+
+  const shareExport = useCallback(async (filename?: string): Promise<ShareOutcome> => {
+    if (!notes.length) return { status: 'unsupported' };
+    const stamp = nowIso();
+    const name = exportFileName(filename, stamp);
+    setIsExporting(true);
+    try {
+      const blob = await buildZipBlob(notes, stamp, config, guideChecked);
+      if (!blob) return { status: 'unsupported' };
+      const outcome = await shareZipFile(blob, name, config.brand.label);
+      if (outcome.status === 'needs-gesture') {
+        // Keep the built archive so one more tap can send it — see shareZip.ts.
+        setPendingShare({ blob, filename: name });
+      } else if (outcome.status === 'unsupported') {
+        // Nothing to share with: fall back to the path that always works.
+        await buildAndDownloadZip(notes, stamp, filename, config, guideChecked);
+      }
+      return outcome;
+    } catch {
+      return { status: 'unsupported' };
+    } finally {
+      setIsExporting(false);
+    }
+  }, [notes, config, guideChecked]);
+
+  const sharePending = useCallback(async (): Promise<ShareOutcome> => {
+    const pending = pendingShare;
+    if (!pending) return { status: 'unsupported' };
+    const outcome = await shareZipFile(pending.blob, pending.filename, config.brand.label);
+    if (outcome.status !== 'needs-gesture') setPendingShare(null);
+    return outcome;
+  }, [pendingShare, config.brand.label]);
+
+  // ── v0.5: re-test (before/after) ─────────────────────────────────────────
+
+  /**
+   * Re-shoot a note's target as it looks right now.
+   *
+   * The re-test queue tells a tester WHAT to check; this answers "is it
+   * actually fixed?" with evidence instead of memory. The target is found the
+   * same way "Locate on page" finds it — the stored CSS selector first, its
+   * captured rectangle as a fallback — then captured and stored beside the
+   * original.
+   */
+  const retestNote = useCallback(async (id: string): Promise<boolean> => {
+    const note = notesRef.current.find((n) => n.id === id);
+    if (!note || typeof document === 'undefined') return false;
+
+    let rect: QaRect | null = null;
+    const selector = note.target?.selector;
+    if (selector) {
+      try {
+        const el = document.querySelector(selector);
+        if (el) {
+          el.scrollIntoView({ block: 'center', inline: 'center' });
+          // Let the scroll settle before measuring, or the shot lands where
+          // the element WAS.
+          await new Promise((r) => setTimeout(r, 350));
+          const r = el.getBoundingClientRect();
+          if (r.width >= 2 && r.height >= 2) {
+            rect = { top: r.top, left: r.left, width: r.width, height: r.height };
+          }
+        }
+      } catch {
+        // An exotic/stale selector just falls through to the rect below.
+      }
+    }
+    if (!rect && note.target?.rect) {
+      // A region has no selector. Its rect was viewport-relative at capture
+      // time, so re-anchor it against the scroll position we recorded then.
+      const scroll = note.target.scroll ?? { x: 0, y: 0 };
+      rect = {
+        top: note.target.rect.top + scroll.y - window.scrollY,
+        left: note.target.rect.left + scroll.x - window.scrollX,
+        width: note.target.rect.width,
+        height: note.target.rect.height,
+      };
+    }
+    if (!rect) {
+      notify(t('retest_not_found'), { tone: 'error', id: 'retest' });
+      return false;
+    }
+
+    const outcome = await captureRegion(rect);
+    if (outcome.status !== 'ok') {
+      notify(t('retest_failed'), { tone: 'error', id: 'retest' });
+      return false;
+    }
+
+    const updated: QaNote = {
+      ...note,
+      afterScreenshot: outcome.blob,
+      afterAt: nowIso(),
+    };
+    applyNotes((prev) => prev.map((n) => (n.id === id ? updated : n)));
+    const persisted = await idb.put(updated);
+    if (!persisted) notify(t('persist_failed'), { tone: 'error', id: 'persist_failed' });
+    await syncNoteThrough(updated);
+    notify(t('retest_done'), { tone: 'success', id: 'retest' });
+    return true;
+  }, [idb, notify, t, applyNotes, syncNoteThrough]);
+
+  // ── v0.5: first-run card ─────────────────────────────────────────────────
+
+  const dismissWelcome = useCallback(() => {
+    setShowWelcome(false);
+    storage.setItem(WELCOME_SEEN_KEY, '1');
+  }, [storage]);
+
   // ── Context value ─────────────────────────────────────────────────────────
 
   const value: QaContextValue = {
@@ -1534,6 +1753,7 @@ export function QaProvider({
     clearNotes,
     startCapture,
     endCapture,
+    capturePrefill,
     toggleGuide,
     toggleLogin,
 
@@ -1577,6 +1797,17 @@ export function QaProvider({
     autoBackup,
     setAutoBackup,
     autoBackupEvery: AUTO_BACKUP_EVERY,
+
+    // v0.5
+    errorCatcher,
+    setErrorCatcher,
+    canShare,
+    shareExport,
+    pendingShare,
+    sharePending,
+    retestNote,
+    showWelcome,
+    dismissWelcome,
 
     // v0.4 — filtering + view modes
     filter,

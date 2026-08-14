@@ -77,6 +77,7 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
     stopSyncCampaign, forgetSyncFolder, suggestCampaignName, lastCampaign,
     storageHealth, refreshStorageHealth, requestPersistentStorage, dropAllScreenshots,
     autoBackup, setAutoBackup, autoBackupEvery,
+    errorCatcher, setErrorCatcher,
     exactShots, enableExactShots, disableExactShots,
     simpleMode, setSimpleMode, compactCapture, setCompactCapture,
     notes,
@@ -324,6 +325,24 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
             </button>
           )}
         </Section>
+
+        <div className="qa-h-px qa-bg-3 qa-mt-3 qa-mb-4" />
+
+        {/* ── 3b. Catch what the tester misses ────────────────────────────── */}
+        <label className="qa-flex qa-items-start qa-gap-2 qa-text-xs qa-text-hi" style={{ cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={errorCatcher}
+            onChange={(e) => setErrorCatcher(e.target.checked)}
+            style={{ marginTop: 2 }}
+          />
+          <span>
+            {t('error_catcher_label')}
+            <span className="qa-block qa-text-10 qa-text-lo qa-leading-relaxed">
+              {t('error_catcher_hint')}
+            </span>
+          </span>
+        </label>
 
         <div className="qa-h-px qa-bg-3 qa-mt-3 qa-mb-4" />
 

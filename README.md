@@ -49,6 +49,10 @@ Not a breaking release. Notes from 0.3.x and 0.4.x read back unchanged.
 | **A capture shortcut** | `Alt+Shift+C` (`Option+Shift+C` on macOS) jumps straight into capture from anywhere; press again to back out. Configurable via `captureHotkey`. |
 | **A re-test queue** | Note status is now Open → **Re-test** → Verified. "Re-test" is the state that tells a tester what to check on the next build, with a filter chip and a header badge so the queue can't be missed. |
 | **Automatic backups** | A backup ZIP downloads every 5 notes, for everyone who can't use folder saving (Safari, Firefox, phones). Pauses itself while folder saving is on. |
+| **Catches what you miss** | When the page throws an error or a request fails, Qapture offers a one-tap capture with the error already written in — the bug nobody reported because nobody saw it. |
+| **Before / after on a re-test** | A note in the re-test queue gets a "Re-test now" button that re-shoots the same target, so "is it actually fixed?" is answered with a picture. |
+| **Share (phones)** | Hands the campaign ZIP to the OS share sheet — WhatsApp, Mail, Files, AirDrop — because a "download" on a phone lands where nobody finds it. |
+| **A welcome card** | Three lines, shown once, for someone who was just handed a beta link. |
 
 ---
 

@@ -167,7 +167,52 @@ type Original = {
 };
 const original: Original = {};
 
+/**
+ * Subscribers notified when something breaks (v0.5 "error catcher").
+ *
+ * The buffer has always SEEN every crash and failed request; it just waited
+ * to be asked. The most valuable bug is the one the tester never noticed —
+ * an uncaught exception behind a spinner, a 500 on a background save — so
+ * the widget now offers to capture it at the moment it happens.
+ *
+ * Only genuine breakage is announced: uncaught errors, unhandled rejections,
+ * and network calls that failed outright or came back 5xx. `console.error`
+ * is deliberately excluded — apps log to it constantly, including on purpose,
+ * and a prompt per console line would be unusable.
+ */
+export type QaIssue = {
+  t: number;
+  kind: 'error' | 'network';
+  /** One line a human can read on a toast. */
+  summary: string;
+};
+
+type IssueListener = (issue: QaIssue) => void;
+const issueListeners = new Set<IssueListener>();
+
+/** Subscribe to "something just broke". Returns an unsubscribe function. */
+export function onIssue(fn: IssueListener): () => void {
+  issueListeners.add(fn);
+  return () => { issueListeners.delete(fn); };
+}
+
+function announce(ev: QaContextEvent): void {
+  if (!issueListeners.size) return;
+  let issue: QaIssue | null = null;
+  if (ev.kind === 'error') {
+    issue = { t: ev.t, kind: 'error', summary: ev.message };
+  } else if (ev.kind === 'network' && (ev.status === null || ev.status >= 500)) {
+    const what = ev.status === null ? (ev.error ?? 'failed') : String(ev.status);
+    issue = { t: ev.t, kind: 'network', summary: `${ev.method} ${ev.url} → ${what}` };
+  }
+  if (!issue) return;
+  for (const fn of issueListeners) {
+    try { fn(issue); } catch { /* a broken subscriber must not break capture */ }
+  }
+}
+
 function push(ev: QaContextEvent): void {
+  announce(ev);
   ring.push(ev);
   if (ring.length > RING_CAP) {
     const overflow = ring.length - RING_CAP;

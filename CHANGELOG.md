@@ -59,6 +59,41 @@ every new field is optional.
   There's a filter chip for it and a badge in the panel header, so a queue
   can't sit there unnoticed.
 
+- **Catch what the tester didn't notice.** When the page throws an uncaught
+  error or a request fails outright (or comes back 5xx), Qapture offers a
+  one-tap capture — with the error already written into the note, so the
+  tester adds context instead of transcribing a stack trace. The buffer has
+  always *seen* these; until now it only attached them to notes someone
+  thought to file, and the most valuable bug is the one nobody reported
+  because nobody saw it: a crash behind a spinner, a failed background save.
+
+  Restraint is the design: `console.error` is excluded (apps log to it
+  constantly, often on purpose), never fires while the tester is already
+  capturing, never repeats the same message, and at most one prompt per 45
+  seconds. Off switch in Settings.
+
+- **Re-test evidence — before and after.** A note sitting in the re-test queue
+  gets a **Re-test now** button: it finds the same target again (by its stored
+  CSS selector, falling back to the captured rectangle), re-shoots it, and
+  stores the new image beside the original. "Is it actually fixed?" is
+  answered with a picture instead of memory, and both images travel into the
+  export (`point-N.webp` and `point-N-after.webp`) and the campaign folder.
+
+- **Share, for phones.** Where the platform can hand a file to the OS share
+  sheet, the export dialog gains a **Share** button that sends the campaign
+  ZIP straight to WhatsApp, Mail, Files or AirDrop. On a phone a "download"
+  lands somewhere the tester will never find it, which quietly made phone
+  testing useless. Sharing is subject to the browser's user-gesture rule and
+  building a ZIP is slow, so a share refused for a stale gesture is treated as
+  normal: the archive is kept and a "Share now" button appears, one fresh tap
+  away. Where sharing isn't available at all, it falls back to a download.
+
+- **A welcome card.** Three lines, once, for someone who was handed a beta
+  link and has no idea what the floating button is: what this is, how to
+  report something, and that their work saves itself. Deliberately does not
+  explain severity, journeys, folders or export — a wall of instructions is
+  how a tester decides the tool is someone else's problem.
+
 - **Automatic backups.** A backup ZIP downloads every 5 notes. Folder saving
   (0.4) solves this properly but only exists on Chromium desktop; a tester on
   Safari, Firefox or a phone was still one closed tab away from losing
@@ -69,13 +104,16 @@ every new field is optional.
 
 ### Tests
 
-- New **`npm run loop-features-test`** — real Chrome, 19 assertions across all
-  five features, asserting on the stored data rather than the UI: the shortcut
-  enters and leaves capture mode, the step trail records the right things in
-  the right order **and provably does not contain a secret typed into a
-  field**, the status pill cycles through all three states and raises the
-  header badge, a backup download fires on the 5th note, and a drawn mark ends
-  up in the saved screenshot's pixels.
+- New **`npm run loop-features-test`** — real Chrome, 33 assertions across
+  every feature in this release, asserting on the stored data rather than the
+  UI: the shortcut enters and leaves capture mode; the step trail records the
+  right things in the right order **and provably does not contain a secret
+  typed into a field**; the status pill cycles all three states and raises the
+  header badge; a backup download fires on the 5th note; a drawn mark ends up
+  in the saved screenshot's pixels; the welcome card appears once and stays
+  gone across a reload; a failed request produces a capture prompt whose note
+  opens pre-filled with the error; re-testing stores a real "after" image and
+  renders both; and Share hands over exactly one genuine `.zip` File.
 
 ## [0.4.0] "Ledger" — 2026-08-14
 

@@ -156,7 +156,7 @@ function StatusPill({
 // ---------------------------------------------------------------------------
 
 function NoteItem({ note, index }: { note: QaNote; index: number }) {
-  const { deleteNote, updateNote, notify, t } = useQa();
+  const { deleteNote, updateNote, retestNote, notify, t } = useQa();
   const [editing, setEditing] = useState(false);
   const [desc, setDesc] = useState(note.description);
   const [img, setImg] = useState<Blob | null>(note.screenshot ?? null);
@@ -166,6 +166,8 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const thumbUrl = useObjectUrl(editing ? (img ?? undefined) : note.screenshot);
+  const afterUrl = useObjectUrl(note.afterScreenshot);
+  const [retesting, setRetesting] = useState(false);
 
   // UI defaults per contract §4 — undefined reads as 'bug' / 'open'.
   const severity: QaSeverity = note.severity ?? 'bug';
@@ -366,12 +368,59 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
               </div>
             )}
           </div>
-          {thumbUrl && (
+          {/* Re-test: re-shoot this exact target as it looks NOW, so "is it
+              actually fixed?" is answered with evidence rather than memory.
+              Offered only while the note is in the re-test queue. */}
+          {status === 'fixed' && note.target && (
+            <button
+              type="button"
+              disabled={retesting}
+              onClick={() => {
+                setRetesting(true);
+                void retestNote(note.id).finally(() => setRetesting(false));
+              }}
+              className="qa-tap qa-mt-2 qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-lg qa-border qa-border-subtle qa-bg-warn-tint qa-text-warn qa-px-2 qa-py-1 qa-text-11 qa-font-medium"
+              style={{ cursor: retesting ? 'default' : 'pointer' }}
+            >
+              <Icon
+                name={retesting ? 'Loader2' : 'RotateCcw'}
+                size={12}
+                className={retesting ? 'qa-animate-spin' : undefined}
+              />
+              {t('retest_now')}
+            </button>
+          )}
+
+          {thumbUrl && !afterUrl && (
             <img
               src={thumbUrl}
               alt="screenshot"
               className="qa-mt-2 qa-w-full qa-rounded-lg qa-border qa-border-subtle"
             />
+          )}
+
+          {/* Before / after, stacked rather than side by side: at panel width
+              two half-size screenshots are unreadable. */}
+          {afterUrl && (
+            <div className="qa-mt-2 qa-space-y-1">
+              {thumbUrl && (
+                <>
+                  <span className="qa-text-10 qa-text-lo">{t('before_label')}</span>
+                  <img
+                    src={thumbUrl}
+                    alt={t('before_label')}
+                    className="qa-w-full qa-rounded-lg qa-border qa-border-subtle"
+                  />
+                </>
+              )}
+              <span className="qa-text-10 qa-text-success">{t('after_label')}</span>
+              <img
+                src={afterUrl}
+                alt={t('after_label')}
+                className="qa-w-full qa-rounded-lg qa-border"
+                style={{ borderColor: 'var(--qa-success)' }}
+              />
+            </div>
           )}
         </>
       )}

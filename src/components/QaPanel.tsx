@@ -48,6 +48,7 @@ import NoteEditor from './NoteEditor';
 import NoteList from './NoteList';
 import NoteFilterBar from './NoteFilterBar';
 import SettingsSheet from './SettingsSheet';
+import WelcomeCard from './WelcomeCard';
 import CredentialsSection from './CredentialsSection';
 import GuideSection from './GuideSection';
 import { computeCoverage } from '../lib/coverage';
@@ -126,6 +127,7 @@ export default function QaPanel() {
     brand,
     journey, guideChecked,
     simpleMode, sync, storageHealth, noteCounts, setFilter,
+    showWelcome, canShare, shareExport, pendingShare, sharePending, notify,
   } = useQa();
 
   const [confirmClear, setConfirmClear] = useState(false);
@@ -314,6 +316,19 @@ export default function QaPanel() {
   const openNaming = () => { setFilename(todayName()); setNaming(true); };
   const doExport   = () => { setNaming(false); void exportZip(filename); };
 
+  /**
+   * Share, with the two-tap fallback the Web Share API forces on us: if
+   * building the ZIP outlives the browser's idea of "this came from a tap",
+   * the archive is kept and a "Share now" button appears (see shareZip.ts).
+   */
+  const doShare = () => {
+    setNaming(false);
+    void shareExport(filename).then((outcome) => {
+      if (outcome.status === 'needs-gesture') notify(t('share_ready'), { id: 'share' });
+      else if (outcome.status === 'unsupported') notify(t('share_failed'), { tone: 'error', id: 'share' });
+    });
+  };
+
   // Soft gate: compute coverage only while the naming dialog is open.
   // computeCoverage is a pure, fast function so calling it on each render is fine.
   const namingCoverage = naming ? computeCoverage(journey, guideChecked) : null;
@@ -445,7 +460,7 @@ export default function QaPanel() {
 
         {/* global capture button */}
         <button
-          onClick={startCapture}
+          onClick={() => startCapture()}
           title={t('capture_cta')}
           aria-label={t('capture_cta')}
           className="qa-tap-icon qa-rounded-lg qa-border qa-border-subtle qa-bg-transparent qa-text-hi qa-hover-bg-2 qa-transition"
@@ -492,6 +507,18 @@ export default function QaPanel() {
         </div>
       )}
 
+      {/* A built-and-waiting archive: one fresh tap sends it. */}
+      {pendingShare && (
+        <button
+          onClick={() => { void sharePending(); }}
+          className="qa-tap qa-flex qa-items-center qa-justify-center qa-gap-1.5 qa-px-3 qa-py-2 qa-text-xs qa-font-semibold qa-bg-accent"
+          style={{ border: 'none', cursor: 'pointer' }}
+        >
+          <Icon name="Send" size={14} />
+          {t('share_now')}
+        </button>
+      )}
+
       {/* separator */}
       <div className="qa-h-px qa-bg-3" />
 
@@ -499,6 +526,7 @@ export default function QaPanel() {
       <div className="qa-flex-1 qa-space-y-3 qa-overflow-y-auto qa-p-3 qa-bg-0">
         {(simpleMode || activeTab === 'notes') && (
           <>
+            {showWelcome && <WelcomeCard />}
             <NoteEditor />
             <NoteFilterBar />
             <NoteList />
@@ -593,6 +621,19 @@ export default function QaPanel() {
                 <Icon name="Check" size={16} />
                 {t('export')}
               </button>
+              {/* On a phone a "download" lands somewhere the tester will never
+                  find. Share hands the archive to the OS sheet — WhatsApp,
+                  Mail, Files — which is how a phone actually sends anything. */}
+              {canShare && (
+                <button
+                  onClick={doShare}
+                  className="qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-lg qa-border qa-border-subtle qa-px-3 qa-py-2 qa-text-sm qa-text-hi qa-tap"
+                  style={{ background: 'transparent', cursor: 'pointer' }}
+                >
+                  <Icon name="Send" size={16} />
+                  {t('share')}
+                </button>
+              )}
               <button
                 onClick={() => setNaming(false)}
                 className="qa-inline-flex qa-items-center qa-gap-1 qa-rounded-lg qa-border qa-border-subtle qa-px-3 qa-py-2 qa-text-sm qa-text-hi qa-tap"

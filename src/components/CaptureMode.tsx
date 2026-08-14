@@ -160,6 +160,7 @@ export default function CaptureMode() {
     addNote, endCapture, t, dir,
     compactCapture, setCompactCapture,
     exactShots, enableExactShots,
+    capturePrefill,
   } = useQa();
   const coarse = useCoarsePointer();
   const layerRef = useRef<HTMLDivElement>(null);
@@ -179,7 +180,10 @@ export default function CaptureMode() {
   // Retry) from a degenerate selection that never attempted one (shows the
   // plain no_shot copy, since retrying would fail identically).
   const [captureError, setCaptureError] = useState(false);
-  const [description, setDescription] = useState('');
+  // Seeded from context so the error catcher can open capture with the error
+  // already written in. This component only exists while capture is active,
+  // so the initial value applies exactly once per capture session.
+  const [description, setDescription] = useState(capturePrefill);
   const [severity, setSeverity] = useState<Severity>('bug');
   // Forensics for the DOM element behind the CURRENT selection/candidate —
   // collected the moment an 'element' (not 'region') target is picked, and

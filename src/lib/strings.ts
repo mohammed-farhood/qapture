@@ -160,6 +160,27 @@ type LangMap = {
   draw_undo: string;
   draw_clear: string;
   capture_shortcut: string;
+  // — v0.5.1 —
+  issue_spotted: string;
+  issue_capture: string;
+  issue_prefill: string;
+  error_catcher_label: string;
+  error_catcher_hint: string;
+  share: string;
+  share_now: string;
+  share_ready: string;
+  share_failed: string;
+  retest_now: string;
+  retest_done: string;
+  retest_failed: string;
+  retest_not_found: string;
+  before_label: string;
+  after_label: string;
+  welcome_title: string;
+  welcome_capture: string;
+  welcome_say: string;
+  welcome_safe: string;
+  welcome_got_it: string;
 };
 
 export type StrKey = keyof LangMap;
@@ -308,6 +329,26 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     draw_undo:             'Undo',
     draw_clear:            'Clear',
     capture_shortcut:      'Shortcut: {keys}',
+    issue_spotted:         'Something just broke on this page',
+    issue_capture:         'Capture it',
+    issue_prefill:         'Error seen',
+    error_catcher_label:   'Tell me when something breaks',
+    error_catcher_hint:    'Offers a one-tap capture when the page throws an error or a request fails — including the ones you did not notice.',
+    share:                 'Share',
+    share_now:             'Share now',
+    share_ready:           'Your notes are packed and ready to send',
+    share_failed:          "Couldn't share — downloaded instead",
+    retest_now:            'Re-test now',
+    retest_done:           'Re-shot — compare below',
+    retest_failed:         "Couldn't re-shoot this one",
+    retest_not_found:      "Can't find that spot on this page — open the right page first",
+    before_label:          'Before',
+    after_label:           'After',
+    welcome_title:         'Testing {brand}',
+    welcome_capture:       'Click "Capture from page", then click whatever looks wrong.',
+    welcome_say:           'Say what you expected in your own words. A screenshot is taken for you.',
+    welcome_safe:          'Everything saves as you go — you cannot lose it.',
+    welcome_got_it:        'Got it',
   },
   ar: {
     tab_notes:             'الملاحظات',
@@ -452,6 +493,26 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     draw_undo:             'تراجع',
     draw_clear:            'مسح',
     capture_shortcut:      'الاختصار: {keys}',
+    issue_spotted:         'حدث خلل للتو في هذه الصفحة',
+    issue_capture:         'التقطه',
+    issue_prefill:         'خطأ ظهر',
+    error_catcher_label:   'أخبرني عند حدوث خلل',
+    error_catcher_hint:    'يعرض التقاطًا بضغطة واحدة عند حدوث خطأ أو فشل طلب — حتى ما لم تلاحظه.',
+    share:                 'مشاركة',
+    share_now:             'شارك الآن',
+    share_ready:           'ملاحظاتك جاهزة للإرسال',
+    share_failed:          'تعذّرت المشاركة — تم التنزيل بدلًا من ذلك',
+    retest_now:            'أعد الاختبار الآن',
+    retest_done:           'تم التقاط صورة جديدة — قارن بالأسفل',
+    retest_failed:         'تعذّر التقاط صورة جديدة',
+    retest_not_found:      'تعذّر إيجاد ذلك الموضع في هذه الصفحة — افتح الصفحة الصحيحة أولًا',
+    before_label:          'قبل',
+    after_label:           'بعد',
+    welcome_title:         'اختبار {brand}',
+    welcome_capture:       'اضغط «التقاط من الصفحة» ثم اضغط على ما يبدو خاطئًا.',
+    welcome_say:           'اكتب ما كنت تتوقعه بكلماتك. تُلتقط الصورة تلقائيًا.',
+    welcome_safe:          'كل شيء يُحفظ أولًا بأول — لن تفقد شيئًا.',
+    welcome_got_it:        'فهمت',
   },
 };
 

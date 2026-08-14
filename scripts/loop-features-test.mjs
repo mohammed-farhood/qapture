@@ -13,6 +13,13 @@
 //   3. RE-TEST QUEUE      — the status pill cycles open → fixed → verified.
 //   4. AUTO-BACKUP        — a backup download fires on the 5th note.
 //   5. DRAW ON THE SHOT   — marks are flattened into the stored screenshot.
+//   6. WELCOME CARD       — shown once to a first-time tester, then never.
+//   7. ERROR CATCHER      — a failed request offers a one-tap capture, with
+//      the error already written into the note.
+//   8. RE-TEST EVIDENCE   — "Re-test now" re-shoots the target and stores it
+//      as the after image beside the original.
+//   9. SHARE              — where the OS can take a file, the archive is
+//      handed to the share sheet as a real .zip File.
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -48,6 +55,17 @@ try {
     window.__qaSR = () => document.querySelector('qapture-overlay')?.shadowRoot;
     // Count backup downloads: exportZip appends an <a download> and clicks it.
     window.__qaDownloads = [];
+    // Headless Chrome has no share sheet. Stub it so the share PATH is tested
+    // (button renders, a real File is handed over) rather than skipped.
+    window.__qaShared = null;
+    navigator.canShare = () => true;
+    navigator.share = (data) => {
+      window.__qaShared = {
+        title: data.title,
+        files: (data.files || []).map((f) => ({ name: f.name, type: f.type, size: f.size })),
+      };
+      return Promise.resolve();
+    };
     document.addEventListener('click', (e) => {
       const a = e.target;
       if (a && a.tagName === 'A' && a.hasAttribute('download')) {
@@ -74,6 +92,33 @@ try {
       })));
     };
   }));
+
+  // ── 6. Welcome card (first, while this browser is still "new") ─────────
+  await page.evaluate(() => { window.__qaSR().querySelector('button').click(); });
+  await sleep(600);
+  const welcomeText = await page.evaluate(() => {
+    const sr = window.__qaSR();
+    const note = sr.querySelector('[role="note"]');
+    return note ? note.textContent : '';
+  });
+  ok(/Testing/i.test(welcomeText), `6. a first-time tester sees a welcome card (got "${(welcomeText || '').slice(0, 40)}…")`);
+  ok(/Got it/i.test(welcomeText), '6. the welcome card has a single dismiss action');
+
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /got it/i.test(x.textContent || ''));
+    if (b) b.click();
+  });
+  await sleep(400);
+  ok(!(await page.evaluate(() => !!window.__qaSR().querySelector('[role="note"]'))),
+    '6. dismissing it removes it');
+  await page.reload({ waitUntil: 'networkidle2' });
+  await sleep(1200);
+  await page.evaluate(() => { window.__qaSR().querySelector('button').click(); });
+  await sleep(700);
+  ok(!(await page.evaluate(() => !!window.__qaSR().querySelector('[role="note"]'))),
+    '6. and it stays gone after a reload');
+  await page.evaluate(() => { window.__qaSR().querySelector('button').click(); }); // close panel
+  await sleep(400);
 
   // ── 1. Capture shortcut ────────────────────────────────────────────────
   await page.keyboard.down('Alt');
@@ -272,6 +317,153 @@ try {
     ok(redFraction > 0.0005,
       `5. the drawn mark is burned into the SAVED screenshot (${(redFraction * 100).toFixed(2)}% red pixels)`);
   }
+  // ── 7. Error catcher ───────────────────────────────────────────────────
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /got it/i.test(x.textContent || ''));
+    if (b) b.click();
+    const sr = window.__qaSR();
+    if (sr.querySelector('[data-qa-capture-root]')) {
+      const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+      document.dispatchEvent(esc);
+    }
+  });
+  await sleep(400);
+
+  // A request that fails outright — the kind of breakage a tester misses.
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => /failing fetch/i.test(x.textContent || ''));
+    if (b) b.click();
+  });
+  await sleep(1500);
+
+  const prompt = await page.evaluate(() => {
+    const sr = window.__qaSR();
+    const text = sr.textContent || '';
+    return {
+      shown: /just broke/i.test(text),
+      hasAction: [...sr.querySelectorAll('button')].some((b) => /capture it/i.test(b.textContent || '')),
+    };
+  });
+  ok(prompt.shown, '7. a failed request offers to capture what just broke');
+  ok(prompt.hasAction, '7. the prompt carries a one-tap capture action');
+
+  if (prompt.hasAction) {
+    await page.evaluate(() => {
+      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /capture it/i.test(x.textContent || ''));
+      if (b) b.click();
+    });
+    await sleep(700);
+    ok(await inCapture(), '7. tapping it enters capture mode');
+    // The annotation box only exists once something is selected — the tester
+    // still points at WHERE it broke; the prefill is waiting for them there.
+    const errTarget = await page.evaluate(() => {
+      const el = [...document.querySelectorAll('h2')][0];
+      const r = el.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    await page.mouse.click(errTarget.x, errTarget.y);
+    await sleep(2600);
+    const prefill = await page.evaluate(() => {
+      const ta = window.__qaSR().querySelector('textarea');
+      return ta ? ta.value : '';
+    });
+    ok(/Error seen/i.test(prefill) && prefill.length > 12,
+      `7. the note opens with the error already written in (got "${prefill.slice(0, 50)}…")`);
+    await page.keyboard.press('Escape');
+    await sleep(400);
+  }
+
+  // ── 8. Re-test evidence ────────────────────────────────────────────────
+  // Capture a real element, mark it fixed, then re-shoot it.
+  await page.keyboard.down('Alt'); await page.keyboard.down('Shift');
+  await page.keyboard.press('KeyC');
+  await page.keyboard.up('Shift'); await page.keyboard.up('Alt');
+  await sleep(500);
+  const retestTarget = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('h2')][0];
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await page.mouse.click(retestTarget.x, retestTarget.y);
+  await sleep(2600);
+  const ta2 = (await page.evaluateHandle(() => window.__qaSR().querySelector('textarea'))).asElement();
+  if (ta2) { await ta2.click(); await ta2.type('retest fixture'); }
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /save point/i.test(x.textContent || ''));
+    if (b) b.click();
+  });
+  await sleep(1200);
+
+  // Open the panel and move the note into the re-test queue.
+  await page.evaluate(() => {
+    const sr = window.__qaSR();
+    if (![...sr.querySelectorAll('li')].length) sr.querySelector('button').click();
+  });
+  await sleep(500);
+  await page.evaluate(() => {
+    const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes('retest fixture'));
+    const pill = li && [...li.querySelectorAll('button')].find((b) => /Open/.test(b.textContent || ''));
+    if (pill) pill.click();
+  });
+  await sleep(600);
+
+  const hasRetestButton = await page.evaluate(() => {
+    const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes('retest fixture'));
+    return li ? [...li.querySelectorAll('button')].some((b) => /re-test now/i.test(b.textContent || '')) : false;
+  });
+  ok(hasRetestButton, '8. a note in the re-test queue offers "Re-test now"');
+
+  await page.evaluate(() => {
+    const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes('retest fixture'));
+    const b = li && [...li.querySelectorAll('button')].find((x) => /re-test now/i.test(x.textContent || ''));
+    if (b) b.click();
+  });
+  await sleep(4000);
+
+  const retested = await page.evaluate(() => new Promise((resolve) => {
+    const req = indexedDB.open('playground-db');
+    req.onerror = () => resolve(null);
+    req.onsuccess = () => {
+      const all = req.result.transaction('notes', 'readonly').objectStore('notes').getAll();
+      all.onerror = () => resolve(null);
+      all.onsuccess = () => {
+        const n = all.result.find((x) => x.description === 'retest fixture');
+        resolve(n ? { hasAfter: !!n.afterScreenshot, afterAt: n.afterAt, afterSize: n.afterScreenshot?.size ?? 0 } : null);
+      };
+    };
+  }));
+  ok(retested?.hasAfter, '8. re-testing stores an "after" screenshot on the note');
+  ok((retested?.afterSize ?? 0) > 0 && !!retested?.afterAt,
+    `8. the after image has real bytes and a timestamp (${retested?.afterSize} bytes)`);
+
+  const showsBoth = await page.evaluate(() => {
+    const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes('retest fixture'));
+    if (!li) return false;
+    const text = li.textContent || '';
+    return /Before/.test(text) && /After/.test(text) && li.querySelectorAll('img').length >= 2;
+  });
+  ok(showsBoth, '8. the note shows the before and after images together');
+
+  // ── 9. Share ───────────────────────────────────────────────────────────
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^Export$/i.test((x.textContent || '').trim()));
+    if (b) b.click();
+  });
+  await sleep(600);
+  const hasShare = await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^Share$/i.test((x.textContent || '').trim()));
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  ok(hasShare, '9. the export dialog offers Share where the OS can take a file');
+  await sleep(3500);
+  const shared = await page.evaluate(() => window.__qaShared);
+  ok(!!shared && shared.files?.length === 1, '9. sharing hands over exactly one file');
+  ok(/\.zip$/.test(shared?.files?.[0]?.name || ''),
+    `9. the shared file is the campaign archive (got "${shared?.files?.[0]?.name}")`);
+  ok((shared?.files?.[0]?.size ?? 0) > 500,
+    `9. the shared archive has real content (${shared?.files?.[0]?.size} bytes)`);
 } finally {
   await browser.close();
   server.kill('SIGTERM');
@@ -281,4 +473,4 @@ if (failures > 0) {
   console.error(`\nLOOP FEATURES: ${failures} assertion(s) FAILED`);
   process.exit(1);
 }
-console.log('\nLOOP FEATURES PASS ✅  shortcut + steps + re-test queue + auto-backup + drawing');
+console.log('\nLOOP FEATURES PASS ✅  shortcut + steps + re-test queue + auto-backup + drawing + welcome + error catcher + re-test evidence + share');

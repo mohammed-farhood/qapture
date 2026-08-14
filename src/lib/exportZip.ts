@@ -293,15 +293,14 @@ function buildPreamble(
  * @param config       - resolved config supplying brand/theme/credentials/journey/preamble
  * @param guideChecked - set of checked guide step keys for coverage computation
  */
-export async function buildAndDownloadZip(
+export async function buildZipBlob(
   notes:         QaNote[],
   stamp:         string,
-  filename?:     string,
   config?:       ExportConfig,
   guideChecked?: Set<string>,
-): Promise<void> {
+): Promise<Blob | null> {
   // SSR guard — browser-only API
-  if (typeof document === 'undefined') return;
+  if (typeof document === 'undefined') return null;
 
   const { default: JSZip } = await import('jszip');
   const zip   = new JSZip();
@@ -356,10 +355,31 @@ export async function buildAndDownloadZip(
       // Must match the reference noteMarkdown.ts writes into notes.md.
       shots.file(`point-${i + 1}.${shotExtension(n.screenshot)}`, n.screenshot);
     }
+    if (n.afterScreenshot && shots) {
+      shots.file(`point-${i + 1}-after.${shotExtension(n.afterScreenshot)}`, n.afterScreenshot);
+    }
   });
 
-  // ── Generate + download ───────────────────────────────────────────────────
-  const blob = await zip.generateAsync({ type: 'blob' });
+  return zip.generateAsync({ type: 'blob' });
+}
+
+/**
+ * Build the ZIP and hand it to the browser as a download.
+ *
+ * Split from buildZipBlob() in v0.5 so the same archive can also be handed to
+ * the phone's share sheet (see shareZip()) — on a phone a "download" lands
+ * somewhere the tester will never find, while Share puts it straight into
+ * WhatsApp, Mail or Files.
+ */
+export async function buildAndDownloadZip(
+  notes:         QaNote[],
+  stamp:         string,
+  filename?:     string,
+  config?:       ExportConfig,
+  guideChecked?: Set<string>,
+): Promise<void> {
+  const blob = await buildZipBlob(notes, stamp, config, guideChecked);
+  if (!blob) return;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
@@ -368,6 +388,11 @@ export async function buildAndDownloadZip(
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/** The filename a shared/downloaded archive should carry. */
+export function exportFileName(filename: string | undefined, stamp: string): string {
+  return safeName(filename, stamp);
 }
 
 /**

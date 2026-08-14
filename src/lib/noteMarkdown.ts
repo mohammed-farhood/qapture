@@ -103,6 +103,14 @@ export function noteToMarkdown(
     // WebP where the browser supports it (far smaller), PNG otherwise.
     lines.push(`- **Screenshot:** screenshots/point-${idx}.${shotExtension(note.screenshot)}`);
   }
+  if (idx != null && note.afterScreenshot) {
+    // v0.5: proof from a re-test. Named so the pair reads as before/after
+    // without needing the note body to explain it.
+    lines.push(
+      `- **After re-test${note.afterAt ? ` (${oneLine(note.afterAt)})` : ''}:** ` +
+      `screenshots/point-${idx}-after.${shotExtension(note.afterScreenshot)}`,
+    );
+  }
 
   // — the tester's own words —
   lines.push('');

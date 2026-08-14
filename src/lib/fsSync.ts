@@ -114,7 +114,7 @@ export type FsCampaign = {
   startedAt: string;
 };
 
-type NoteIndexEntry = { seq: number; file: string; shot?: string };
+type NoteIndexEntry = { seq: number; file: string; shot?: string; after?: string };
 
 // ---------------------------------------------------------------------------
 // Module state
@@ -422,6 +422,9 @@ function entryFor(note: QaNote): NoteIndexEntry {
     seq,
     file: `${base}.md`,
     shot: note.screenshot ? `${base}.${shotExtension(note.screenshot)}` : undefined,
+    // v0.5: the re-test image lives beside its original, same base name, so
+    // the pair sorts together in a file listing.
+    after: note.afterScreenshot ? `${base}-after.${shotExtension(note.afterScreenshot)}` : undefined,
   };
 }
 
@@ -442,6 +445,7 @@ export async function syncNoteToDisk(note: QaNote, allNotes: QaNote[]): Promise<
     // folder never accumulates two copies of the same note.
     if (previous && previous.file !== entry.file) await removeIfPresent(notesDir, previous.file);
     if (previous?.shot && previous.shot !== entry.shot) await removeIfPresent(shotsDir, previous.shot);
+    if (previous?.after && previous.after !== entry.after) await removeIfPresent(shotsDir, previous.after);
 
     await writeFile(notesDir, entry.file, noteMarkdownForDisk(note, entry));
     if (note.screenshot && entry.shot) {
@@ -450,6 +454,9 @@ export async function syncNoteToDisk(note: QaNote, allNotes: QaNote[]): Promise<
       // Screenshot was removed during an edit.
       await removeIfPresent(shotsDir, previous.shot);
       entry.shot = undefined;
+    }
+    if (note.afterScreenshot && entry.after) {
+      await writeFile(shotsDir, entry.after, note.afterScreenshot);
     }
 
     noteIndex[note.id] = entry;
@@ -473,6 +480,7 @@ export async function removeNoteFromDisk(noteId: string, allNotes: QaNote[]): Pr
   try {
     await removeIfPresent(notesDir, entry.file);
     await removeIfPresent(shotsDir, entry.shot);
+    await removeIfPresent(shotsDir, entry.after);
     delete noteIndex[noteId];
     await flushCampaignFiles(allNotes);
     return true;
@@ -484,8 +492,10 @@ export async function removeNoteFromDisk(noteId: string, allNotes: QaNote[]): Pr
 
 function noteMarkdownForDisk(note: QaNote, entry: NoteIndexEntry): string {
   const body = noteToMarkdown(note, { index: entry.seq });
-  const shotLine = entry.shot ? `\n> Screenshot: ../screenshots/${entry.shot}\n` : '\n';
-  return `${body}${shotLine}`;
+  const lines = [''];
+  if (entry.shot) lines.push(`> Screenshot: ../screenshots/${entry.shot}`);
+  if (entry.after) lines.push(`> After re-test: ../screenshots/${entry.after}`);
+  return `${body}${lines.join('\n')}\n`;
 }
 
 /**

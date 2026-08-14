@@ -159,7 +159,7 @@ export default function NoteEditor() {
     <div className="qa-space-y-2">
       {/* Primary CTA — Capture from page (solid accent, no gradient) */}
       <button
-        onClick={startCapture}
+        onClick={() => startCapture()}
         className="qa-tap qa-flex qa-w-full qa-items-center qa-justify-center qa-gap-2 qa-rounded-xl qa-bg-accent qa-px-4 qa-py-3 qa-text-sm qa-font-semibold qa-shadow-sm qa-transition qa-hover-brightness-105"
         style={{ border: 'none', cursor: 'pointer' }}
       >
