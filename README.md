@@ -43,7 +43,7 @@ working, and each new feature is off until someone turns it on.
 
 | | |
 |---|---|
-| **Screenshots frame the right thing** | Three bugs made the shot drift away from the region you selected — a scroll lock that reflowed the page mid-capture, a clone laid out ~15px narrower than the live page, and `overflow:auto` containers cloning back to their top. All fixed. See [Screenshots: two engines](#screenshots-two-engines). |
+| **Screenshots frame the right thing** | Capture mode's own scroll lock used `overflow:hidden`, which **unstuck every `position: sticky` header** just before the screenshot was rendered — measured at 20px of wrongness in a 40px capture, now 0.0px. See [Screenshots: two engines](#screenshots-two-engines). |
 | **Pixel-exact capture (opt-in)** | A real photograph of the tab rather than a redraw — so canvas/WebGL, video, cross-origin iframes and exotic CSS all come out right. One prompt per session, Chromium desktop. |
 | **Save straight to a folder** | Pick a QA folder once; every note is written to disk as it's saved, organised `Project / Campaign / notes + screenshots + REPORT.md`. See [Saving to a folder](#saving-to-a-folder). |
 | **Storage that explains itself** | A real usage meter, WebP screenshots (~10× smaller), a request to stop the browser evicting your data, and a "drop screenshots, keep findings" recovery valve. |
@@ -187,10 +187,18 @@ knowing:
   gradients) renders differently;
 - anything the clone lays out differently is a shot that doesn't match.
 
-That last category is what v0.4 fixed — see the CHANGELOG for the three
-specific causes (scrollbar-induced reflow from the scroll lock, a clone
-viewport ~15px narrower than the live one, and `overflow:auto` containers
-cloning back to `scrollTop: 0`).
+That last category is what v0.4 fixed. The culprit was Qapture's own scroll
+lock: freezing the page with `overflow: hidden` on `<html>` takes away the
+scrollport that `position: sticky` elements stick to, so every stuck header
+and toolbar jumped back to its natural document position in the instant
+between you choosing a rectangle and the screenshot being rendered. The lock
+now swallows scroll events instead of touching CSS, and stuck elements are
+additionally pinned in html2canvas's clone (it doesn't implement sticky
+either).
+
+You can measure this yourself — `npm run capture-accuracy-test` captures a
+rectangle straddling a colour boundary and reports the error in pixels. It
+reads 0.0px on 0.4.0 and 20px (of a 40px capture) on 0.3.1.
 
 ### `exact` — opt-in, pixel-for-pixel
 

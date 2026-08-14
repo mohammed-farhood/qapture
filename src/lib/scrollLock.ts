@@ -1,68 +1,65 @@
 /**
- * scrollLock.ts — freeze page scrolling while a capture is in flight.
+ * scrollLock.ts — freeze page scrolling while a capture is in flight, WITHOUT
+ * changing a single pixel of the page's layout.
  *
- * WHY THE PADDING COMPENSATION (v0.4)
- * -----------------------------------
- * Setting `overflow:hidden` on <html> removes the classic scrollbar, which
- * WIDENS the layout viewport by the scrollbar's width (~15px on desktop
- * Windows/Linux, and on macOS whenever "always show scrollbars" is on).
- * Every centred container, every responsive breakpoint near the boundary, and
- * every right-anchored element then moves — *after* the tester has already
- * measured the rect they want captured, and *before* the screenshot renders.
- * That silently mis-framed screenshots on exactly the pages most likely to
- * have a scrollbar: long ones.
+ * WHY THIS WAS REWRITTEN IN v0.4
+ * ------------------------------
+ * Until 0.3.x the lock was `overflow: hidden` on `<html>` and `<body>`. That
+ * is the standard modal-dialog trick, and it is exactly wrong here, because
+ * this lock runs in the moments BETWEEN the tester choosing a rectangle and
+ * the screenshot being rendered — a window in which the page must not move.
+ * It moved it two ways:
  *
- * So the lock now adds back the exact width it removed as padding, keeping
- * the content box the same size it was when the rect was measured.
+ *  1. `position: sticky` elements UNSTICK. Making the root a non-scrolling
+ *     box takes away the scrollport a stuck element is sticking to, so a
+ *     header pinned at the top of the viewport jumps back to its natural
+ *     place hundreds of pixels up the document. Measured directly: with the
+ *     page scrolled to 1200px, a stuck header read `getBoundingClientRect()
+ *     .top === 0` before the lock and `-1200` after it. Every screenshot
+ *     taken near a sticky header was therefore a picture of a page that had
+ *     silently rearranged itself — the single biggest cause of "the
+ *     screenshot is not the part I selected", since sticky headers, toolbars
+ *     and sidebars are in nearly every modern app.
+ *  2. Removing the classic scrollbar WIDENS the layout viewport (by ~15px on
+ *     Windows/Linux, and on macOS with "always show scrollbars"), which
+ *     shifts every centred and responsive layout sideways.
+ *
+ * So the lock no longer touches CSS. It swallows the input events that cause
+ * scrolling instead: `wheel` and `touchmove` in the capture phase with
+ * `passive: false`. Nothing in the page's box model changes, sticky elements
+ * stay stuck, and the rect the tester picked still means what it meant.
+ *
+ * Scope note: this blocks scrolling of inner `overflow:auto` containers too,
+ * which is what we want — during the render, nothing on screen should move.
+ * Keyboard scrolling is deliberately NOT blocked: the lock only spans the
+ * render itself, and a blanket keydown swallow risks eating keystrokes meant
+ * for the annotation box.
  */
 
 let lockCount = 0;
-let prevHtmlOverflow = '';
-let prevBodyOverflow = '';
-let prevHtmlPaddingRight = '';
-let compensated = false;
 
-/** Width of the classic scrollbar currently occupying viewport space. */
-function scrollbarWidth(): number {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return 0;
-  const doc = document.documentElement;
-  if (!doc) return 0;
-  return Math.max(0, window.innerWidth - doc.clientWidth);
+function preventScroll(e: Event): void {
+  // Only cancelable events can be prevented; a passive listener elsewhere in
+  // the page may have already made this one non-cancelable.
+  if (e.cancelable) e.preventDefault();
 }
 
+const LISTENER_OPTIONS: AddEventListenerOptions = { passive: false, capture: true };
+
 export function lockPageScroll(): void {
-  if (typeof document === 'undefined') return;
+  if (typeof window === 'undefined') return;
   if (lockCount === 0) {
-    const html = document.documentElement;
-    const body = document.body;
-    const gap = scrollbarWidth();
-
-    prevHtmlOverflow = html.style.overflow;
-    prevBodyOverflow = body ? body.style.overflow : '';
-    prevHtmlPaddingRight = html.style.paddingRight;
-    compensated = gap > 0;
-
-    if (compensated) {
-      // Read the resolved padding first so we ADD to whatever the page set,
-      // rather than replacing it.
-      const current = parseFloat(getComputedStyle(html).paddingRight) || 0;
-      html.style.paddingRight = `${current + gap}px`;
-    }
-    html.style.overflow = 'hidden';
-    if (body) body.style.overflow = 'hidden';
+    window.addEventListener('wheel', preventScroll, LISTENER_OPTIONS);
+    window.addEventListener('touchmove', preventScroll, LISTENER_OPTIONS);
   }
   lockCount++;
 }
 
 export function unlockPageScroll(): void {
-  if (typeof document === 'undefined' || lockCount === 0) return;
+  if (typeof window === 'undefined' || lockCount === 0) return;
   lockCount--;
   if (lockCount === 0) {
-    document.documentElement.style.overflow = prevHtmlOverflow;
-    if (compensated) {
-      document.documentElement.style.paddingRight = prevHtmlPaddingRight;
-      compensated = false;
-    }
-    if (document.body) document.body.style.overflow = prevBodyOverflow;
+    window.removeEventListener('wheel', preventScroll, LISTENER_OPTIONS);
+    window.removeEventListener('touchmove', preventScroll, LISTENER_OPTIONS);
   }
 }

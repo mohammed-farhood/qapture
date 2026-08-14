@@ -132,20 +132,44 @@ try {
   const scrollLockUrl = bundle('src/lib/scrollLock.ts', 'scrollLock.mjs');
   const { lockPageScroll, unlockPageScroll } = await import(scrollLockUrl);
 
+  // v0.4: the lock no longer sets `overflow: hidden` (that unstuck every
+  // position:sticky element mid-capture and mis-framed the screenshot — see
+  // scrollLock.ts). It swallows wheel/touchmove instead, so the ref-count is
+  // now observed through listener registration rather than through a style.
+  const listeners = new Map();
+  const realAdd = window.addEventListener.bind(window);
+  const realRemove = window.removeEventListener.bind(window);
+  window.addEventListener = (type, fn, opts) => {
+    if (type === 'wheel' || type === 'touchmove') listeners.set(type, fn);
+    return realAdd(type, fn, opts);
+  };
+  window.removeEventListener = (type, fn, opts) => {
+    if (type === 'wheel' || type === 'touchmove') listeners.delete(type);
+    return realRemove(type, fn, opts);
+  };
+
   lockPageScroll(); // caller A
   lockPageScroll(); // caller B (overlapping)
-  if (window.document.body.style.overflow !== 'hidden') {
-    throw new Error('FAIL: expected body scroll to be locked after two overlapping lockPageScroll() calls');
+  if (!listeners.has('wheel') || !listeners.has('touchmove')) {
+    throw new Error('FAIL: expected scroll to be locked after two overlapping lockPageScroll() calls');
   }
   unlockPageScroll(); // caller A releases
-  if (window.document.body.style.overflow !== 'hidden') {
+  if (!listeners.has('wheel') || !listeners.has('touchmove')) {
     throw new Error('FAIL: scroll was released after only one of two overlapping callers unlocked (ref-count regression)');
   }
   unlockPageScroll(); // caller B releases
-  if (window.document.body.style.overflow === 'hidden') {
+  if (listeners.has('wheel') || listeners.has('touchmove')) {
     throw new Error('FAIL: scroll should be restored once both overlapping callers have unlocked');
   }
-  console.log('Bug #15 scrollLock ref-count: overlapping lock/unlock calls do not release prematurely ✅');
+
+  // The whole point of the v0.4 rewrite: locking must not mutate layout.
+  if (window.document.documentElement.style.overflow === 'hidden' ||
+      window.document.body.style.overflow === 'hidden') {
+    throw new Error('FAIL: scrollLock changed page layout \u2014 overflow:hidden unsticks position:sticky elements mid-capture, which mis-frames the screenshot');
+  }
+  window.addEventListener = realAdd;
+  window.removeEventListener = realRemove;
+  console.log('Bug #15 scrollLock ref-count: overlapping lock/unlock calls do not release prematurely, and the lock never touches layout \u2705');
 } finally {
   rmSync(BUNDLE_DIR, { recursive: true, force: true });
 }

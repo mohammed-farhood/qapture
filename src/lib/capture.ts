@@ -11,32 +11,50 @@
  *                no permission, but it is a *reconstruction*: anything the
  *                clone lays out differently shows up as a mis-framed shot.
  *
- * The DOM engine is still the fallback everywhere, so v0.4 also fixes the
- * three ways it was reliably producing the wrong region:
+ * The DOM engine is still the fallback everywhere, so v0.4 fixes what it was
+ * actually getting wrong. These were established by measurement, not
+ * inspection — scripts/capture-accuracy-test.mjs drives real Chrome against
+ * colour-boundary fixtures and reports the misalignment in pixels:
  *
- *  a. SCROLLED CONTAINERS  Cloning copies the DOM but NOT the live
- *     `scrollTop`/`scrollLeft` of `overflow:auto` elements, so a sidebar or
- *     modal body scrolled halfway down cloned back at the top and the shot
- *     showed completely different content. markScrolledContainers() stamps
- *     each scrolled element's offsets onto an attribute (attributes DO get
- *     cloned) and the onclone hook replays them before rendering.
+ *  a. STUCK `position: sticky` ELEMENTS — the bug behind "the screenshot is
+ *     not the part I selected" on a real app, measured at 20px of a 40px
+ *     capture (half the image was of somewhere else). Two things caused it,
+ *     and both had to go:
+ *       • capture mode's own scroll lock used `overflow: hidden`, which takes
+ *         away the scrollport sticky elements stick to — so every stuck
+ *         header jumped back up the document *before* the render. Fixed in
+ *         scrollLock.ts, which no longer touches CSS at all.
+ *       • html2canvas doesn't implement sticky positioning either, so even an
+ *         undisturbed stuck header renders at its natural position. Fixed by
+ *         markStuckElements() below, which pins each one at its on-screen
+ *         offset inside the clone.
+ *     Sticky headers, toolbars and sidebars are near-universal in modern
+ *     apps, which is why this read as "screenshots are just wrong".
  *
- *  b. VIEWPORT WIDTH  The old code passed `windowWidth: window.innerWidth`,
- *     which INCLUDES the classic scrollbar, while the clone iframe lays out
- *     against its own content box. That ~15px difference reflows every
- *     centred/responsive layout, shifting the captured content sideways
- *     relative to the rect. It now passes documentElement.clientWidth /
- *     clientHeight — the same box the live layout used when the tester
- *     measured the rect.
+ *  b. VIEWPORT WIDTH — the old code passed `windowWidth: window.innerWidth`,
+ *     which INCLUDES the classic scrollbar, while layout happens against the
+ *     content box. Where the platform draws classic (space-taking)
+ *     scrollbars — Windows, Linux, and macOS with "always show scrollbars" —
+ *     that ~15px discrepancy shifts every centred or responsive layout
+ *     sideways relative to the rect. It now passes
+ *     documentElement.clientWidth/clientHeight, the box the live layout uses.
+ *     (Not observable on macOS overlay scrollbars, where the two are equal —
+ *     and note this matters MORE now that the lock leaves the scrollbar in
+ *     place.)
  *
- *  c. CROPPING  html2canvas's own x/y/width/height crop is applied to a
- *     re-scrolled clone in document space, which was a second chance to be
- *     off by the scroll delta. We now render the viewport once and crop with
- *     a plain 2D canvas, where the arithmetic is ours and verifiable.
+ *  c. CROPPING — html2canvas's own x/y/width/height crop is applied to a
+ *     re-scrolled clone in document space. We now render the viewport once
+ *     and crop with a plain 2D canvas, so the arithmetic is ours and
+ *     verifiable.
  *
- * See also scrollLock.ts: locking page scroll used to REMOVE the scrollbar,
- * which reflowed the page between "tester picks a rect" and "we render it".
- * That lock now compensates for the scrollbar width.
+ * Things deliberately NOT "fixed", having been checked and found already
+ * correct in html2canvas@1.4.1: inner `overflow:auto` scroll offsets (it
+ * tracks these itself via its `scrolledElements` restore) and captures on a
+ * scrolled page (measured at 0.0px error).
+ *
+ * What remains unfixable by cropping is everything the clone cannot
+ * reproduce at all — canvas/WebGL, video, cross-origin iframes, unsupported
+ * CSS. That is what the exact engine is for.
  *
  * Coordinates are VIEWPORT coords (getBoundingClientRect-style) throughout.
  *
@@ -66,8 +84,8 @@ const MAX_SHOT_EDGE = 1800;
 /** WebP quality. High enough that UI text stays crisp; small enough to matter. */
 const WEBP_QUALITY = 0.92;
 
-/** Attribute used to ferry live scroll offsets into html2canvas's clone. */
-const SCROLL_ATTR = 'data-qa-scroll';
+/** Attribute used to ferry live sticky offsets into html2canvas's clone. */
+const STUCK_ATTR = 'data-qa-stuck';
 
 export type CaptureEngine = 'exact' | 'dom';
 
@@ -260,49 +278,92 @@ async function withOverlayHidden<T>(fn: () => Promise<T>): Promise<T> {
 // ---------------------------------------------------------------------------
 
 /**
- * Stamp every element that is scrolled away from its origin with its live
- * offsets, so the clone can replay them (see the file header, point (a)).
+ * Freeze every *stuck* `position: sticky` element at the place it is actually
+ * being displayed.
+ *
+ * This is the one DOM-engine failure that reliably ruins a capture on a real
+ * app. html2canvas does not implement sticky positioning: a header the tester
+ * can see pinned to the top of the viewport is drawn back at its natural
+ * document position — often hundreds of pixels away — so everything framed
+ * near it comes out as bare page background. Verified against
+ * html2canvas@1.4.1 with a real-browser fixture; scripts/capture-accuracy-
+ * test.mjs measures the resulting error in pixels.
+ *
+ * The fix converts each sticky element into an absolutely-positioned one at
+ * its current on-screen offset. Coordinates are taken relative to the
+ * element's offsetParent, which is exactly the box CSS `top`/`left` resolve
+ * against under `position: absolute`, so the clone lands it where the live
+ * page has it. Offsets ride on an attribute because attributes survive
+ * cloning, whereas inline styles on the live element would be visible to the
+ * tester mid-capture.
  *
  * All reads happen before any write, so this costs a single layout pass.
  * Returns the touched elements for cleanup.
  */
-function markScrolledContainers(): HTMLElement[] {
-  const touched: { el: HTMLElement; top: number; left: number }[] = [];
+function markStuckElements(): HTMLElement[] {
   let all: NodeListOf<HTMLElement>;
   try {
     all = document.body.querySelectorAll<HTMLElement>('*');
   } catch {
     return [];
   }
+
+  const marks: { el: HTMLElement; value: string }[] = [];
   for (const el of Array.from(all)) {
-    const top = el.scrollTop;
-    const left = el.scrollLeft;
-    if (!top && !left) continue;
+    let position: string;
+    try {
+      position = getComputedStyle(el).position;
+    } catch {
+      continue;
+    }
+    if (position !== 'sticky') continue;
     if (el.closest('[data-qa-overlay]')) continue;
-    touched.push({ el, top, left });
+
+    const rect = el.getBoundingClientRect();
+    if (!rect.width && !rect.height) continue;
+
+    // The containing block that CSS top/left resolve against once the element
+    // becomes absolute. With no positioned ancestor that is the initial
+    // containing block, whose origin sits one scroll offset above the
+    // viewport.
+    const parent = el.offsetParent as HTMLElement | null;
+    const parentRect = parent
+      ? parent.getBoundingClientRect()
+      : { top: -window.scrollY, left: -window.scrollX };
+
+    const top = Math.round(rect.top - parentRect.top);
+    const left = Math.round(rect.left - parentRect.left);
+    marks.push({ el, value: `${top},${left},${Math.round(rect.width)},${Math.round(rect.height)}` });
   }
-  for (const { el, top, left } of touched) {
-    el.setAttribute(SCROLL_ATTR, `${Math.round(top)},${Math.round(left)}`);
-  }
-  return touched.map((t) => t.el);
+
+  for (const { el, value } of marks) el.setAttribute(STUCK_ATTR, value);
+  return marks.map((m) => m.el);
 }
 
-function unmarkScrolledContainers(els: HTMLElement[]): void {
-  for (const el of els) el.removeAttribute(SCROLL_ATTR);
+function unmarkStuckElements(els: HTMLElement[]): void {
+  for (const el of els) el.removeAttribute(STUCK_ATTR);
 }
 
-/** onclone hook: replay the offsets stamped by markScrolledContainers(). */
-function replayClonedScroll(cloned: Document): void {
+/** onclone hook: pin the marked elements where markStuckElements() saw them. */
+function pinStuckClones(cloned: Document): void {
   try {
-    cloned.querySelectorAll<HTMLElement>(`[${SCROLL_ATTR}]`).forEach((el) => {
-      const raw = el.getAttribute(SCROLL_ATTR) || '';
-      const [top, left] = raw.split(',').map((n) => Number(n));
-      if (Number.isFinite(top)) el.scrollTop = top;
-      if (Number.isFinite(left)) el.scrollLeft = left;
-      el.removeAttribute(SCROLL_ATTR);
+    cloned.querySelectorAll<HTMLElement>(`[${STUCK_ATTR}]`).forEach((el) => {
+      const [top, left, width, height] = (el.getAttribute(STUCK_ATTR) || '')
+        .split(',')
+        .map((n) => Number(n));
+      if (![top, left, width, height].every((n) => Number.isFinite(n))) return;
+      el.style.position = 'absolute';
+      el.style.top = `${top}px`;
+      el.style.left = `${left}px`;
+      el.style.right = 'auto';
+      el.style.bottom = 'auto';
+      el.style.width = `${width}px`;
+      el.style.height = `${height}px`;
+      el.style.margin = '0';
+      el.removeAttribute(STUCK_ATTR);
     });
   } catch {
-    // A clone we can't touch just renders unscrolled — same as 0.3.x.
+    // A clone we can't touch just renders the way 0.3.x did.
   }
 }
 
@@ -342,7 +403,7 @@ async function captureViaDom(
   const vw = document.documentElement.clientWidth || window.innerWidth;
   const vh = document.documentElement.clientHeight || window.innerHeight;
 
-  const marked = markScrolledContainers();
+  const marked = markStuckElements();
   try {
     const full = await withTimeout(
       html2canvas(document.body, {
@@ -365,14 +426,14 @@ async function captureViaDom(
           el.nodeType === 1 &&
           typeof (el as HTMLElement).hasAttribute === 'function' &&
           (el as HTMLElement).hasAttribute('data-qa-overlay'),
-        onclone: (doc: Document) => replayClonedScroll(doc),
+        onclone: (doc: Document) => pinStuckClones(doc),
       }),
       HTML2CANVAS_TIMEOUT_MS,
     );
     if (!full) return null;
     return cropCanvas(full, rect, scale);
   } finally {
-    unmarkScrolledContainers(marked);
+    unmarkStuckElements(marked);
   }
 }
 

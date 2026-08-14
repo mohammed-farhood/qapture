@@ -14,31 +14,55 @@ new feature is off until someone turns it on.
 
 ### Fixed
 
-- **Screenshots captured the wrong part of the page.** Three separate causes,
-  all of them fixed:
-  1. *The scroll lock reflowed the page mid-capture.* Capture mode set
-     `overflow: hidden` on `<html>`, which removes the classic scrollbar and
-     therefore **widens the layout viewport by ~15px** — after the tester's
-     rect had been measured and before the screenshot rendered. Every centred
-     container and right-anchored element shifted, so the crop landed beside
-     what was selected. The lock now adds back exactly the width it removed
-     (`scrollLock.ts`).
-  2. *The clone laid out at a different width.* html2canvas was passed
-     `windowWidth: window.innerWidth`, which INCLUDES the scrollbar, while
-     the offscreen clone lays out against its own content box — the same
-     ~15px discrepancy, applied a second time. It now passes
-     `documentElement.clientWidth/clientHeight`, the box the live layout
-     actually used.
-  3. *Scrolled containers cloned back to the top.* Cloning copies the DOM but
-     not the live `scrollTop`/`scrollLeft` of `overflow:auto` elements, so a
-     sidebar, modal body, table or chat log scrolled halfway down rendered
-     from its first row — a screenshot of genuinely different content. Live
-     offsets are now stamped onto an attribute (attributes DO clone) and
-     replayed in html2canvas's `onclone` hook before rendering.
+- **Screenshots captured the wrong part of the page — caused by Qapture's own
+  scroll lock.** This was measured, not guessed: a new real-browser test
+  (`npm run capture-accuracy-test`) captures a rectangle straddling a colour
+  boundary and reports the misalignment in pixels. On 0.3.1 a capture next to
+  a sticky header came back **20px wrong out of 40** — half the image was of
+  somewhere else. On 0.4.0 the same fixture measures **0.0px**.
 
-  Cropping also moved out of html2canvas's own `x/y/width/height` options
-  (applied to a re-scrolled clone in document space) into a plain 2D-canvas
-  crop of a viewport-sized render, so the arithmetic is ours and checkable.
+  The mechanism: capture mode froze scrolling with `overflow: hidden` on
+  `<html>`/`<body>` — the standard modal trick, and exactly wrong here,
+  because it runs *between* the tester choosing a rectangle and the
+  screenshot rendering. Making the root a non-scrolling box takes away the
+  scrollport that `position: sticky` elements stick to, so every stuck
+  header, toolbar and sidebar **jumped back to its natural position** in the
+  document before the render. With the page scrolled to 1200px, a stuck
+  header measured `getBoundingClientRect().top === 0` before the lock and
+  `-1200` after it. Since sticky headers are in nearly every modern app, this
+  read as "the screenshots are just wrong".
+
+  The lock no longer touches CSS at all: it swallows `wheel` and `touchmove`
+  in the capture phase, so nothing in the page's box model moves. Removing
+  the scrollbar also widened the layout viewport by ~15px on platforms with
+  classic scrollbars (Windows, Linux, macOS with "always show scrollbars"),
+  shifting centred and responsive layouts sideways — that goes away with the
+  same change.
+
+  Two supporting fixes:
+  - html2canvas doesn't implement `position: sticky` either, so stuck
+    elements are now pinned at their on-screen offset in its `onclone` hook.
+  - Cropping moved out of html2canvas's own `x/y/width/height` options into a
+    plain 2D-canvas crop of a viewport-sized render, so the arithmetic is
+    ours and checkable.
+
+  Checked and found already correct in html2canvas@1.4.1, so deliberately
+  *not* changed: inner `overflow:auto` scroll offsets (it restores those
+  itself) and captures on a scrolled page (measured at 0.0px).
+
+- **Deleting a note could silently fail to delete it.** `deleteNote`,
+  `clearNotes` and `updateNote` read the pre-change list by assigning to a
+  local variable from *inside* a `setNotes(prev => …)` updater and using it on
+  the next line. That only works because React sometimes evaluates an updater
+  eagerly inside `dispatchSetState` as a bail-out optimisation — and it stops
+  doing so as soon as any other state update is pending on the same
+  component. When it didn't run, the entire soft-delete was skipped: no
+  durable `pendingDeleteIds` marker, no commit timer, no IndexedDB delete, so
+  the note reappeared on the next reload. Latent in 0.3.x and triggered
+  reliably by v0.4's extra state; all three now derive their before/after
+  lists from a ref via a small `applyNotes` helper, with no ordering
+  assumptions. Covered by the existing browser test's soft-delete-commit
+  assertion.
 
 ### Added
 
@@ -100,12 +124,23 @@ new feature is off until someone turns it on.
 
 ### Tests
 
+- New **`npm run capture-accuracy-test`** — a real-Chrome test that answers
+  "is the screenshot the region I selected?" numerically. It captures a
+  rectangle straddling a colour boundary and converts the colour split into a
+  pixel offset, across three fixtures: a scrolled page, a sticky header, and a
+  scrolled `overflow:auto` container. It is deliberately discriminating —
+  running it against 0.3.1 reports the sticky case as misaligned by 20px,
+  which is how the root cause above was found. Not part of `npm run verify`
+  (which stays browser-free); run it alongside `npm run browser-test`.
 - New `fs-sync-smoke` drives the whole folder-sync flow against an in-memory
   fake of the File System Access API and asserts the resulting tree: path
   segments, filenames, the campaign index, REPORT.md content, rename-on-edit
   cleanup, numbering across a reload, and delete. Added to `npm run verify`.
 - `capture-timeout-smoke` gained coverage for the shared screenshot-extension
   helper that keeps `notes.md` links and ZIP filenames in agreement.
+- The scroll-lock regression test in `smoke` now asserts the lock's ref-count
+  *and* that it never mutates layout — the property whose absence caused the
+  screenshot bug.
 
 ## [0.3.1] — 2026-07-28
 

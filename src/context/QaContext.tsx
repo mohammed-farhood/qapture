@@ -443,12 +443,40 @@ export function QaProvider({
   const [notes, setNotes] = useState<QaNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(true);
 
-  // A ref mirror of `notes`, because the folder-sync writers need the CURRENT
-  // list from inside async callbacks. Reading `notes` there would capture a
-  // render-old array (and a setNotes updater doesn't run early enough to be
-  // read back synchronously in React 18's batching).
+  /**
+   * A ref mirror of `notes`, and the single source of truth for every note
+   * mutation below.
+   *
+   * WHY (v0.4, and a real bug fix): the 0.3.x actions read the pre-mutation
+   * list by assigning to a local from INSIDE a `setNotes(prev => …)` updater
+   * and then using that local on the very next line:
+   *
+   *     let removed = null;
+   *     setNotes(prev => { removed = prev[idx]; return … });
+   *     if (!removed) return;          // ← only works if the updater ran
+   *
+   * That only works because React sometimes *eagerly* evaluates an updater
+   * inside `dispatchSetState` as a bail-out optimisation — and it only does
+   * so when the fiber has no other pending update. Add any other state
+   * update to the same provider in the same tick (v0.4 has several: storage
+   * health, sync status) and React defers the updater instead, the local
+   * stays null, and the action silently returns having done nothing. That is
+   * exactly how a deleted note stopped being committed to IndexedDB: the
+   * whole soft-delete — durable marker, timer, undo toast — was skipped.
+   *
+   * `applyNotes` removes the guesswork: it computes the next list from the
+   * ref synchronously, stores it, and hands the same value to React. Callers
+   * get the before/after lists as plain values with no ordering assumptions.
+   */
   const notesRef = useRef<QaNote[]>([]);
   useEffect(() => { notesRef.current = notes; }, [notes]);
+
+  const applyNotes = useCallback((updater: (prev: QaNote[]) => QaNote[]): QaNote[] => {
+    const next = updater(notesRef.current);
+    notesRef.current = next;
+    setNotes(next);
+    return next;
+  }, []);
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [isOpen,         setIsOpen]         = useState(false);
@@ -608,7 +636,7 @@ export function QaProvider({
         const sorted = live.slice().sort((a, b) =>
           a.timestamp < b.timestamp ? 1 : -1,
         );
-        setNotes(sorted);
+        applyNotes(() => sorted);
       })
       .catch(() => {})
       .finally(() => {
@@ -617,7 +645,7 @@ export function QaProvider({
         if (alive) setNotesLoading(false);
       });
     return () => { alive = false; };
-  }, [idb, storage]);
+  }, [idb, storage, applyNotes]);
 
   // ── Actions — i18n ───────────────────────────────────────────────────────
 
@@ -888,8 +916,7 @@ export function QaProvider({
         context,
       };
 
-      setNotes((prev) => [note, ...prev]);
-      notesRef.current = [note, ...notesRef.current];
+      applyNotes((prev) => [note, ...prev]);
       const persisted = await idb.put(note);
       if (!persisted) {
         // v0.4: say what actually happened and give a way out, instead of a
@@ -906,7 +933,7 @@ export function QaProvider({
       // if this browser's storage is full or gets cleared.
       await syncNoteThrough(note);
     },
-    [idb, config.journey, config.captureContext, testAlong, testAlongSteps, notify, t, syncNoteThrough],
+    [idb, config.journey, config.captureContext, testAlong, testAlongSteps, notify, t, syncNoteThrough, applyNotes],
   );
 
   const updateNote = useCallback(
@@ -919,34 +946,33 @@ export function QaProvider({
         status?: 'open' | 'verified';
       },
     ): Promise<void> => {
-      let updated: QaNote | null = null;
-      setNotes((prev) =>
-        prev.map((n) => {
-          if (n.id !== id) return n;
-          const next: QaNote = { ...n };
-          // Normalize description trim.
-          if (patch.description != null) next.description = patch.description.trim();
-          // screenshot: Blob → replace; null → remove; undefined → leave unchanged.
-          if (patch.screenshot === null) {
-            next.screenshot = undefined;
-          } else if (patch.screenshot !== undefined) {
-            next.screenshot = patch.screenshot;
-          }
-          if (patch.severity !== undefined) next.severity = patch.severity;
-          if (patch.status !== undefined) next.status = patch.status;
-          updated = next;
-          return next;
-        }),
-      );
-      if (updated) {
-        const persisted = await idb.put(updated);
-        if (!persisted) {
-          notify(t('persist_failed'), { tone: 'error', id: 'persist_failed' });
-        }
-        await syncNoteThrough(updated);
+      // Build the patched note from the ref (see applyNotes' doc comment) so
+      // `updated` is a real value here rather than whatever a possibly-
+      // deferred state updater happened to have assigned.
+      const current = notesRef.current.find((n) => n.id === id);
+      if (!current) return;
+
+      const updated: QaNote = { ...current };
+      // Normalize description trim.
+      if (patch.description != null) updated.description = patch.description.trim();
+      // screenshot: Blob → replace; null → remove; undefined → leave unchanged.
+      if (patch.screenshot === null) {
+        updated.screenshot = undefined;
+      } else if (patch.screenshot !== undefined) {
+        updated.screenshot = patch.screenshot;
       }
+      if (patch.severity !== undefined) updated.severity = patch.severity;
+      if (patch.status !== undefined) updated.status = patch.status;
+
+      applyNotes((prev) => prev.map((n) => (n.id === id ? updated : n)));
+
+      const persisted = await idb.put(updated);
+      if (!persisted) {
+        notify(t('persist_failed'), { tone: 'error', id: 'persist_failed' });
+      }
+      await syncNoteThrough(updated);
     },
-    [idb, notify, t, syncNoteThrough],
+    [idb, notify, t, syncNoteThrough, applyNotes],
   );
 
   /**
@@ -961,21 +987,17 @@ export function QaProvider({
    * just below) plus the reconciliation pass in the mount effect above.
    */
   const deleteNote = useCallback(async (id: string): Promise<void> => {
-    let removedNote: QaNote | null = null;
-    let removedAfterId: string | null = null;
-    let found = false;
-    setNotes((prev) => {
-      const idx = prev.findIndex((n) => n.id === id);
-      if (idx === -1) return prev;
-      found = true;
-      removedNote = prev[idx];
-      removedAfterId = prev[idx + 1]?.id ?? null;
-      return prev.filter((n) => n.id !== id);
-    });
-    if (!removedNote || !found) return;
+    // Read the pre-delete list from the ref, not from inside a state updater
+    // — see applyNotes' doc comment for why that was silently skipping the
+    // entire soft-delete (marker, timer and undo toast) whenever any other
+    // state update was already pending on this provider.
+    const before = notesRef.current;
+    const idx = before.findIndex((n) => n.id === id);
+    if (idx === -1) return;
 
-    const noteToRestore = removedNote;
-    const afterIdToRestore = removedAfterId;
+    const noteToRestore = before[idx];
+    const afterIdToRestore = before[idx + 1]?.id ?? null;
+    applyNotes((prev) => prev.filter((n) => n.id !== id));
 
     const existingPending = pendingDeletes.current.get(id);
     if (existingPending) clearTimeout(existingPending.timer);
@@ -1005,7 +1027,7 @@ export function QaProvider({
           clearTimeout(pending.timer);
           pendingDeletes.current.delete(id);
           removePendingDeleteIds([id]); // undone — no longer pending a delete
-          setNotes((prev) => {
+          applyNotes((prev) => {
             if (prev.some((n) => n.id === id)) return prev; // already back
             const next = prev.slice();
             // Re-resolve the anchor's CURRENT index at undo-time: if it's
@@ -1022,15 +1044,14 @@ export function QaProvider({
         },
       },
     });
-  }, [idb, notify, t, addPendingDeleteIds, removePendingDeleteIds]);
+  }, [idb, notify, t, addPendingDeleteIds, removePendingDeleteIds, applyNotes]);
 
   /** Soft-clear: same snapshot + delayed-commit + Undo pattern as deleteNote. */
   const clearNotes = useCallback(async (): Promise<void> => {
-    let snapshot: QaNote[] = [];
-    setNotes((prev) => {
-      snapshot = prev;
-      return [];
-    });
+    // Same reason as deleteNote: the snapshot must be a real value here, not
+    // one assigned by a state updater that may not have run yet.
+    const snapshot: QaNote[] = notesRef.current;
+    applyNotes(() => []);
 
     // A full clear supersedes any in-flight single-note soft-deletes: their
     // notes are already gone from `notes` (removed by their own deleteNote
@@ -1083,11 +1104,11 @@ export function QaProvider({
           clearTimeout(pending.timer);
           pendingClear.current = null;
           removePendingDeleteIds(pending.notes.map((n) => n.id)); // undone
-          setNotes(pending.notes);
+          applyNotes(() => pending.notes);
         },
       },
     });
-  }, [idb, notify, dismissNotice, t, addPendingDeleteIds, removePendingDeleteIds]);
+  }, [idb, notify, dismissNotice, t, addPendingDeleteIds, removePendingDeleteIds, applyNotes]);
 
   /**
    * Commit every pending soft-delete/clear for real, right now. Called on
@@ -1337,12 +1358,11 @@ export function QaProvider({
       .filter((n) => n.screenshot)
       .map((n) => ({ ...n, screenshot: undefined }));
     if (!stripped.length) return;
-    setNotes((prev) => prev.map((n) => (n.screenshot ? { ...n, screenshot: undefined } : n)));
-    notesRef.current = notesRef.current.map((n) => (n.screenshot ? { ...n, screenshot: undefined } : n));
+    applyNotes((prev) => prev.map((n) => (n.screenshot ? { ...n, screenshot: undefined } : n)));
     for (const note of stripped) await idb.put(note);
     await refreshStorageHealth();
     notify(t('screenshots_dropped', { n: stripped.length }), { id: 'drop-shots' });
-  }, [idb, notify, t, refreshStorageHealth]);
+  }, [idb, notify, t, refreshStorageHealth, applyNotes]);
 
   // ── v0.4: view modes + filtering ─────────────────────────────────────────
 
