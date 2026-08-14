@@ -155,6 +155,26 @@ const REGION_HANDLES: { edge: ResizeEdge; top: string; left: string; cursor: str
   { edge: 'se', top: '100%', left: '100%', cursor: 'nwse-resize' },
 ];
 
+/**
+ * The whole visible page as a selection.
+ *
+ * Dragging a box across the entire screen to say "all of it" is a chore, and
+ * on a laptop it is genuinely awkward — the drag has to start in a corner
+ * that is often already covered by something. This is the same region
+ * capture, pre-sized.
+ */
+function viewportSelection(): Selection {
+  return {
+    kind: 'region',
+    rect: {
+      top: 0,
+      left: 0,
+      width: typeof window !== 'undefined' ? window.innerWidth : 0,
+      height: typeof window !== 'undefined' ? window.innerHeight : 0,
+    },
+  };
+}
+
 export default function CaptureMode() {
   const {
     addNote, endCapture, t, dir,
@@ -572,6 +592,25 @@ export default function CaptureMode() {
     const margin = 12;
     const spaceBelow = window.innerHeight - (r.top + r.height + margin);
     const spaceAbove = r.top - margin;
+
+    // A selection that fills the viewport — "Whole screen", or a region
+    // dragged edge to edge — leaves NO room on either side, and anchoring to
+    // it would push the card off the top of the screen with the Save button
+    // unreachable (the same failure 0.3.1 fixed for tall cards, arriving by a
+    // different route). When neither side has room, float the card near the
+    // top instead: it overlaps the selection, which is exactly what the
+    // tester already framed and can still see behind it.
+    const MIN_ROOM = 120;
+    if (Math.max(spaceAbove, spaceBelow) < MIN_ROOM) {
+      let left = Math.min(r.left, window.innerWidth - cardWidth);
+      left = Math.max(margin, left);
+      return {
+        top: margin * 2,
+        left,
+        maxHeight: `${Math.max(MIN_ROOM, window.innerHeight - margin * 4)}px`,
+      };
+    }
+
     const placeAbove = spaceBelow < spaceAbove;
     const top = placeAbove ? Math.max(margin, r.top - margin) : r.top + r.height + margin;
     let left = r.left;
@@ -624,6 +663,20 @@ export default function CaptureMode() {
             <Icon name="Square" size={16} />
             {t('cap_drag')}
           </span>
+          <span className="qa-opacity-50">·</span>
+          <button
+            onClick={() => {
+              scrollSnap.current = { x: window.scrollX, y: window.scrollY };
+              setTargetForensics(undefined);
+              void beginAnnotation(viewportSelection());
+            }}
+            className="qa-tap qa-flex qa-items-center qa-gap-1 qa-rounded-full qa-border qa-border-white-40 qa-px-2 qa-py-0.5 qa-text-11 qa-text-hi qa-hover-bg-white-15"
+            style={{ background: 'transparent', cursor: 'pointer' }}
+          >
+            <Icon name="Maximize2" size={13} />
+            {t('capture_screen')}
+          </button>
+
           {/* Pixel-exact opt-in, offered exactly where a mis-framed shot is
               noticed. The click is the user gesture getDisplayMedia needs. */}
           {exactShots.supported && (
@@ -680,6 +733,18 @@ export default function CaptureMode() {
           >
             <Icon name="Square" size={16} />
             {t('draw_region')}
+          </button>
+          <button
+            onClick={() => {
+              scrollSnap.current = { x: window.scrollX, y: window.scrollY };
+              setTargetForensics(undefined);
+              void beginAnnotation(viewportSelection());
+            }}
+            className="qa-tap qa-flex qa-items-center qa-gap-1 qa-rounded-full qa-px-2 qa-py-0.5 qa-text-xs"
+            style={{ border: '1px solid rgba(255,255,255,0.4)', background: 'transparent', color: '#fff', cursor: 'pointer' }}
+          >
+            <Icon name="Maximize2" size={14} />
+            {t('capture_screen')}
           </button>
           <button
             onClick={() => endCapture()}

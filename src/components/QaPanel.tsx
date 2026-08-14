@@ -128,6 +128,7 @@ export default function QaPanel() {
     journey, guideChecked,
     simpleMode, sync, storageHealth, noteCounts, setFilter,
     showWelcome, canShare, shareExport, pendingShare, sharePending, notify,
+    panelSide, setPanelSide, panelCollapsed, setPanelCollapsed,
   } = useQa();
 
   const [confirmClear, setConfirmClear] = useState(false);
@@ -356,12 +357,18 @@ export default function QaPanel() {
       className={`qa-fixed qa-flex qa-flex-col qa-overflow-hidden qa-rounded-2xl qa-border qa-border-subtle qa-elev-3 qa-print-hidden qa-w-panel qa-max-h-74vh qa-bg-1 qa-panel-anim${showIn ? ' qa-panel-in' : ''}`}
       style={{
         // Floating popover position (default). Fully overridden below when
-        // docked as an iPad-landscape side-sheet.
-        left: isIpadLandscape ? 'auto' : 'calc(1rem + env(safe-area-inset-left))',
-        right: isIpadLandscape ? '0' : undefined,
+        // docked as an iPad-landscape side-sheet. `panelSide` picks the edge
+        // via logical properties, so "start" is the left in English and the
+        // right in Arabic — the side nearest the tester's reading hand.
+        insetInlineStart: isIpadLandscape
+          ? 'auto'
+          : panelSide === 'start' ? 'calc(1rem + env(safe-area-inset-left))' : 'auto',
+        insetInlineEnd: isIpadLandscape
+          ? '0'
+          : panelSide === 'end' ? 'calc(1rem + env(safe-area-inset-right))' : 'auto',
         top: isIpadLandscape ? '0' : undefined,
         bottom: panelBottom,
-        height: isIpadLandscape ? '100dvh' : undefined,
+        height: isIpadLandscape && !panelCollapsed ? '100dvh' : undefined,
         width: isIpadLandscape ? 'min(92vw, 420px)' : undefined,
         // qa-max-h-74vh (class) would otherwise cap the sheet well short of
         // full height — neutralize it only in the docked sheet variant.
@@ -430,6 +437,31 @@ export default function QaPanel() {
           ))}
         </div>
 
+        {/* Move the panel to the other edge. It sits over the app being
+            tested, and which side is in the way depends entirely on the app —
+            so this is one tap rather than a preference buried in Settings. */}
+        <button
+          onClick={() => setPanelSide(panelSide === 'start' ? 'end' : 'start')}
+          title={t('dock_move')}
+          aria-label={t('dock_move')}
+          className="qa-tap-icon qa-rounded-lg qa-border qa-border-subtle qa-bg-transparent qa-text-hi qa-hover-bg-2 qa-transition"
+          style={{ cursor: 'pointer' }}
+        >
+          <Icon name={panelSide === 'start' ? 'ChevronRight' : 'ChevronLeft'} size={16} />
+        </button>
+
+        {/* Collapse to the header strip: keeps the widget reachable while
+            uncovering whatever it was sitting on. */}
+        <button
+          onClick={() => setPanelCollapsed(!panelCollapsed)}
+          title={panelCollapsed ? t('panel_expand') : t('panel_collapse')}
+          aria-label={panelCollapsed ? t('panel_expand') : t('panel_collapse')}
+          className="qa-tap-icon qa-rounded-lg qa-border qa-border-subtle qa-bg-transparent qa-text-hi qa-hover-bg-2 qa-transition"
+          style={{ cursor: 'pointer' }}
+        >
+          <Icon name={panelCollapsed ? 'Maximize2' : 'Minimize2'} size={16} />
+        </button>
+
         {/* settings: folder saving, storage, screenshots, view modes */}
         <button
           onClick={() => setSettingsOpen(true)}
@@ -486,6 +518,9 @@ export default function QaPanel() {
         </button>
       </div>
 
+      {/* Everything below the header is hidden while collapsed. */}
+      {!panelCollapsed && (
+      <>
       {/* ── Tabs ─────────────────────────────────────────────────────────── */}
       {/* Simple mode drops Logins/Guide entirely: a tester handed a beta link
           needs to capture, review and export, and the other two tabs are
@@ -568,6 +603,9 @@ export default function QaPanel() {
         {!simpleMode && activeTab === 'logins' && <CredentialsSection />}
         {!simpleMode && activeTab === 'guide'  && <GuideSection />}
       </div>
+
+      </>
+      )}
 
       {/* ── Settings sheet ───────────────────────────────────────────────── */}
       {settingsOpen && <SettingsSheet onClose={() => setSettingsOpen(false)} />}

@@ -3,6 +3,49 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] "Elbow Room" — 2026-08-15
+
+Small things, all of them about the tool staying out of the way once a session
+gets real: dozens of notes, a panel sitting on the thing you're testing, and
+batches of findings that need the same edit.
+
+No breaking changes.
+
+### Added
+
+- **Bulk actions.** Select several notes and change or delete them in one
+  pass: Open / Re-test / Verified, or Delete. "Select all" takes everything
+  *currently visible*, so filtering to Re-test and selecting all is the
+  natural way to close out a batch after a fix round. A bulk delete gets a
+  single undo for the whole batch, not one per note, and applies one state
+  update, one toast and one folder-sync pass rather than N of each.
+
+- **A compact list.** One line per note — number, severity colour, first
+  words, status — with the full card opening in place when tapped. At thirty
+  notes the card list was a scrolling marathon; this turns "find that note"
+  back into a glance. Remembered per browser.
+
+- **The panel gets out of the way.** It can now be moved to the other edge in
+  one tap, and collapsed to just its header strip. It sits over the app under
+  test, and which side is in the way depends entirely on the app — so both are
+  one-tap controls in the header rather than settings. Uses logical inset
+  properties, so "the near edge" is the left in English and the right in
+  Arabic.
+
+- **Whole-screen capture.** A "Whole screen" button in the capture bar takes
+  everything visible without dragging a box corner to corner — awkward on a
+  laptop, and often the thing you actually wanted.
+
+### Fixed
+
+- **The annotation card could land off-screen for a full-viewport selection.**
+  Placement anchored the card above or below the selected rectangle; a
+  selection that fills the viewport leaves room for neither, and the card was
+  pushed off the top with its Save button unreachable — the same failure 0.3.1
+  fixed for tall cards, arriving by a different route. When neither side has
+  room the card now floats near the top of the viewport instead. Found by the
+  new whole-screen test rather than by a person, which is the point of it.
+
 ## [0.5.0] "Loop" — 2026-08-15
 
 Where 0.4 was about not losing anything, 0.5 is about closing the loop: a

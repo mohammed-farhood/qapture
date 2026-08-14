@@ -406,6 +406,21 @@ export type QaContextValue = {
   showWelcome: boolean;
   dismissWelcome: () => void;
 
+  // ── v0.6 ─────────────────────────────────────────────────────────────────
+  /** Which edge the panel is docked to, so it can be moved off the work. */
+  panelSide: 'start' | 'end';
+  setPanelSide: (side: 'start' | 'end') => void;
+  /** Collapsed to its header strip. */
+  panelCollapsed: boolean;
+  setPanelCollapsed: (on: boolean) => void;
+  /** One line per note instead of a full card. */
+  denseNotes: boolean;
+  setDenseNotes: (on: boolean) => void;
+  /** Apply one patch to many notes at once (one toast, one pass). */
+  updateNotes: (ids: string[], patch: { severity?: 'bug' | 'question' | 'polish'; status?: 'open' | 'fixed' | 'verified' }) => Promise<void>;
+  /** Soft-delete many notes with a SINGLE undo. */
+  deleteNotes: (ids: string[]) => Promise<void>;
+
   // ── v0.4: note filtering + view modes ────────────────────────────────────
   filter: QaNoteFilter;
   setFilter: (patch: Partial<QaNoteFilter>) => void;
@@ -474,6 +489,10 @@ const AUTO_BACKUP_KEY   = 'autoBackup';      // '0' to opt out
 const AUTO_BACKUP_AT_KEY = 'autoBackupAt';   // note count of the last backup
 const ERROR_CATCHER_KEY = 'errorCatcher';    // '0' to opt out
 const WELCOME_SEEN_KEY  = 'welcomeSeen';
+// v0.6
+const PANEL_SIDE_KEY    = 'panelSide';      // 'start' | 'end'
+const PANEL_COLLAPSED_KEY = 'panelCollapsed';
+const DENSE_NOTES_KEY   = 'denseNotes';
 
 // Notice queue rules (contract §5).
 const NOTICE_QUEUE_CAP     = 3;
@@ -613,6 +632,17 @@ export function QaProvider({
   const [compactCapture, setCompactCaptureState] = useState<boolean>(
     () => storage.getItem(COMPACT_KEY) === '1',
   );
+  // v0.6
+  const [panelSide, setPanelSideState] = useState<'start' | 'end'>(
+    () => (storage.getItem(PANEL_SIDE_KEY) === 'end' ? 'end' : 'start'),
+  );
+  const [panelCollapsed, setPanelCollapsedState] = useState<boolean>(
+    () => storage.getItem(PANEL_COLLAPSED_KEY) === '1',
+  );
+  const [denseNotes, setDenseNotesState] = useState<boolean>(
+    () => storage.getItem(DENSE_NOTES_KEY) === '1',
+  );
+
   // v0.5
   const [capturePrefill, setCapturePrefill] = useState('');
   const [errorCatcher, setErrorCatcherState] = useState<boolean>(
@@ -1706,6 +1736,130 @@ export function QaProvider({
     storage.setItem(WELCOME_SEEN_KEY, '1');
   }, [storage]);
 
+  // ── v0.6: layout preferences ─────────────────────────────────────────────
+
+  const setPanelSide = useCallback((side: 'start' | 'end') => {
+    setPanelSideState(side);
+    storage.setItem(PANEL_SIDE_KEY, side);
+  }, [storage]);
+
+  const setPanelCollapsed = useCallback((on: boolean) => {
+    setPanelCollapsedState(on);
+    storage.setItem(PANEL_COLLAPSED_KEY, on ? '1' : '0');
+  }, [storage]);
+
+  const setDenseNotes = useCallback((on: boolean) => {
+    setDenseNotesState(on);
+    storage.setItem(DENSE_NOTES_KEY, on ? '1' : '0');
+  }, [storage]);
+
+  // ── v0.6: bulk actions ───────────────────────────────────────────────────
+
+  /**
+   * Apply one patch to many notes.
+   *
+   * Written as a batch rather than a loop over updateNote() so the tester gets
+   * one state update, one toast and one folder-sync pass — marking eight
+   * findings "verified" should not produce eight toasts and eight rewrites of
+   * the campaign report.
+   */
+  const updateNotes = useCallback(
+    async (
+      ids: string[],
+      patch: { severity?: 'bug' | 'question' | 'polish'; status?: 'open' | 'fixed' | 'verified' },
+    ): Promise<void> => {
+      if (!ids.length) return;
+      const idSet = new Set(ids);
+      const touched: QaNote[] = [];
+      applyNotes((prev) =>
+        prev.map((n) => {
+          if (!idSet.has(n.id)) return n;
+          const next: QaNote = { ...n };
+          if (patch.severity !== undefined) next.severity = patch.severity;
+          if (patch.status !== undefined) next.status = patch.status;
+          touched.push(next);
+          return next;
+        }),
+      );
+      if (!touched.length) return;
+
+      let allPersisted = true;
+      for (const note of touched) {
+        const persisted = await idb.put(note);
+        if (!persisted) allPersisted = false;
+      }
+      if (!allPersisted) notify(t('persist_failed'), { tone: 'error', id: 'persist_failed' });
+      for (const note of touched) await syncNoteThrough(note);
+      notify(t('bulk_updated', { n: touched.length }), { id: 'bulk' });
+    },
+    [idb, notify, t, applyNotes, syncNoteThrough],
+  );
+
+  /**
+   * Soft-delete many notes at once, with ONE undo covering the whole batch.
+   *
+   * Reuses the same durable-marker + delayed-commit machinery as deleteNote
+   * (see its doc comment): ids are written to localStorage synchronously so a
+   * tab closed mid-window can't resurrect them, and the real IndexedDB delete
+   * — and the folder-sync removal — waits out the undo window.
+   */
+  const deleteNotes = useCallback(async (ids: string[]): Promise<void> => {
+    if (!ids.length) return;
+    const idSet = new Set(ids);
+    const before = notesRef.current;
+    const removed = before.filter((n) => idSet.has(n.id));
+    if (!removed.length) return;
+
+    applyNotes((prev) => prev.filter((n) => !idSet.has(n.id)));
+
+    // Any of these already sitting in their own undo window would otherwise
+    // be committed twice; cancel those timers and let this batch own them.
+    for (const id of ids) {
+      const pending = pendingDeletes.current.get(id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingDeletes.current.delete(id);
+        dismissNotice(`delete-${id}`);
+      }
+    }
+
+    const removedIds = removed.map((n) => n.id);
+    addPendingDeleteIds(removedIds); // synchronous, before any await
+
+    const timer = setTimeout(() => {
+      pendingClear.current = null;
+      void Promise.all(removed.map((n) => idb.delete(n.id))).then(() =>
+        removePendingDeleteIds(removedIds),
+      );
+      if (getFsSyncState() === 'syncing') {
+        void (async () => {
+          for (const n of removed) await removeNoteFromDisk(n.id, notesRef.current);
+        })();
+      }
+    }, SOFT_DELETE_MS);
+
+    // Restoring a batch is exactly the clear-all restore: put the snapshot
+    // back. Reuse that slot so the two can't fight over one timer.
+    if (pendingClear.current) clearTimeout(pendingClear.current.timer);
+    pendingClear.current = { notes: before, timer };
+
+    notify(t('bulk_deleted', { n: removed.length }), {
+      duration: SOFT_DELETE_MS,
+      id: 'bulk-delete',
+      action: {
+        label: t('undo'),
+        onAction: () => {
+          const pending = pendingClear.current;
+          if (!pending) return;
+          clearTimeout(pending.timer);
+          pendingClear.current = null;
+          removePendingDeleteIds(removedIds);
+          applyNotes(() => pending.notes);
+        },
+      },
+    });
+  }, [idb, notify, dismissNotice, t, addPendingDeleteIds, removePendingDeleteIds, applyNotes]);
+
   // ── Context value ─────────────────────────────────────────────────────────
 
   const value: QaContextValue = {
@@ -1808,6 +1962,16 @@ export function QaProvider({
     retestNote,
     showWelcome,
     dismissWelcome,
+
+    // v0.6
+    panelSide,
+    setPanelSide,
+    panelCollapsed,
+    setPanelCollapsed,
+    denseNotes,
+    setDenseNotes,
+    updateNotes,
+    deleteNotes,
 
     // v0.4 — filtering + view modes
     filter,

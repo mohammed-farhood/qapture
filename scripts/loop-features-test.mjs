@@ -20,6 +20,12 @@
 //      as the after image beside the original.
 //   9. SHARE              — where the OS can take a file, the archive is
 //      handed to the share sheet as a real .zip File.
+//  10. BULK ACTIONS       — select many notes and change or delete them in
+//      one pass, with a single undo.
+//  11. COMPACT LIST       — one line per note, expandable in place.
+//  12. PANEL DOCKING      — the panel can move to the other edge and collapse
+//      to its header, so it stops covering the app under test.
+//  13. WHOLE-SCREEN SHOT  — capture everything visible without dragging.
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -464,6 +470,192 @@ try {
     `9. the shared file is the campaign archive (got "${shared?.files?.[0]?.name}")`);
   ok((shared?.files?.[0]?.size ?? 0) > 500,
     `9. the shared archive has real content (${shared?.files?.[0]?.size} bytes)`);
+  // ── 10. Bulk actions ───────────────────────────────────────────────────
+  // Get back to the panel with the notes this run created.
+  await page.evaluate(() => {
+    const sr = window.__qaSR();
+    if (![...sr.querySelectorAll('li')].length) sr.querySelector('button').click();
+  });
+  await sleep(600);
+  // Clear any filter a previous section left behind.
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^All/.test((x.textContent || '').trim()));
+    if (b) b.click();
+  });
+  await sleep(400);
+
+  const enteredSelect = await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^Select$/i.test((x.textContent || '').trim()));
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  ok(enteredSelect, '10. the notes list offers a Select mode');
+  await sleep(400);
+
+  const selectedAll = await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /select all/i.test(x.textContent || ''));
+    if (!b) return 0;
+    b.click();
+    return 1;
+  });
+  await sleep(400);
+  const selectionLabel = await page.evaluate(() => (window.__qaSR().textContent || '').match(/(\d+) selected/)?.[1]);
+  ok(selectedAll === 1 && Number(selectionLabel) > 1,
+    `10. "Select all" selects every visible note (${selectionLabel} selected)`);
+
+  const beforeStatuses = (await readNotes()).map((n) => n.status);
+  await page.evaluate(() => {
+    const bar = [...window.__qaSR().querySelectorAll('button')].filter((x) => /^Verified$/i.test((x.textContent || '').trim()));
+    // The bulk bar's button is the one that is NOT inside a note <li>.
+    const target = bar.find((b) => !b.closest('li'));
+    if (target) target.click();
+  });
+  await sleep(1500);
+  const afterStatuses = (await readNotes()).map((n) => n.status);
+  ok(afterStatuses.length > 1 && afterStatuses.every((st) => st === 'verified'),
+    `10. one tap marks every selected note verified (was ${JSON.stringify(beforeStatuses)}, now ${JSON.stringify(afterStatuses)})`);
+
+  // Bulk delete, then undo it — one toast for the whole batch.
+  const countBefore = (await readNotes()).length;
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^Select$/i.test((x.textContent || '').trim()));
+    if (b) b.click();
+  });
+  await sleep(300);
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /select all/i.test(x.textContent || ''));
+    if (b) b.click();
+  });
+  await sleep(300);
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^Delete$/i.test((x.textContent || '').trim()));
+    if (b) b.click();
+  });
+  await sleep(600);
+  const undoCount = await page.evaluate(() => {
+    const sr = window.__qaSR();
+    const listed = sr.querySelectorAll('li').length;
+    const undo = [...sr.querySelectorAll('button')].filter((b) => /^Undo$/i.test((b.textContent || '').trim()));
+    return { listed, undos: undo.length };
+  });
+  ok(undoCount.listed === 0, '10. a bulk delete clears the list immediately');
+  ok(undoCount.undos === 1, `10. and offers ONE undo for the whole batch (found ${undoCount.undos})`);
+
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^Undo$/i.test((x.textContent || '').trim()));
+    if (b) b.click();
+  });
+  await sleep(800);
+  ok((await readNotes()).length === countBefore,
+    `10. undo restores the whole batch (${countBefore} notes)`);
+
+  // ── 11. Compact list ───────────────────────────────────────────────────
+  const compact = await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /compact list/i.test(x.textContent || ''));
+    if (!b) return null;
+    b.click();
+    return true;
+  });
+  await sleep(600);
+  ok(compact === true, '11. the list offers a compact view');
+  const compactHeights = await page.evaluate(() =>
+    [...window.__qaSR().querySelectorAll('li')].map((li) => Math.round(li.getBoundingClientRect().height)));
+  ok(compactHeights.length > 0 && compactHeights.every((h) => h < 60),
+    `11. compact rows are one line tall (heights: ${JSON.stringify(compactHeights.slice(0, 4))})`);
+
+  await page.evaluate(() => {
+    const li = window.__qaSR().querySelector('li button');
+    if (li) li.click();
+  });
+  await sleep(500);
+  const expandedHeight = await page.evaluate(() =>
+    Math.round(window.__qaSR().querySelector('li').getBoundingClientRect().height));
+  ok(expandedHeight > 60, `11. tapping a compact row opens the full card in place (${expandedHeight}px)`);
+
+  // ── 12. Panel docking ──────────────────────────────────────────────────
+  const sideBefore = await page.evaluate(() => {
+    const panel = [...window.__qaSR().querySelectorAll('div')].find((d) => d.className.includes('qa-w-panel'));
+    return Math.round(panel.getBoundingClientRect().left);
+  });
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /other side/i.test(x.getAttribute('aria-label') || ''));
+    if (b) b.click();
+  });
+  await sleep(600);
+  const sideAfter = await page.evaluate(() => {
+    const panel = [...window.__qaSR().querySelectorAll('div')].find((d) => d.className.includes('qa-w-panel'));
+    return Math.round(panel.getBoundingClientRect().left);
+  });
+  ok(sideAfter > sideBefore + 200, `12. the panel moves to the other edge (left ${sideBefore} → ${sideAfter})`);
+
+  const collapsed = await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^Collapse$/i.test(x.getAttribute('aria-label') || ''));
+    if (!b) return null;
+    b.click();
+    return true;
+  });
+  await sleep(600);
+  const collapsedState = await page.evaluate(() => {
+    const sr = window.__qaSR();
+    const panel = [...sr.querySelectorAll('div')].find((d) => d.className.includes('qa-w-panel'));
+    return {
+      height: Math.round(panel.getBoundingClientRect().height),
+      hasNotes: sr.querySelectorAll('li').length > 0,
+    };
+  });
+  ok(collapsed === true && collapsedState.height < 90 && !collapsedState.hasNotes,
+    `12. collapsing leaves only the header strip (${collapsedState.height}px, notes hidden: ${!collapsedState.hasNotes})`);
+
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^Expand$/i.test(x.getAttribute('aria-label') || ''));
+    if (b) b.click();
+  });
+  await sleep(500);
+  ok(await page.evaluate(() => window.__qaSR().querySelectorAll('li').length > 0),
+    '12. expanding brings the list back');
+
+  // ── 13. Whole-screen capture ───────────────────────────────────────────
+  await page.keyboard.down('Alt'); await page.keyboard.down('Shift');
+  await page.keyboard.press('KeyC');
+  await page.keyboard.up('Shift'); await page.keyboard.up('Alt');
+  await sleep(600);
+  const wholeScreen = await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /whole screen/i.test(x.textContent || ''));
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  ok(wholeScreen, '13. capture mode offers a whole-screen shot');
+  await sleep(3000);
+  const ta3 = (await page.evaluateHandle(() => window.__qaSR().querySelector('textarea'))).asElement();
+  ok(!!ta3, '13. it goes straight to the annotation card, no dragging');
+  if (ta3) {
+    await ta3.click();
+    await ta3.type('whole screen fixture');
+    await page.evaluate(() => {
+      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /save point/i.test(x.textContent || ''));
+      if (b) b.click();
+    });
+    await sleep(1500);
+    const shot = await page.evaluate(() => new Promise((resolve) => {
+      const req = indexedDB.open('playground-db');
+      req.onerror = () => resolve(null);
+      req.onsuccess = () => {
+        const all = req.result.transaction('notes', 'readonly').objectStore('notes').getAll();
+        all.onerror = () => resolve(null);
+        all.onsuccess = async () => {
+          const n = all.result.find((x) => x.description === 'whole screen fixture');
+          if (!n?.screenshot) return resolve(null);
+          const bmp = await createImageBitmap(n.screenshot);
+          resolve({ w: bmp.width, h: bmp.height, ratio: bmp.width / bmp.height });
+        };
+      };
+    }));
+    const viewportRatio = 1280 / 900;
+    ok(!!shot && Math.abs(shot.ratio - viewportRatio) / viewportRatio < 0.05,
+      `13. the saved shot is the whole viewport (${shot?.w}x${shot?.h}, ratio ${shot?.ratio?.toFixed(2)} vs ${viewportRatio.toFixed(2)})`);
+  }
 } finally {
   await browser.close();
   server.kill('SIGTERM');
@@ -473,4 +665,4 @@ if (failures > 0) {
   console.error(`\nLOOP FEATURES: ${failures} assertion(s) FAILED`);
   process.exit(1);
 }
-console.log('\nLOOP FEATURES PASS ✅  shortcut + steps + re-test queue + auto-backup + drawing + welcome + error catcher + re-test evidence + share');
+console.log('\nLOOP FEATURES PASS ✅  shortcut + steps + re-test queue + auto-backup + drawing + welcome + error catcher + re-test evidence + share + bulk + compact + docking + whole-screen');

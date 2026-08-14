@@ -14,6 +14,7 @@ npm install qapture2
 
 ## Contents
 
+- [What's new in v0.6 "Elbow Room"](#whats-new-in-v06-elbow-room)
 - [What's new in v0.5 "Loop"](#whats-new-in-v05-loop)
 - [What's new in v0.4 "Ledger"](#whats-new-in-v04-ledger)
 - [Breaking Changes (v0.3.0 "Graphite")](#breaking-changes-v030-graphite)
@@ -35,6 +36,17 @@ npm install qapture2
 - [Isolation and Known Limitations](#isolation-and-known-limitations)
 - [Uninstall](#uninstall)
 - [License](#license)
+
+---
+
+## What's new in v0.6 "Elbow Room"
+
+| | |
+|---|---|
+| **Bulk actions** | Select many notes → mark them Open / Re-test / Verified, or delete them, in one pass with a single undo. |
+| **Compact list** | One line per note, expanding in place — for when a session has thirty of them. |
+| **Move the panel** | Dock it to the other edge, or collapse it to its header strip, so it stops covering the app you're testing. |
+| **Whole-screen capture** | Grab everything visible without dragging a box across the screen. |
 
 ---
 

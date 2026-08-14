@@ -155,7 +155,23 @@ function StatusPill({
 // NoteItem
 // ---------------------------------------------------------------------------
 
-function NoteItem({ note, index }: { note: QaNote; index: number }) {
+function NoteItem({
+  note,
+  index,
+  selectable,
+  selected,
+  onToggleSelect,
+  dense,
+}: {
+  note: QaNote;
+  index: number;
+  /** Selection mode is on — show a checkbox and let the row toggle. */
+  selectable: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
+  /** Compact list: one line until the tester opens this note. */
+  dense: boolean;
+}) {
   const { deleteNote, updateNote, retestNote, notify, t } = useQa();
   const [editing, setEditing] = useState(false);
   const [desc, setDesc] = useState(note.description);
@@ -168,6 +184,8 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
   const thumbUrl = useObjectUrl(editing ? (img ?? undefined) : note.screenshot);
   const afterUrl = useObjectUrl(note.afterScreenshot);
   const [retesting, setRetesting] = useState(false);
+  // In compact mode a note starts as a single line and opens on demand.
+  const [open, setOpen] = useState(false);
 
   // UI defaults per contract §4 — undefined reads as 'bug' / 'open'.
   const severity: QaSeverity = note.severity ?? 'bug';
@@ -218,10 +236,73 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
     }
   };
 
+  const severityDot = severity === 'bug'
+    ? 'var(--qa-danger)'
+    : severity === 'question' ? 'var(--qa-warn)' : 'var(--qa-accent)';
+
+  // ── Compact row ─────────────────────────────────────────────────────────
+  // At thirty notes a list of full cards is a scrolling marathon. One line
+  // each — number, severity colour, first words — turns "find that note" back
+  // into a glance, and tapping opens the real card in place.
+  if (dense && !open && !editing) {
+    return (
+      <li>
+        <button
+          type="button"
+          onClick={() => (selectable ? onToggleSelect() : setOpen(true))}
+          className="qa-tap qa-flex qa-w-full qa-items-center qa-gap-2 qa-rounded-lg qa-border qa-border-subtle qa-bg-1 qa-px-2 qa-py-1.5 qa-text-start qa-text-xs qa-text-hi"
+          style={{ cursor: 'pointer' }}
+        >
+          {selectable && (
+            <Icon
+              name={selected ? 'CheckCircle2' : 'Circle'}
+              size={13}
+              className={selected ? 'qa-text-accent qa-shrink-0' : 'qa-text-lo qa-shrink-0'}
+            />
+          )}
+          <span
+            aria-hidden="true"
+            className="qa-shrink-0 qa-rounded-full"
+            style={{ width: 7, height: 7, background: severityDot }}
+          />
+          <span className="qa-text-10 qa-text-lo qa-shrink-0">{index}</span>
+          <span className="qa-truncate qa-flex-1">{note.description}</span>
+          {status !== 'open' && (
+            <Icon
+              name={status === 'verified' ? 'CheckCircle2' : 'RotateCcw'}
+              size={12}
+              className={status === 'verified' ? 'qa-text-success qa-shrink-0' : 'qa-text-warn qa-shrink-0'}
+            />
+          )}
+        </button>
+      </li>
+    );
+  }
+
   return (
-    <li className="qa-rounded-xl qa-border qa-border-subtle qa-bg-1 qa-elev-1 qa-p-3 qa-text-sm qa-text-hi">
+    <li
+      className={`qa-rounded-xl qa-border qa-bg-1 qa-elev-1 qa-p-3 qa-text-sm qa-text-hi ${
+        selected ? 'qa-border-accent' : 'qa-border-subtle'
+      }`}
+    >
       {/* top row */}
       <div className="qa-mb-1 qa-flex qa-flex-wrap qa-items-center qa-gap-1.5">
+        {selectable && (
+          <button
+            type="button"
+            onClick={onToggleSelect}
+            aria-pressed={selected}
+            aria-label={t('select_mode')}
+            className="qa-tap-icon qa-shrink-0"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+          >
+            <Icon
+              name={selected ? 'CheckCircle2' : 'Circle'}
+              size={15}
+              className={selected ? 'qa-text-accent' : 'qa-text-lo'}
+            />
+          </button>
+        )}
         <span className="qa-flex qa-h-5 qa-w-5 qa-items-center qa-justify-center qa-rounded-full qa-text-11 qa-font-bold qa-bg-accent">
           {index}
         </span>
@@ -238,6 +319,17 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
           >
             <Icon name="Copy" size={14} />
           </button>
+          {dense && open && !editing && (
+            <button
+              onClick={() => setOpen(false)}
+              className="qa-tap-icon qa-text-mid qa-hover-text-slate-600"
+              title={t('view_compact')}
+              aria-label={t('view_compact')}
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+            >
+              <Icon name="Minimize2" size={13} />
+            </button>
+          )}
           {!editing && (
             <button
               onClick={startEdit}
@@ -435,7 +527,35 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
 export default function NoteList() {
   // Filtering itself lives in QaContext, so export and folder sync always see
   // the complete list no matter what the tester is looking at right now.
-  const { notes, visibleNotes, setFilter, notesLoading, t } = useQa();
+  const {
+    notes, visibleNotes, setFilter, notesLoading, t,
+    denseNotes, setDenseNotes, updateNotes, deleteNotes,
+  } = useQa();
+
+  // Selection lives here rather than in context: it is a transient view state
+  // ("what am I acting on right now"), not part of the session's data.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const exitSelect = () => { setSelecting(false); setSelected(new Set()); };
+
+  // Bulk actions apply to what is SELECTED, and "select all" means everything
+  // currently visible — so filtering to Re-test and hitting Select all is the
+  // natural way to close out a batch.
+  const runBulk = async (fn: (ids: string[]) => Promise<void>) => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    exitSelect();
+    await fn(ids);
+  };
 
   // Loading skeleton — only while IDB hasn't answered yet AND there's nothing
   // to show already (an empty result and a slow load look identical to the
@@ -484,11 +604,111 @@ export default function NoteList() {
   // export, the folder and any agent handoff refer to.
   const numberOf = (id: string) => notes.length - notes.findIndex((n) => n.id === id);
 
+  const selectedCount = selected.size;
+
   return (
-    <ul className="qa-space-y-2">
-      {visibleNotes.map((n) => (
-        <NoteItem key={n.id} note={n} index={numberOf(n.id)} />
-      ))}
-    </ul>
+    <div className="qa-space-y-2">
+      {/* ── List controls ────────────────────────────────────────────────── */}
+      <div className="qa-flex qa-items-center qa-gap-2 qa-text-10">
+        {selecting ? (
+          <>
+            <span className="qa-text-mid">{t('selected_n', { n: selectedCount })}</span>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set(visibleNotes.map((n) => n.id)))}
+              className="qa-tap qa-text-accent"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+            >
+              {t('select_all')}
+            </button>
+            <button
+              type="button"
+              onClick={exitSelect}
+              className="qa-tap qa-text-mid"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+            >
+              {t('cancel')}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setSelecting(true)}
+              className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-text-mid"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+            >
+              <Icon name="CheckCircle2" size={12} />
+              {t('select_mode')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDenseNotes(!denseNotes)}
+              className="qa-tap qa-ms-auto qa-inline-flex qa-items-center qa-gap-1 qa-text-mid"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+            >
+              <Icon name={denseNotes ? 'Maximize2' : 'Minimize2'} size={12} />
+              {denseNotes ? t('view_comfortable') : t('view_compact')}
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* ── Bulk action bar ──────────────────────────────────────────────── */}
+      {selecting && selectedCount > 0 && (
+        <div className="qa-flex qa-flex-wrap qa-items-center qa-gap-1 qa-rounded-lg qa-border qa-border-subtle qa-bg-2 qa-p-1.5">
+          <button
+            type="button"
+            onClick={() => void runBulk((ids) => updateNotes(ids, { status: 'open' }))}
+            className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-bg-3 qa-text-mid qa-px-2 qa-py-0.5 qa-text-10"
+            style={{ border: 'none', cursor: 'pointer' }}
+          >
+            <Icon name="Circle" size={10} />
+            {t('status_open')}
+          </button>
+          <button
+            type="button"
+            onClick={() => void runBulk((ids) => updateNotes(ids, { status: 'fixed' }))}
+            className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-bg-warn-tint qa-text-warn qa-px-2 qa-py-0.5 qa-text-10"
+            style={{ border: 'none', cursor: 'pointer' }}
+          >
+            <Icon name="RotateCcw" size={10} />
+            {t('status_fixed')}
+          </button>
+          <button
+            type="button"
+            onClick={() => void runBulk((ids) => updateNotes(ids, { status: 'verified' }))}
+            className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-bg-success-tint qa-text-success qa-px-2 qa-py-0.5 qa-text-10"
+            style={{ border: 'none', cursor: 'pointer' }}
+          >
+            <Icon name="CheckCircle2" size={10} />
+            {t('status_verified')}
+          </button>
+          <button
+            type="button"
+            onClick={() => void runBulk((ids) => deleteNotes(ids))}
+            className="qa-tap qa-ms-auto qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-bg-danger-tint qa-text-danger qa-px-2 qa-py-0.5 qa-text-10"
+            style={{ border: 'none', cursor: 'pointer' }}
+          >
+            <Icon name="Trash2" size={10} />
+            {t('bulk_delete')}
+          </button>
+        </div>
+      )}
+
+      <ul className="qa-space-y-2">
+        {visibleNotes.map((n) => (
+          <NoteItem
+            key={n.id}
+            note={n}
+            index={numberOf(n.id)}
+            selectable={selecting}
+            selected={selected.has(n.id)}
+            onToggleSelect={() => toggleSelected(n.id)}
+            dense={denseNotes}
+          />
+        ))}
+      </ul>
+    </div>
   );
 }

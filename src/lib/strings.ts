@@ -181,6 +181,20 @@ type LangMap = {
   welcome_say: string;
   welcome_safe: string;
   welcome_got_it: string;
+  // — v0.6 —
+  select_mode: string;
+  selected_n: string;
+  select_all: string;
+  select_clear: string;
+  bulk_delete: string;
+  bulk_updated: string;
+  bulk_deleted: string;
+  view_compact: string;
+  view_comfortable: string;
+  dock_move: string;
+  panel_collapse: string;
+  panel_expand: string;
+  capture_screen: string;
 };
 
 export type StrKey = keyof LangMap;
@@ -349,6 +363,19 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     welcome_say:           'Say what you expected in your own words. A screenshot is taken for you.',
     welcome_safe:          'Everything saves as you go — you cannot lose it.',
     welcome_got_it:        'Got it',
+    select_mode:           'Select',
+    selected_n:            '{n} selected',
+    select_all:            'Select all',
+    select_clear:          'Clear',
+    bulk_delete:           'Delete',
+    bulk_updated:          '{n} notes updated',
+    bulk_deleted:          '{n} notes deleted',
+    view_compact:          'Compact list',
+    view_comfortable:      'Full cards',
+    dock_move:             'Move to the other side',
+    panel_collapse:        'Collapse',
+    panel_expand:          'Expand',
+    capture_screen:        'Whole screen',
   },
   ar: {
     tab_notes:             'الملاحظات',
@@ -513,6 +540,19 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     welcome_say:           'اكتب ما كنت تتوقعه بكلماتك. تُلتقط الصورة تلقائيًا.',
     welcome_safe:          'كل شيء يُحفظ أولًا بأول — لن تفقد شيئًا.',
     welcome_got_it:        'فهمت',
+    select_mode:           'تحديد',
+    selected_n:            'تم تحديد {n}',
+    select_all:            'تحديد الكل',
+    select_clear:          'إلغاء التحديد',
+    bulk_delete:           'حذف',
+    bulk_updated:          'تم تحديث {n} ملاحظة',
+    bulk_deleted:          'تم حذف {n} ملاحظة',
+    view_compact:          'قائمة مختصرة',
+    view_comfortable:      'بطاقات كاملة',
+    dock_move:             'انقل إلى الجهة الأخرى',
+    panel_collapse:        'طيّ',
+    panel_expand:          'توسيع',
+    capture_screen:        'الشاشة كاملة',
   },
 };
 
