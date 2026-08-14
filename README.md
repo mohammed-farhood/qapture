@@ -14,6 +14,7 @@ npm install qapture2
 
 ## Contents
 
+- [What's new in v0.7 "Walk"](#whats-new-in-v07-walk)
 - [What's new in v0.6 "Elbow Room"](#whats-new-in-v06-elbow-room)
 - [What's new in v0.5 "Loop"](#whats-new-in-v05-loop)
 - [What's new in v0.4 "Ledger"](#whats-new-in-v04-ledger)
@@ -36,6 +37,21 @@ npm install qapture2
 - [Isolation and Known Limitations](#isolation-and-known-limitations)
 - [Uninstall](#uninstall)
 - [License](#license)
+
+---
+
+## What's new in v0.7 "Walk"
+
+| | |
+|---|---|
+| **The Walk** | One guided sequence over either your test plan or your notes, with a **Take me there** button that actually navigates. Pressing a Guide step now walks from it. |
+| **Walk the re-test queue** | Filter to Re-test, press Walk: each stop takes you to the page, lights up the spot, re-shoots it and takes your verdict. |
+| **A link that starts it** | `?qa=walk:retest` opens the app with the re-test round already running — send that instead of instructions. |
+| **"Doesn't apply"** | A third grade for plan steps that aren't relevant to this build. Removed from coverage totals rather than counted either way. |
+| **Alt+1/2/3** | Set severity while typing a note. |
+| **Session summary** | The export leads with "12 points · 5 bugs · 4 pages · over 38 minutes". |
+
+**Two fixes from real use:** the widget could be hidden underneath an app's own high-z-index chrome (it now sits above everything, in its own stacking context, without ever swallowing a click), or removed outright by a framework clearing `<body>` (it now puts itself back). And the panel's open state, tab and walk position survive a reload — the notes always did, the *place in the work* didn't.
 
 ---
 

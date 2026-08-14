@@ -125,7 +125,7 @@ export default function QaPanel() {
     startCapture,
     t, lang, setLang, dir,
     brand,
-    journey, guideChecked,
+    journey, guideChecked, guideSkipped,
     simpleMode, sync, storageHealth, noteCounts, setFilter,
     showWelcome, canShare, shareExport, pendingShare, sharePending, notify,
     panelSide, setPanelSide, panelCollapsed, setPanelCollapsed,
@@ -332,7 +332,7 @@ export default function QaPanel() {
 
   // Soft gate: compute coverage only while the naming dialog is open.
   // computeCoverage is a pure, fast function so calling it on each render is fine.
-  const namingCoverage = naming ? computeCoverage(journey, guideChecked) : null;
+  const namingCoverage = naming ? computeCoverage(journey, guideChecked, guideSkipped) : null;
 
   // ── Tab indicator (rendered as a child of the tabs bar) ─────────────────
   // (handled by TabIndicator component below for cleaner ref management)

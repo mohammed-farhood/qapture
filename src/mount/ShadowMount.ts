@@ -29,6 +29,53 @@ export type QaStudioInstance = {
   destroy(): void;
 };
 
+/**
+ * Inline styles for the host element (v0.6).
+ *
+ * WHY THIS EXISTS — "the tool doesn't appear on some pages"
+ * --------------------------------------------------------
+ * Until now the host was an unstyled custom element and every visible piece
+ * lived in the shadow root at z-index ~9990–10097. Those values compete in
+ * the PAGE's root stacking context, so any app chrome with a bigger number —
+ * and a z-index arms race is normal in real apps, where sticky headers,
+ * drawers, cookie banners and modal libraries routinely sit at 99999 or
+ * 2147483647 — simply covered the widget. It was mounted, it was working, it
+ * was underneath something.
+ *
+ * Making the host itself a fixed, top-of-the-range stacking context fixes
+ * that once for every layer inside it: internal ordering is preserved
+ * (children keep their relative z-indexes) but the whole widget is lifted
+ * above the page in one step.
+ *
+ * The box is deliberately 0×0 with pointer-events:none — it must never
+ * intercept a click meant for the app. The actual UI inside is
+ * position:fixed (so the viewport, not this box, is its containing block —
+ * a fixed ancestor alone does not become one) and re-enables pointer events
+ * for itself.
+ */
+const HOST_STYLE = [
+  'position:fixed',
+  'top:0',
+  'left:0',
+  'width:0',
+  'height:0',
+  // Just below the 32-bit maximum, leaving room for anything that
+  // deliberately wants to sit on top of even this (a screen reader overlay,
+  // a browser extension).
+  'z-index:2147483000',
+  'isolation:isolate',
+  'pointer-events:none',
+].join(';');
+
+/** Run `fn` once the document has a <body> to attach to. */
+function whenBodyReady(fn: () => void): void {
+  if (document.body) { fn(); return; }
+  // A synchronous script in <head> (or an early standalone init) runs before
+  // the body exists; appendChild would throw and the widget would silently
+  // never mount.
+  document.addEventListener('DOMContentLoaded', () => fn(), { once: true });
+}
+
 export function mountQaStudio(config: ResolvedConfig): QaStudioInstance {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return { destroy() {} };
@@ -39,7 +86,45 @@ export function mountQaStudio(config: ResolvedConfig): QaStudioInstance {
   // elements) support attachShadow; a bare <qapture> would throw NotSupportedError.
   const host = document.createElement('qapture-overlay');
   host.setAttribute('data-qa-overlay', 'true');
-  document.body.appendChild(host);
+  host.setAttribute('style', HOST_STYLE);
+
+  let destroyed = false;
+
+  /**
+   * Keep the host attached (v0.6) — the other half of "it disappears on some
+   * pages".
+   *
+   * Frameworks and page transitions do occasionally clear or replace the
+   * contents of <body>: a hydration mismatch, a router that swaps the whole
+   * tree, a library that resets innerHTML, a "clean up stray nodes" pass.
+   * When that happens the widget vanishes mid-session and the tester assumes
+   * it broke. React never re-runs its mount effect for this, because from
+   * React's point of view nothing changed — the root it renders into is
+   * simply no longer in the document.
+   *
+   * So we watch, and put ourselves back. The observer only fires on child
+   * changes to <body>, and only acts when the host is genuinely disconnected,
+   * so re-attaching cannot loop.
+   */
+  let guard: MutationObserver | null = null;
+  function startAttachGuard(): void {
+    if (typeof MutationObserver === 'undefined' || !document.body) return;
+    guard = new MutationObserver(() => {
+      if (destroyed || host.isConnected || !document.body) return;
+      try {
+        document.body.appendChild(host);
+      } catch {
+        // If even this fails the page is being torn down; nothing to do.
+      }
+    });
+    guard.observe(document.body, { childList: true });
+  }
+
+  whenBodyReady(() => {
+    if (destroyed) return;
+    document.body.appendChild(host);
+    startAttachGuard();
+  });
 
   // Open shadow root
   const shadow = host.attachShadow({ mode: 'open' });
@@ -62,6 +147,11 @@ export function mountQaStudio(config: ResolvedConfig): QaStudioInstance {
 
   return {
     destroy() {
+      // Flag first: the attach guard must not resurrect a host we are
+      // deliberately removing.
+      destroyed = true;
+      if (guard) { guard.disconnect(); guard = null; }
+
       // Mirror the mount-time condition exactly: uninstallContextCapture()
       // decrements a shared nested-mount refCount (see contextBuffer.ts), so
       // an instance that never incremented it (captureContext: false) must

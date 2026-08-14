@@ -250,6 +250,43 @@ export type QaSyncInfo = {
 };
 
 // ---------------------------------------------------------------------------
+// v0.7 — the Walk
+// ---------------------------------------------------------------------------
+
+/**
+ * What a walk is walking.
+ *
+ * The Guide used to be a dead checklist: it named a page and you navigated
+ * there yourself. A walk turns any list of places into a guided sequence with
+ * one control set — take me there, next, back — so the same machinery covers
+ * "test the plan", "review what I filed" and "re-check the fixes", instead of
+ * three half-features that each work slightly differently.
+ */
+export type QaWalkSource = 'plan' | 'notes';
+
+/** One stop on a walk. */
+export type QaWalkStop =
+  | {
+      kind: 'plan';
+      key: string;
+      /** Where this stop lives, for "take me there". */
+      path: string;
+      step: QaTestAlongStep;
+      /** Notes already captured against this step. */
+      evidence: QaNote[];
+    }
+  | {
+      kind: 'note';
+      key: string;
+      path: string;
+      note: QaNote;
+      /** 1-based point number, matching the list and the export. */
+      number: number;
+    };
+
+export type QaWalkState = { active: boolean; source: QaWalkSource; index: number };
+
+// ---------------------------------------------------------------------------
 // Context value shape (CONTRACT for the component agent)
 // ---------------------------------------------------------------------------
 
@@ -339,7 +376,7 @@ export type QaContextValue = {
   startTestAlong: () => void;
   exitTestAlong: () => void;
   gotoStep: (index: number) => void;
-  gradeStep: (key: string, grade: 'pass' | 'fail') => void;
+  gradeStep: (key: string, grade: 'pass' | 'fail' | 'na') => void;
   evidenceByStep: Map<string, QaNote[]>;
 
   // ── v0.4: screenshot engine ──────────────────────────────────────────────
@@ -416,6 +453,27 @@ export type QaContextValue = {
   /** One line per note instead of a full card. */
   denseNotes: boolean;
   setDenseNotes: (on: boolean) => void;
+  // ── v0.7: the Walk ───────────────────────────────────────────────────────
+  walk: QaWalkState;
+  /** Stops for the CURRENT source, recomputed live. */
+  walkStops: QaWalkStop[];
+  /** Begin (or resume) a walk. */
+  startWalk: (source: QaWalkSource, index?: number) => void;
+  exitWalk: () => void;
+  walkGoto: (index: number) => void;
+  /** Move to the next stop; ends the walk past the last one. */
+  walkNext: () => void;
+  walkPrev: () => void;
+  /**
+   * Take the tester to a stop's page.
+   * @param hard - full page load. The soft path (pushState) is instant and
+   *   works with most app routers, but nothing can guarantee a given router
+   *   reacts — so the UI always offers this as the escape hatch.
+   */
+  walkNavigate: (path: string, hard?: boolean) => void;
+  /** Steps the tester marked "doesn't apply to this build". */
+  guideSkipped: Set<string>;
+
   /** Apply one patch to many notes at once (one toast, one pass). */
   updateNotes: (ids: string[], patch: { severity?: 'bug' | 'question' | 'polish'; status?: 'open' | 'fixed' | 'verified' }) => Promise<void>;
   /** Soft-delete many notes with a SINGLE undo. */
@@ -493,6 +551,12 @@ const WELCOME_SEEN_KEY  = 'welcomeSeen';
 const PANEL_SIDE_KEY    = 'panelSide';      // 'start' | 'end'
 const PANEL_COLLAPSED_KEY = 'panelCollapsed';
 const DENSE_NOTES_KEY   = 'denseNotes';
+// v0.6.1 — the widget should come back the way it was left.
+const PANEL_OPEN_KEY    = 'panelOpen';
+const ACTIVE_TAB_KEY    = 'activeTab';
+// v0.7 — the walk must survive the navigations it performs.
+const WALK_KEY          = 'walk';
+const GUIDE_SKIPPED_KEY = 'guideSkipped';
 
 // Notice queue rules (contract §5).
 const NOTICE_QUEUE_CAP     = 3;
@@ -566,8 +630,30 @@ export function QaProvider({
   }, []);
 
   // ── UI state ─────────────────────────────────────────────────────────────
-  const [isOpen,         setIsOpen]         = useState(false);
-  const [activeTab,      setActiveTab]      = useState<'notes' | 'logins' | 'guide'>('notes');
+  //
+  // Open-state and tab SURVIVE A RELOAD (v0.6.1). Testing is full of
+  // reloads — you refresh to re-check a fix, the app redeploys under you, a
+  // navigation is a hard load — and every one of them used to dump the
+  // tester back to a closed widget on the default tab, so it felt like the
+  // tool had reset itself. The notes were always safe; the place in the work
+  // was not.
+  const [isOpen, setIsOpenState] = useState<boolean>(
+    () => storage.getItem(PANEL_OPEN_KEY) === '1',
+  );
+  const [activeTab, setActiveTabState] = useState<'notes' | 'logins' | 'guide'>(() => {
+    const saved = storage.getItem(ACTIVE_TAB_KEY);
+    return saved === 'logins' || saved === 'guide' ? saved : 'notes';
+  });
+
+  const setIsOpen = useCallback((open: boolean) => {
+    setIsOpenState(open);
+    storage.setItem(PANEL_OPEN_KEY, open ? '1' : '0');
+  }, [storage]);
+
+  const setActiveTab = useCallback((tab: 'notes' | 'logins' | 'guide') => {
+    setActiveTabState(tab);
+    storage.setItem(ACTIVE_TAB_KEY, tab);
+  }, [storage]);
   const [captureActive,  setCaptureActive]  = useState(false);
   const [isExporting,    setIsExporting]    = useState(false);
 
@@ -674,11 +760,37 @@ export function QaProvider({
   // visible notice AND its pending auto-dismiss.
   const noticeTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  // ── Test-along state ─────────────────────────────────────────────────────
-  const [testAlong, setTestAlong] = useState<{ active: boolean; index: number }>({
-    active: false,
-    index: 0,
+  // ── Walk state (v0.7) ────────────────────────────────────────────────────
+  //
+  // Persisted, because a walk NAVIGATES — and a navigation may be a full page
+  // load. If the walk didn't survive that, the feature would die at its first
+  // stop: you'd press "take me there", the page would reload, and the walk
+  // would be gone. Restored below on mount.
+  const [walk, setWalkState] = useState<QaWalkState>(() => {
+    const saved = storage.getJSON<Partial<QaWalkState>>(WALK_KEY, {});
+    return {
+      active: saved.active === true,
+      source: saved.source === 'notes' ? 'notes' : 'plan',
+      index: typeof saved.index === 'number' && saved.index >= 0 ? saved.index : 0,
+    };
   });
+
+  const setWalk = useCallback((next: QaWalkState) => {
+    setWalkState(next);
+    storage.setJSON(WALK_KEY, next);
+  }, [storage]);
+
+  // Kept for every existing caller (GuideSection, the browser test): the
+  // guided walkthrough IS a walk over the plan.
+  const testAlong = { active: walk.active && walk.source === 'plan', index: walk.index };
+
+  // ── Steps marked "doesn't apply" (v0.7) ─────────────────────────────────
+  // Real test plans always contain steps that don't apply to the build in
+  // front of you. With only pass/fail, a tester has to either lie or leave it
+  // blank — and a blank is indistinguishable from "not got to it yet".
+  const [guideSkipped, setGuideSkipped] = useState<Set<string>>(
+    () => new Set<string>(storage.getJSON<string[]>(GUIDE_SKIPPED_KEY, [])),
+  );
 
   // ── Pending soft-delete / soft-clear (undo window) ──────────────────────
   // `afterId` anchors the restore to the note that sat immediately after the
@@ -913,26 +1025,55 @@ export function QaProvider({
     return out;
   }, [config.journey, pick]);
 
-  const startTestAlong = useCallback(() => {
-    setTestAlong({ active: true, index: 0 });
+  const startWalk = useCallback((source: QaWalkSource, index = 0) => {
+    setWalk({ active: true, source, index: Math.max(0, index) });
     setIsOpen(false);
-  }, []);
+  }, [setWalk, setIsOpen]);
 
-  const exitTestAlong = useCallback(() => {
-    setTestAlong({ active: false, index: 0 });
-  }, []);
+  const exitWalk = useCallback(() => {
+    setWalk({ active: false, source: walk.source, index: 0 });
+  }, [setWalk, walk.source]);
+
+  const startTestAlong = useCallback(() => startWalk('plan', 0), [startWalk]);
+  const exitTestAlong = exitWalk;
 
   const gotoStep = useCallback((index: number) => {
-    setTestAlong((prev) => {
-      if (!prev.active) return prev;
-      const maxIndex = Math.max(0, testAlongSteps.length - 1);
-      const clamped = Math.max(0, Math.min(index, maxIndex));
-      if (clamped === prev.index) return prev;
-      return { ...prev, index: clamped };
-    });
-  }, [testAlongSteps.length]);
+    if (!walk.active) return;
+    setWalk({ ...walk, index: Math.max(0, index) });
+  }, [walk, setWalk]);
 
-  const gradeStep = useCallback((key: string, grade: 'pass' | 'fail') => {
+  const gradeStep = useCallback((key: string, grade: 'pass' | 'fail' | 'na') => {
+    // "Doesn't apply" is its own answer, not a pass and not a fail: it means
+    // this step has no bearing on this build, and coverage should stop asking.
+    if (grade === 'na') {
+      setGuideSkipped((prev) => {
+        const next = new Set(prev);
+        next.add(key);
+        storage.setJSON(GUIDE_SKIPPED_KEY, [...next]);
+        return next;
+      });
+      setGuideChecked((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        storage.setJSON(GUIDE_KEY, [...next]);
+        return next;
+      });
+      setGuideFailed((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        storage.setJSON(GUIDE_FAILED_KEY, [...next]);
+        return next;
+      });
+      return;
+    }
+    // Any real grade clears a previous "doesn't apply".
+    setGuideSkipped((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      storage.setJSON(GUIDE_SKIPPED_KEY, [...next]);
+      return next;
+    });
     if (grade === 'pass') {
       setGuideChecked((prev) => {
         const next = new Set(prev);
@@ -1334,7 +1475,7 @@ export function QaProvider({
       try {
         // Pass the resolved config + current guideChecked so the export preamble
         // can render credentials, journey coverage, and preamble fields.
-        await buildAndDownloadZip(notes, nowIso(), filename, config, guideChecked);
+        await buildAndDownloadZip(notes, nowIso(), filename, config, guideChecked, guideSkipped);
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error('[QA] export failed', err);
@@ -1342,7 +1483,7 @@ export function QaProvider({
         setIsExporting(false);
       }
     },
-    [notes, isExporting, config, guideChecked],
+    [notes, isExporting, config, guideChecked, guideSkipped],
   );
 
   // Late-bound so addNote's "storage full → Export" toast can call the export
@@ -1634,7 +1775,7 @@ export function QaProvider({
     const name = exportFileName(filename, stamp);
     setIsExporting(true);
     try {
-      const blob = await buildZipBlob(notes, stamp, config, guideChecked);
+      const blob = await buildZipBlob(notes, stamp, config, guideChecked, guideSkipped);
       if (!blob) return { status: 'unsupported' };
       const outcome = await shareZipFile(blob, name, config.brand.label);
       if (outcome.status === 'needs-gesture') {
@@ -1642,7 +1783,7 @@ export function QaProvider({
         setPendingShare({ blob, filename: name });
       } else if (outcome.status === 'unsupported') {
         // Nothing to share with: fall back to the path that always works.
-        await buildAndDownloadZip(notes, stamp, filename, config, guideChecked);
+        await buildAndDownloadZip(notes, stamp, filename, config, guideChecked, guideSkipped);
       }
       return outcome;
     } catch {
@@ -1650,7 +1791,7 @@ export function QaProvider({
     } finally {
       setIsExporting(false);
     }
-  }, [notes, config, guideChecked]);
+  }, [notes, config, guideChecked, guideSkipped]);
 
   const sharePending = useCallback(async (): Promise<ShareOutcome> => {
     const pending = pendingShare;
@@ -1860,6 +2001,113 @@ export function QaProvider({
     });
   }, [idb, notify, dismissNotice, t, addPendingDeleteIds, removePendingDeleteIds, applyNotes]);
 
+  // ── v0.7: the Walk ───────────────────────────────────────────────────────
+
+  /**
+   * The stops for the current source, derived live rather than snapshotted.
+   *
+   * Live matters: the walk survives page reloads (and therefore full
+   * navigations), so a snapshot taken when the walk started would be a stale
+   * copy of notes that may since have been edited, re-tested or deleted.
+   */
+  const walkStops = useMemo<QaWalkStop[]>(() => {
+    if (walk.source === 'plan') {
+      return testAlongSteps.map((step) => ({
+        kind: 'plan' as const,
+        key: step.key,
+        path: step.path,
+        step,
+        evidence: evidenceByStep.get(step.key) ?? [],
+      }));
+    }
+    // Notes walk: whatever the tester is currently looking at, oldest first so
+    // the sequence matches capture order and the point numbers count up.
+    // Filtering to "Re-test" and walking IS the re-test round.
+    const ordered = visibleNotes.slice().reverse();
+    return ordered.map((note) => ({
+      kind: 'note' as const,
+      key: note.id,
+      path: note.route.split('?')[0] || '/',
+      note,
+      number: notes.length - notes.findIndex((n) => n.id === note.id),
+    }));
+  }, [walk.source, testAlongSteps, evidenceByStep, visibleNotes, notes]);
+
+  const walkGoto = useCallback((index: number) => {
+    if (!walk.active) return;
+    const maxIndex = Math.max(0, walkStops.length - 1);
+    setWalk({ ...walk, index: Math.max(0, Math.min(index, maxIndex)) });
+  }, [walk, walkStops.length, setWalk]);
+
+  const walkNext = useCallback(() => {
+    if (!walk.active) return;
+    // Past the last stop the walk is done — ending it here is what makes the
+    // finish line exist, rather than the tester getting stuck on stop N.
+    if (walk.index >= walkStops.length - 1) {
+      setWalk({ active: false, source: walk.source, index: 0 });
+      return;
+    }
+    setWalk({ ...walk, index: walk.index + 1 });
+  }, [walk, walkStops.length, setWalk]);
+
+  const walkPrev = useCallback(() => {
+    if (!walk.active) return;
+    setWalk({ ...walk, index: Math.max(0, walk.index - 1) });
+  }, [walk, setWalk]);
+
+  /**
+   * Take the tester to a page.
+   *
+   * Soft first: pushState plus a popstate event is what every history-based
+   * router listens for, and it keeps the app's state (and the walk) alive. It
+   * cannot be *guaranteed* to work — a router may ignore it — which is why
+   * the HUD always shows a reload button beside it rather than hiding the
+   * fallback behind a failure the tester would have to diagnose.
+   */
+  const walkNavigate = useCallback((path: string, hard = false) => {
+    if (typeof window === 'undefined' || !path) return;
+    const target = path.startsWith('/') ? path : `/${path}`;
+    if (hard) { window.location.assign(target); return; }
+    try {
+      window.history.pushState({}, '', target);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } catch {
+      window.location.assign(target);
+    }
+  }, []);
+
+  /**
+   * Deep link: `?qa=walk`, `?qa=walk:plan`, `?qa=walk:retest`.
+   *
+   * The owner sends testers a link anyway — this lets that link carry the
+   * instruction. "Re-check these" stops being a paragraph of explanation and
+   * becomes a URL. The parameter is consumed on arrival (stripped via
+   * replaceState) so that a later reload resumes the tester's actual position
+   * instead of restarting the walk from the top.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('qa');
+    if (!raw || !raw.startsWith('walk')) return;
+
+    const which = raw.split(':')[1] ?? 'plan';
+    params.delete('qa');
+    const qs = params.toString();
+    try {
+      window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
+    } catch { /* a locked-down history is not worth failing over */ }
+
+    if (which === 'retest') {
+      setFilterState((prev) => ({ ...prev, status: 'fixed', severity: 'all', thisPageOnly: false }));
+      startWalk('notes', 0);
+    } else if (which === 'notes') {
+      startWalk('notes', 0);
+    } else {
+      startWalk('plan', 0);
+    }
+  }, [startWalk]);
+
   // ── Context value ─────────────────────────────────────────────────────────
 
   const value: QaContextValue = {
@@ -1910,6 +2158,17 @@ export function QaProvider({
     capturePrefill,
     toggleGuide,
     toggleLogin,
+
+    // v0.7 — the Walk
+    walk,
+    walkStops,
+    startWalk,
+    exitWalk,
+    walkGoto,
+    walkNext,
+    walkPrev,
+    walkNavigate,
+    guideSkipped,
 
     // Test-along
     testAlong,

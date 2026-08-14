@@ -557,6 +557,19 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 .qa-opacity-80  { opacity: 0.80; }
 .qa-opacity-100 { opacity: 1; }
 
+/* ── Pointer-events handoff from the light-DOM host (v0.6) ───────────
+   The <qapture-overlay> host is a 0x0, top-of-the-range fixed box with
+   pointer-events none, so it can never swallow a click meant for the app
+   underneath (see ShadowMount.ts). Every top-level surface inside the widget
+   therefore has to switch pointer events back ON for itself. Declared BEFORE
+   the .qa-pointer-events-none utility below so that anything explicitly
+   marked "don't take clicks" (the selection outline, decorative overlays)
+   still wins on source order at equal specificity. */
+.qa-fixed,
+.qa-absolute,
+.qa-toast-viewport,
+.qa-fab-btn { pointer-events: auto; }
+
 /* ── Interactions / State ───────────────────────────────────────────── */
 .qa-cursor-crosshair    { cursor: crosshair; }
 .qa-cursor-default      { cursor: default; }

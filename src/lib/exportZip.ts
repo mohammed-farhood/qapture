@@ -99,12 +99,57 @@ function fmtPct(n: number, d: number): string {
  * Build the AI handoff preamble markdown block.
  * Degrades gracefully when config or preamble fields are absent.
  */
+function summariseSession(notes: QaNote[], stamp: string): string {
+  if (!notes.length) return 'No points captured.';
+  let bugs = 0, questions = 0, polish = 0, verified = 0, awaiting = 0;
+  const pages = new Set<string>();
+  let earliest = Number.POSITIVE_INFINITY;
+  let latest = 0;
+
+  for (const n of notes) {
+    const sev = n.severity ?? 'bug';
+    if (sev === 'bug') bugs++;
+    else if (sev === 'question') questions++;
+    else polish++;
+    const status = n.status ?? 'open';
+    if (status === 'verified') verified++;
+    else if (status === 'fixed') awaiting++;
+    pages.add((n.route || '/').split('?')[0]);
+    const t = Date.parse(n.timestamp);
+    if (Number.isFinite(t)) {
+      if (t < earliest) earliest = t;
+      if (t > latest) latest = t;
+    }
+  }
+
+  const parts = [
+    `${notes.length} point${notes.length === 1 ? '' : 's'}`,
+    `${bugs} bug${bugs === 1 ? '' : 's'}`,
+  ];
+  if (questions) parts.push(`${questions} question${questions === 1 ? '' : 's'}`);
+  if (polish) parts.push(`${polish} polish`);
+  if (verified) parts.push(`${verified} verified`);
+  if (awaiting) parts.push(`${awaiting} awaiting re-test`);
+  parts.push(`${pages.size} page${pages.size === 1 ? '' : 's'}`);
+
+  if (Number.isFinite(earliest) && latest > earliest) {
+    const minutes = Math.max(1, Math.round((latest - earliest) / 60000));
+    parts.push(minutes >= 60
+      ? `over ${Math.round(minutes / 6) / 10} hours`
+      : `over ${minutes} minutes`);
+  }
+  const endStamp = stamp.slice(0, 16).replace('T', ' ');
+  return `${parts.join(' · ')} — captured up to ${endStamp}.`;
+}
+
 function buildPreamble(
   config: ExportConfig,
   guideChecked: Set<string>,
   stamp: string,
-  noteCount: number,
+  notes: QaNote[],
+  guideSkipped?: Set<string>,
 ): string {
+  const noteCount = notes.length;
   const sections: string[] = [];
 
   // Resolve top-level helpers (all null-safe)
@@ -122,6 +167,16 @@ function buildPreamble(
     'NO AI is bundled in Qapture — YOU are the AI reading this. -->',
   );
 
+  // ── 2b. Session summary (v0.7) ──────────────────────────────────────────
+  // The first question anyone opening this asks is "what am I looking at?".
+  // A one-line answer — how many findings, of what kind, over how many pages
+  // and how long — costs nothing to compute and saves the reader scrolling
+  // the whole file to find out whether it is a smoke test or a full sweep.
+  //
+  // Declared here, rendered in section 2, because it needs the note list that
+  // buildPreamble already receives via its caller.
+  // (kept as a helper so the notes-header can reuse the same wording)
+
   // ── 2. Project title + oneLiner + stamp + point count ────────────────────
   const oneLiner = typeof p.oneLiner === 'string' && p.oneLiner.trim()
     ? `\n> ${p.oneLiner.trim()}`
@@ -129,7 +184,8 @@ function buildPreamble(
   sections.push(
     `# ${projectName} — QA Handoff${oneLiner}\n\n` +
     `Exported: ${stamp}  \n` +
-    `Points: ${noteCount}`,
+    `Points: ${noteCount}\n\n` +
+    `**Session:** ${summariseSession(notes, stamp)}`,
   );
 
   // ── 3. Project table ──────────────────────────────────────────────────────
@@ -214,7 +270,7 @@ function buildPreamble(
   );
 
   // ── 7. Coverage Report ────────────────────────────────────────────────────
-  const cov = computeCoverage(journey, guideChecked);
+  const cov = computeCoverage(journey, guideChecked, guideSkipped);
 
   const covTableRows: string[][] = [
     ['RED',   String(cov.red.total),   String(cov.red.covered),   String(cov.red.total   - cov.red.covered),   fmtPct(cov.red.covered,   cov.red.total)],
@@ -298,6 +354,7 @@ export async function buildZipBlob(
   stamp:         string,
   config?:       ExportConfig,
   guideChecked?: Set<string>,
+  guideSkipped?: Set<string>,
 ): Promise<Blob | null> {
   // SSR guard — browser-only API
   if (typeof document === 'undefined') return null;
@@ -310,7 +367,7 @@ export async function buildZipBlob(
   const resolvedConfig: ExportConfig = config ?? {};
 
   // ── Preamble block ────────────────────────────────────────────────────────
-  const preambleMd = buildPreamble(resolvedConfig, resolvedChecked, stamp, notes.length);
+  const preambleMd = buildPreamble(resolvedConfig, resolvedChecked, stamp, notes, guideSkipped);
 
   // ── Notes section header (unchanged baseline format) ──────────────────────
   const brandLabel = resolvedConfig.brand?.label ?? 'Qapture';
@@ -377,8 +434,9 @@ export async function buildAndDownloadZip(
   filename?:     string,
   config?:       ExportConfig,
   guideChecked?: Set<string>,
+  guideSkipped?: Set<string>,
 ): Promise<void> {
-  const blob = await buildZipBlob(notes, stamp, config, guideChecked);
+  const blob = await buildZipBlob(notes, stamp, config, guideChecked, guideSkipped);
   if (!blob) return;
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');

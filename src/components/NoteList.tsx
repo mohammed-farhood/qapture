@@ -529,7 +529,7 @@ export default function NoteList() {
   // the complete list no matter what the tester is looking at right now.
   const {
     notes, visibleNotes, setFilter, notesLoading, t,
-    denseNotes, setDenseNotes, updateNotes, deleteNotes,
+    denseNotes, setDenseNotes, updateNotes, deleteNotes, startWalk,
   } = useQa();
 
   // Selection lives here rather than in context: it is a transient view state
@@ -640,6 +640,17 @@ export default function NoteList() {
             >
               <Icon name="CheckCircle2" size={12} />
               {t('select_mode')}
+            </button>
+            {/* Walk what the list is showing. Filter to Re-test first and
+                this IS the re-test round — one mechanism, not a third mode. */}
+            <button
+              type="button"
+              onClick={() => startWalk('notes', 0)}
+              className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-text-mid"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+            >
+              <Icon name="Play" size={12} />
+              {t('walk_notes')}
             </button>
             <button
               type="button"

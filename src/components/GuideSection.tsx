@@ -50,11 +50,14 @@ function Lane({
   checked,
   toggle,
   pick,
+  onWalkFrom,
 }: {
   group: QaJourneyLane;
   checked: Set<string>;
   toggle: (key: string) => void;
   pick: (v: QaBilingual | null | undefined) => string;
+  /** Start the guided walk at this step (v0.7). */
+  onWalkFrom: (key: string) => void;
 }) {
   const { lang, t, guideFailed, evidenceByStep } = useQa();
   const { id, color = DEFAULT_LANE_COLOR, steps } = group;
@@ -128,6 +131,27 @@ function Lane({
 
           return (
             <li key={`${k}-${i}`} className="qa-relative qa-mb-2 qa-last-mb-0">
+              {/* v0.7: pressing a step WALKS from it — navigate there, see
+                  what to check, grade it — instead of the tester reading a
+                  path and finding the page themselves. The tick box is still
+                  the tick box; this is the "take me there" the checklist
+                  always implied. */}
+              <button
+                onClick={() => onWalkFrom(k)}
+                title={t('walk_take_me', { path: s.path })}
+                aria-label={t('walk_take_me', { path: s.path })}
+                className="qa-tap-icon qa-absolute qa-rounded-lg qa-text-mid qa-hover-text-slate-600"
+                style={{
+                  top: 0,
+                  insetInlineEnd: 0,
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  zIndex: 2,
+                }}
+              >
+                <Icon name="Play" size={12} />
+              </button>
               <button
                 onClick={() => toggle(k)}
                 className={`qa-flex qa-w-full qa-items-start qa-gap-2.5 qa-rounded-lg qa-p-1 qa-text-start qa-hover-bg-black-3${failed ? ' qa-bg-danger-tint' : ''}`}
@@ -208,7 +232,7 @@ function Lane({
 // ---------------------------------------------------------------------------
 
 export default function GuideSection() {
-  const { guideChecked, toggleGuide, t, journey, pick, lang, startTestAlong } = useQa();
+  const { guideChecked, toggleGuide, t, journey, pick, lang, startTestAlong, startWalk, testAlongSteps } = useQa();
 
   const all  = journey.flatMap((g) => g.steps.map((s) => keyOf(g.id, s.path)));
   const done = all.filter((k) => guideChecked.has(k)).length;
@@ -272,6 +296,10 @@ export default function GuideSection() {
           group={g}
           checked={guideChecked}
           toggle={toggleGuide}
+          onWalkFrom={(key: string) => {
+            const at = testAlongSteps.findIndex((step) => step.key === key);
+            startWalk('plan', at === -1 ? 0 : at);
+          }}
           pick={pick}
         />
       ))}

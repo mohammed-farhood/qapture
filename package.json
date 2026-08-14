@@ -1,6 +1,6 @@
 {
   "name": "qapture2",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Drop-in, AI-aware in-browser QA capture widget. A tester annotates the live app (element/region + auto-screenshot + note), tracks a graded testing journey, and exports a ZIP your own coding agent reads. Ships zero AI.",
   "type": "module",
   "license": "MIT",
@@ -90,6 +90,7 @@
     "browser-test": "node scripts/browser-test.mjs",
     "capture-accuracy-test": "node scripts/capture-accuracy-test.mjs",
     "loop-features-test": "node scripts/loop-features-test.mjs",
+    "walk-test": "node scripts/walk-test.mjs",
     "verify": "npm run typecheck && npm run typecheck:bin && npm run build && npm run smoke && npm run export-smoke && npm run cli-smoke && npm run cli-detectors-smoke && npm run selector-smoke && npm run capture-timeout-smoke && npm run fs-sync-smoke && npm run standalone-smoke",
     "play": "npm --prefix playground run dev"
   },

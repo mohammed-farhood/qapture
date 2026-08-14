@@ -3,6 +3,109 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] "Walk" — 2026-08-15
+
+The Guide stops being a piece of paper. Everything in this release is about a
+tester being *taken* to the work instead of being told where it is — plus two
+bugs reported from real use.
+
+No breaking changes.
+
+### Fixed
+
+- **"The tool doesn't appear on some pages."** Two separate causes, both real:
+
+  1. *It was there, underneath something.* Every visible part of the widget
+     lived at z-index ~9990–10097 in the page's own stacking context, and a
+     z-index arms race is normal in real apps — sticky headers, drawers,
+     cookie banners and modal libraries routinely sit at 99999 or
+     2147483647. The host element is now a 0×0 fixed box at z-index
+     2147483000 with its own stacking context, which lifts the whole widget
+     above the page in one step while preserving the internal ordering. It is
+     `pointer-events: none`, so it can never swallow a click meant for the
+     app; each surface inside re-enables events for itself.
+  2. *Something removed it.* Frameworks and page transitions do occasionally
+     clear the contents of `<body>` — a hydration mismatch, a router that
+     swaps the whole tree, a library that resets innerHTML. React never
+     re-runs its mount effect for that, because from React's point of view
+     nothing changed. A MutationObserver now watches for the host being
+     detached and puts it straight back.
+
+  Also: mounting is deferred until `<body>` exists (a synchronous script in
+  `<head>` used to throw and silently never mount), and when the widget is
+  hidden by the dev-only default it now says so once in the console, with the
+  one-line fix, instead of leaving "why can't I see it?" unanswerable.
+
+- **"It doesn't survive reloading."** The notes always did — but the *place in
+  the work* did not. Whether the panel was open, which tab you were on, and
+  (new in this release) where you were in a walk are now all restored after a
+  reload. Testing is full of reloads: you refresh to re-check a fix, the app
+  redeploys under you, a navigation is a hard load. Every one of them used to
+  dump the tester back to a closed widget on the default tab, which reads as
+  the tool having reset itself.
+
+### Added
+
+- **The Walk.** One guided sequence, two kinds of stop, replacing the old
+  test-along HUD:
+
+  - **Plan** — a step from the testing journey: what to check, what passing
+    looks like, and a grade.
+  - **Notes** — something already captured: its words, the spot lit up on the
+    page, and for anything awaiting a re-test, re-shoot plus a verdict.
+
+  Every stop has a **Take me there** button that actually navigates. Pressing
+  a line in the Guide now walks from that step, which is what a checklist
+  entry naming a page always implied. The notes walk walks *whatever the list
+  is showing*, so filtering to Re-test and walking IS the re-test round —
+  one mechanism rather than a third mode.
+
+  Navigation is soft (pushState + popstate, which every history-based router
+  listens for, keeping app state alive) with a reload button always visible
+  beside it — not as a fallback for an error we can detect, but because no
+  soft navigation can be *guaranteed* to move a given app's router, and the
+  tester must never be stuck.
+
+  **The walk survives navigation**, including full page loads. Without that
+  the feature would die at its first stop.
+
+- **A link that starts the walk.** `?qa=walk`, `?qa=walk:notes` or
+  `?qa=walk:retest` in the URL opens the app with the walk already running —
+  the last one filters to the re-test queue first. Sending a tester a link is
+  already how this tool gets used; now the link can carry the instruction
+  ("re-check these") instead of a paragraph explaining it. The parameter is
+  consumed on arrival so a later reload resumes the tester's real position
+  rather than restarting from the top.
+
+- **"Doesn't apply" as a third grade.** Real test plans always contain steps
+  that don't apply to the build in front of you; with only pass/fail a tester
+  had to either lie or leave it blank, and a blank is indistinguishable from
+  "haven't got to it". N/A steps are removed from the coverage totals
+  entirely rather than counted either way — calling them covered would
+  inflate the number, calling them uncovered would leave a red zone
+  permanently unanswerable.
+
+- **Alt+1 / Alt+2 / Alt+3 set severity** while writing a note, without
+  reaching for the chips. Deliberately modifier-based: bare digits are text
+  the tester is trying to type.
+
+- **A session summary at the top of the export** — "12 points · 5 bugs · 2
+  questions · 3 verified · 4 pages · over 38 minutes". The first question
+  anyone opening a handoff asks is what they are looking at.
+
+### Tests
+
+- New **`npm run walk-test`** — real Chrome, 14 assertions: a Guide step opens
+  the walk at that step, "Take me there" genuinely changes the page (and is
+  correctly absent when the stop is the page you are already on), **the walk
+  is still on the same step after a full page reload**, "doesn't apply"
+  persists and counts as neither pass nor fail, the notes walk offers a
+  verdict rather than pass/fail, and `?qa=walk:retest` opens the re-test round
+  and consumes its parameter.
+- `browser-test`'s panel-opening helper is now idempotent, because the panel's
+  open state persists across pages and reloads — "click the FAB" is no longer
+  the same thing as "open the panel".
+
 ## [0.6.0] "Elbow Room" — 2026-08-15
 
 Small things, all of them about the tool staying out of the way once a session

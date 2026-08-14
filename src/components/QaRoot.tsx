@@ -53,7 +53,7 @@ import { QaProvider, useQa } from '../context/QaContext';
 import QaFab from './QaFab';
 import QaPanel from './QaPanel';
 import NoticeHost from './NoticeHost';
-import TestAlongHud from './TestAlongHud';
+import WalkHud from './WalkHud';
 import CaptureMode from './CaptureMode';
 
 // ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ function CaptureGate() {
 // ---------------------------------------------------------------------------
 
 function QaRootInner({ config }: { config: ResolvedConfig }) {
-  const { isOpen, setIsOpen, testAlong, startCapture, endCapture, captureActive } = useQa();
+  const { isOpen, setIsOpen, walk, startCapture, endCapture, captureActive } = useQa();
 
   const shouldShowInitially =
     config.alwaysVisible === true ||
@@ -214,12 +214,29 @@ function QaRootInner({ config }: { config: ResolvedConfig }) {
     return () => document.removeEventListener('keydown', handler);
   }, [config.captureHotkey, captureActive, startCapture, endCapture]);
 
+  // ── "Why isn't it showing up?" (v0.6.1) ─────────────────────────────────
+  // The dev-only default is deliberate, but it is also the single most
+  // common reason someone reports the widget "not appearing on some pages" —
+  // typically a production build, or a page rendered by a route that never
+  // mounts the component. Silence makes that unanswerable, so say it once,
+  // clearly, with the fix. Only for the ambiguous default: an explicit
+  // `visible: false` is someone stating their intent, and deserves no noise.
+  useEffect(() => {
+    if (widgetShown || config.visible !== undefined || config.alwaysVisible) return;
+    // eslint-disable-next-line no-console
+    console.info(
+      '[Qapture] Hidden: this looks like a production build, and the default is dev-only. ' +
+      'Set `alwaysVisible: true` in your qa.config to show it here (it is still 100% ' +
+      'client-side — nothing is sent anywhere).',
+    );
+  }, [widgetShown, config.visible, config.alwaysVisible]);
+
   if (!widgetShown) return null;
 
   return (
     <>
       <QaFab />
-      {testAlong.active ? <TestAlongHud /> : <QaPanel />}
+      {walk.active ? <WalkHud /> : <QaPanel />}
       <NoticeHost />
       <CaptureGate />
     </>

@@ -1135,6 +1135,13 @@ export default function CaptureMode() {
               onChange={(e) => setDescription(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void save();
+                // 1/2/3 set severity without leaving the keyboard — but only
+                // with a modifier, since bare digits are text the tester is
+                // trying to type ("2 items in cart").
+                if ((e.altKey || e.metaKey || e.ctrlKey) && SEVERITIES[Number(e.key) - 1]) {
+                  e.preventDefault();
+                  setSeverity(SEVERITIES[Number(e.key) - 1]);
+                }
               }}
               rows={3}
               placeholder={t('annotate_placeholder')}
@@ -1168,7 +1175,7 @@ export default function CaptureMode() {
             </div>
 
             <p className="qa-text-center qa-text-10 qa-text-slate-400">
-              {t('save_hint')}
+              {t('save_hint')} · {t('severity_keys')}
             </p>
           </div>
         </div>

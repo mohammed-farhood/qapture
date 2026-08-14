@@ -195,6 +195,17 @@ type LangMap = {
   panel_collapse: string;
   panel_expand: string;
   capture_screen: string;
+  // — v0.7 "Walk" —
+  walk_title: string;
+  walk_take_me: string;
+  walk_reload_hint: string;
+  walk_note_title: string;
+  walk_still_broken: string;
+  walk_finish: string;
+  walk_notes: string;
+  mark_na: string;
+  mark_na_hint: string;
+  severity_keys: string;
 };
 
 export type StrKey = keyof LangMap;
@@ -376,6 +387,16 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     panel_collapse:        'Collapse',
     panel_expand:          'Expand',
     capture_screen:        'Whole screen',
+    walk_title:            'Walkthrough',
+    walk_take_me:          'Take me to {path}',
+    walk_reload_hint:      "Reload the page instead (use this if the app didn't move)",
+    walk_note_title:       'Point {n}',
+    walk_still_broken:     'Still broken',
+    walk_finish:           'Finish',
+    walk_notes:            'Walk these',
+    mark_na:               'N/A',
+    mark_na_hint:          "Doesn't apply to this build",
+    severity_keys:         'Alt+1/2/3 for severity',
   },
   ar: {
     tab_notes:             'الملاحظات',
@@ -553,6 +574,16 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     panel_collapse:        'طيّ',
     panel_expand:          'توسيع',
     capture_screen:        'الشاشة كاملة',
+    walk_title:            'الجولة',
+    walk_take_me:          'خذني إلى {path}',
+    walk_reload_hint:      'أعد تحميل الصفحة بدلًا من ذلك (استخدمه إذا لم ينتقل التطبيق)',
+    walk_note_title:       'النقطة {n}',
+    walk_still_broken:     'ما زال معطلًا',
+    walk_finish:           'إنهاء',
+    walk_notes:            'تجوّل فيها',
+    mark_na:               'لا ينطبق',
+    mark_na_hint:          'لا ينطبق على هذه النسخة',
+    severity_keys:         'Alt+1/2/3 لتحديد الأهمية',
   },
 };
 

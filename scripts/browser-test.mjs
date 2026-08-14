@@ -44,6 +44,20 @@ function installHelpers() {
     const host = document.querySelector('qapture-overlay');
     return host && host.shadowRoot;
   };
+  // v0.6.1: the panel's open state now SURVIVES A RELOAD, and localStorage is
+  // shared by every page in this one browser — so "click the FAB" is no
+  // longer the same thing as "open the panel": it may close an already-open
+  // one. Every open site below goes through this instead.
+  window.__qaOpenPanel = () => {
+    const sr = window.__qaSR();
+    if (!sr) return false;
+    const alreadyOpen = [...sr.querySelectorAll('button')]
+      .some((b) => /capture from page|quick note/i.test(b.textContent || ''));
+    if (alreadyOpen) return true;
+    const fab = sr.querySelector('button');
+    if (fab) fab.click();
+    return true;
+  };
 }
 
 // Installed (also via evaluateOnNewDocument, page4 only) to log every
@@ -159,7 +173,7 @@ try {
     // 1a) create a note via the quick-note flow (text only — no image, that's
     // covered separately by the blob-leak assertions) so there's real data in
     // IndexedDB to delete.
-    await page.evaluate(() => { window.__qaSR().querySelector('button').click(); }); // FAB → open panel
+    await page.evaluate(() => { window.__qaOpenPanel(); }); // FAB → open panel
     await sleep(400);
     const opened = await page.evaluate(() => {
       const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /quick note/i.test(x.textContent || ''));
@@ -239,13 +253,13 @@ try {
     // Restore page state for the rest of MOUSE PASS below (close the panel we
     // opened for the quick note, so step "2) open the panel via the FAB" in
     // the original flow still starts from a known "closed" state).
-    await page.evaluate(() => { window.__qaSR().querySelector('button').click(); });
+    await page.evaluate(() => { window.__qaOpenPanel(); });
     await sleep(300);
   }
 
   // 2) open the panel via the FAB (the launcher button in the shadow root)
   await page.evaluate(() => {
-    window.__qaSR().querySelector('button').click();
+    window.__qaOpenPanel();
   });
   await sleep(500);
 
@@ -615,7 +629,7 @@ try {
   // open the panel via the FAB, then "Capture from page" — plain buttons,
   // not the touch risk itself, so driven the same way as the mouse pass.
   await page2.evaluate(() => {
-    window.__qaSR().querySelector('button').click();
+    window.__qaOpenPanel();
   });
   await sleep(500);
   const cta2t = await page2.evaluate(() => {
@@ -913,7 +927,7 @@ try {
     `!!document.querySelector('qapture-overlay') && !!document.querySelector('qapture-overlay').shadowRoot`,
     { timeout: 10000 },
   );
-  await page3.evaluate(() => { window.__qaSR().querySelector('button').click(); }); // open panel
+  await page3.evaluate(() => { window.__qaOpenPanel(); }); // open panel
   await sleep(500);
 
   // ---------------------------------------------------------------------
@@ -1274,7 +1288,7 @@ try {
   // then switch panel tabs (unmounting NoteEditor) WITHOUT saving.
   // ---------------------------------------------------------------------
   {
-    await page4.evaluate(() => { window.__qaSR().querySelector('button').click(); }); // open panel
+    await page4.evaluate(() => { window.__qaOpenPanel(); }); // open panel
     await sleep(400);
     await page4.evaluate(() => {
       const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /quick note/i.test(x.textContent || ''));
@@ -1493,7 +1507,7 @@ try {
   };
 
   // Open the panel via the FAB (widget just mounted — only the FAB exists yet).
-  await page5.evaluate(() => { window.__qaSR().querySelector('button').click(); });
+  await page5.evaluate(() => { window.__qaOpenPanel(); });
   await sleep(500);
 
   // ---------------------------------------------------------------------

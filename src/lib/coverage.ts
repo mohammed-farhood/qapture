@@ -68,10 +68,16 @@ export type CoverageResult = {
  *
  * @param journey      - resolved journey lanes from config
  * @param guideChecked - set of checked keys (`${laneId}::${step.path}`)
+ * @param skipped      - keys the tester marked "doesn't apply to this build"
+ *   (v0.7). These are removed from the totals entirely rather than counted
+ *   either way: calling them covered would inflate the number, and calling
+ *   them uncovered would leave a red zone permanently unanswerable. The
+ *   honest report is "this step was not in scope".
  */
 export function computeCoverage(
   journey: QaJourneyLane[],
   guideChecked: Set<string>,
+  skipped?: Set<string>,
 ): CoverageResult {
   const red   = { total: 0, covered: 0 };
   const amber = { total: 0, covered: 0 };
@@ -87,6 +93,7 @@ export function computeCoverage(
 
     for (const step of lane.steps) {
       const key     = `${lane.id}::${step.path}`;
+      if (skipped?.has(key)) continue; // out of scope for this build
       const covered = guideChecked.has(key);
       const risk    = step.risk ?? 'green';
 
