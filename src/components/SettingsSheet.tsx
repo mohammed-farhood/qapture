@@ -212,7 +212,7 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
           )}
         </Section>
 
-        <div className="qa-h-px qa-bg-3" />
+        <div className="qa-h-px qa-bg-3 qa-mt-3 qa-mb-4" />
 
         {/* ── 2. Storage ──────────────────────────────────────────────────── */}
         <Section icon="HardDrive" title={t('storage_title')}>
@@ -275,7 +275,7 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
           </div>
         </Section>
 
-        <div className="qa-h-px qa-bg-3" />
+        <div className="qa-h-px qa-bg-3 qa-mt-3 qa-mb-4" />
 
         {/* ── 3. Screenshots ──────────────────────────────────────────────── */}
         <Section icon="Camera" title={t('exact_label')}>
@@ -301,12 +301,12 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
               style={{ background: 'transparent', cursor: 'pointer' }}
             >
               <Icon name="Camera" size={13} />
-              {t('exact_label')}
+              {t('exact_turn_on')}
             </button>
           )}
         </Section>
 
-        <div className="qa-h-px qa-bg-3" />
+        <div className="qa-h-px qa-bg-3 qa-mt-3 qa-mb-4" />
 
         {/* ── 4. View ─────────────────────────────────────────────────────── */}
         <Section icon="Settings" title={t('settings')}>

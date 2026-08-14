@@ -100,6 +100,7 @@ type LangMap = {
   exact_on: string;
   exact_off: string;
   exact_declined: string;
+  exact_turn_on: string;
   exact_unsupported: string;
   sync_title: string;
   sync_hint: string;
@@ -233,6 +234,7 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     exact_on:              'Pixel-exact screenshots on',
     exact_off:            'Back to redrawn screenshots',
     exact_declined:        'Staying on redrawn screenshots',
+    exact_turn_on:         'Turn on',
     exact_unsupported:     'Needs Chrome, Edge or Brave on desktop',
     sync_title:            'Save to a folder',
     sync_hint:             'Every note is written to your disk the moment you save it — nothing is lost if this browser dies.',
@@ -362,6 +364,7 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     exact_on:              'تم تفعيل اللقطات المطابقة',
     exact_off:             'العودة إلى اللقطات المُعاد رسمها',
     exact_declined:        'سنبقى على اللقطات المُعاد رسمها',
+    exact_turn_on:         'تفعيل',
     exact_unsupported:     'يتطلب Chrome أو Edge أو Brave على سطح المكتب',
     sync_title:            'الحفظ في مجلد',
     sync_hint:             'تُكتب كل ملاحظة على القرص لحظة حفظها — لا شيء يضيع إذا تعطّل المتصفح.',

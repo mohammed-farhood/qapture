@@ -121,6 +121,9 @@ new feature is off until someone turns it on.
 - `idb.ts` gained `getMeta`/`setMeta`/`deleteMeta` over the existing `meta`
   store (v2 schema, no migration) — a directory handle is a structured-
   cloneable object, so localStorage cannot hold it.
+- The note list no longer renders a stray UA bullet beside every card: the
+  widget's stylesheet now resets `ul`/`ol` (scoped to the shadow root, so the
+  host page is untouched).
 
 ### Tests
 

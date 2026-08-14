@@ -195,6 +195,15 @@ export const QA_CSS = `
 /* ── Reset ─────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 
+/* The note list is a <ul> of cards, not prose: the UA's default bullets and
+   inline-start padding rendered a stray dot beside every saved note. (v0.4) */
+ul, ol { list-style: none; margin: 0; padding: 0; }
+
+/* Extra spacing steps used by the settings sheet (v0.4). */
+.qa-space-y-4 > * + * { margin-top: 1rem; }
+.qa-mt-3 { margin-top: 0.75rem; }
+.qa-mb-4 { margin-bottom: 1rem; }
+
 /* ── Design tokens (Graphite — v0.3.0) ───────────────────────────────
    Single source of truth for every colour, shadow, radius, font, motion
    duration, and z-index the widget uses. Nothing here is themeable —
