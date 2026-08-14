@@ -1,32 +1,50 @@
 /**
- * capture.ts — crop a screenshot of a page region using html2canvas
- * (dynamically imported so it stays out of the normal bundle). The QA overlay's
- * own UI is excluded from the capture via the data-qa-overlay marker.
+ * capture.ts — turn a selected viewport rect into a screenshot Blob.
  *
- * Coordinates are VIEWPORT coords (getBoundingClientRect-style). We convert to
- * document coords for html2canvas by adding the scroll offset (sx/sy).
+ * TWO ENGINES (v0.4)
+ * ------------------
+ *  1. 'exact'  — screenCapture.ts photographs this tab's real composited
+ *                pixels and we crop the rect out arithmetically. What the
+ *                tester framed is exactly what lands in the note. Needs a
+ *                one-time "share this tab" grant, Chromium only.
+ *  2. 'dom'    — html2canvas re-renders a clone of the DOM. Always available,
+ *                no permission, but it is a *reconstruction*: anything the
+ *                clone lays out differently shows up as a mis-framed shot.
  *
- * iOS canvas-cap rationale (viewport-only rendering):
- *   html2canvas clones the target into an offscreen same-origin <iframe> sized
- *   windowWidth x windowHeight, then (per its own source, verified against the
- *   installed html2canvas@1.4.1) scrolls that clone to (scrollX, scrollY)
- *   before parsing so element positions land back in document-coordinate
- *   space — see Bounds.fromClientRect adding windowBounds.left/top, which is
- *   built from the same scrollX/scrollY/windowWidth/windowHeight options.
- *   iOS Safari caps any single rendering surface at ~16.7M pixels (4096x4096).
- *   Sizing that offscreen clone to the FULL document
- *   (documentElement.scrollWidth/scrollHeight, as this used to do) blows past
- *   that cap on any reasonably long page at scale=2, producing a blank/failed
- *   capture. Sizing it to the actual viewport (window.innerWidth/innerHeight)
- *   instead keeps the offscreen surface bounded by ~viewport*scale regardless
- *   of page length, while passing the matching scrollX/scrollY makes
- *   html2canvas scroll that viewport-sized clone to the right spot — so the
- *   final crop (x/y/width/height below) is unchanged for a given rect+scroll.
+ * The DOM engine is still the fallback everywhere, so v0.4 also fixes the
+ * three ways it was reliably producing the wrong region:
  *
- * SSR-safe: returns null when document / window are unavailable.
+ *  a. SCROLLED CONTAINERS  Cloning copies the DOM but NOT the live
+ *     `scrollTop`/`scrollLeft` of `overflow:auto` elements, so a sidebar or
+ *     modal body scrolled halfway down cloned back at the top and the shot
+ *     showed completely different content. markScrolledContainers() stamps
+ *     each scrolled element's offsets onto an attribute (attributes DO get
+ *     cloned) and the onclone hook replays them before rendering.
+ *
+ *  b. VIEWPORT WIDTH  The old code passed `windowWidth: window.innerWidth`,
+ *     which INCLUDES the classic scrollbar, while the clone iframe lays out
+ *     against its own content box. That ~15px difference reflows every
+ *     centred/responsive layout, shifting the captured content sideways
+ *     relative to the rect. It now passes documentElement.clientWidth /
+ *     clientHeight — the same box the live layout used when the tester
+ *     measured the rect.
+ *
+ *  c. CROPPING  html2canvas's own x/y/width/height crop is applied to a
+ *     re-scrolled clone in document space, which was a second chance to be
+ *     off by the scroll delta. We now render the viewport once and crop with
+ *     a plain 2D canvas, where the arithmetic is ours and verifiable.
+ *
+ * See also scrollLock.ts: locking page scroll used to REMOVE the scrollbar,
+ * which reflowed the page between "tester picks a rect" and "we render it".
+ * That lock now compensates for the scrollbar width.
+ *
+ * Coordinates are VIEWPORT coords (getBoundingClientRect-style) throughout.
+ *
+ * SSR-safe: returns { status: 'empty' } when document / window are missing.
  */
 
 import type { QaRect } from '../context/QaContext';
+import { getExactCaptureStatus, grabExactRegion } from './screenCapture';
 
 const HTML2CANVAS_TIMEOUT_MS = 10000;
 
@@ -34,18 +52,41 @@ const HTML2CANVAS_TIMEOUT_MS = 10000;
 const FALLBACK_PAGE_BACKGROUND = '#ffffff';
 
 /**
+ * Longest edge (device px) a stored screenshot may have.
+ *
+ * Screenshots are ~99% of what Qapture keeps in IndexedDB, and a full-viewport
+ * region on a retina laptop is ~2880px wide — several MB as PNG. That is what
+ * pushed testers into "storage full" on deployed betas. Capping the long edge
+ * plus WebP encoding below cuts a typical note's footprint by roughly an order
+ * of magnitude while staying comfortably legible for both a human reviewer and
+ * an agent reading the exported ZIP.
+ */
+const MAX_SHOT_EDGE = 1800;
+
+/** WebP quality. High enough that UI text stays crisp; small enough to matter. */
+const WEBP_QUALITY = 0.92;
+
+/** Attribute used to ferry live scroll offsets into html2canvas's clone. */
+const SCROLL_ATTR = 'data-qa-scroll';
+
+export type CaptureEngine = 'exact' | 'dom';
+
+/**
  * The result of a capture attempt.
- *  - 'ok'     → a PNG blob was produced
+ *  - 'ok'     → a PNG/WebP blob was produced (`engine` says how)
  *  - 'empty'  → nothing was attempted (SSR, or a degenerate sub-2px rect)
- *  - 'failed' → html2canvas threw, timed out, or toBlob() yielded null
+ *  - 'failed' → the render broke, timed out, or encoding yielded null
  *
  * 'empty' and 'failed' are deliberately distinct: only 'failed' is worth
  * offering the tester a Retry for — 'empty' would fail again identically.
  */
 export type CaptureOutcome =
-  | { status: 'ok'; blob: Blob }
+  | { status: 'ok'; blob: Blob; engine: CaptureEngine }
   | { status: 'empty' }
   | { status: 'failed' };
+
+/** Which engine a capture call may use. 'auto' prefers exact when it's live. */
+export type CapturePreference = 'auto' | 'exact' | 'dom';
 
 /**
  * Race a promise against a timeout, resolving to null if the timeout wins.
@@ -107,56 +148,209 @@ function resolvePageBackground(): string {
   return FALLBACK_PAGE_BACKGROUND;
 }
 
-function toBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+// ---------------------------------------------------------------------------
+// Encoding
+// ---------------------------------------------------------------------------
+
+let webpSupported: boolean | null = null;
+
+function supportsWebp(): boolean {
+  if (webpSupported !== null) return webpSupported;
+  try {
+    const probe = document.createElement('canvas');
+    probe.width = 1;
+    probe.height = 1;
+    webpSupported = probe.toDataURL('image/webp').indexOf('data:image/webp') === 0;
+  } catch {
+    webpSupported = false;
+  }
+  return webpSupported;
+}
+
+/**
+ * Downscale so the longest edge is at most MAX_SHOT_EDGE. Returns the input
+ * untouched when it already fits (the common case for element captures).
+ */
+function fitToBudget(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const longest = Math.max(canvas.width, canvas.height);
+  if (longest <= MAX_SHOT_EDGE) return canvas;
+  const ratio = MAX_SHOT_EDGE / longest;
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.round(canvas.width * ratio));
+  out.height = Math.max(1, Math.round(canvas.height * ratio));
+  const ctx = out.getContext('2d');
+  if (!ctx) return canvas;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(canvas, 0, 0, out.width, out.height);
+  return out;
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob | null> {
   return new Promise((resolve) => {
     if (canvas.toBlob) {
-      canvas.toBlob((b) => resolve(b), 'image/png');
-    } else {
-      // Safari fallback
-      const dataUrl = canvas.toDataURL('image/png');
+      canvas.toBlob((b) => resolve(b), type, quality);
+      return;
+    }
+    // Safari fallback (very old builds): toDataURL always exists.
+    try {
+      const dataUrl = canvas.toDataURL(type, quality);
       const bin = atob(dataUrl.split(',')[1]);
       const arr = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-      resolve(new Blob([arr], { type: 'image/png' }));
+      resolve(new Blob([arr], { type }));
+    } catch {
+      resolve(null);
     }
   });
 }
 
 /**
- * Capture a rectangular region of the page as a PNG Blob.
- * @param rect - viewport coordinates (getBoundingClientRect-style)
- * @param scroll - page scroll offset (x/y) to treat as "now", snapshotted at
- *   selection time. Defaults to the current window scroll position when
- *   omitted. Passing an explicit snapshot keeps the crop correct even if
- *   momentum/inertial scrolling shifts the page while the html2canvas chunk
- *   is being dynamically imported.
- * @returns a CaptureOutcome — 'ok' with the PNG blob, 'empty' when nothing was
- *   attempted (SSR / degenerate rect), or 'failed' when the render broke.
+ * Encode a captured canvas for storage: size-capped, WebP where available
+ * (roughly 5–10× smaller than PNG for UI screenshots), PNG otherwise.
+ *
+ * Exported so NoteList's "replace image" path and the folder sync can reuse
+ * exactly the same budget.
  */
-export async function captureRegion(
-  rect: QaRect,
-  scroll?: { x: number; y: number }
-): Promise<CaptureOutcome> {
-  if (typeof document === 'undefined' || typeof window === 'undefined') {
-    return { status: 'empty' };
+export async function encodeShot(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  const fitted = fitToBudget(canvas);
+  if (supportsWebp()) {
+    const webp = await canvasToBlob(fitted, 'image/webp', WEBP_QUALITY);
+    if (webp && webp.size > 0) return webp;
   }
-  if (!rect || rect.width < 2 || rect.height < 2) return { status: 'empty' };
+  return canvasToBlob(fitted, 'image/png');
+}
 
-  // Snapshot the scroll position now (before the async import below) so a
-  // caller-supplied snapshot — or this fallback — can't be shifted by scroll
-  // that happens while html2canvas is loading.
-  const sx = scroll?.x ?? window.scrollX;
-  const sy = scroll?.y ?? window.scrollY;
+/** File extension matching a screenshot blob's real type (png vs webp). */
+export function shotExtension(blob: Blob | undefined | null): string {
+  const type = blob?.type ?? '';
+  if (type === 'image/webp') return 'webp';
+  if (type === 'image/jpeg') return 'jpg';
+  return 'png';
+}
 
+// ---------------------------------------------------------------------------
+// Overlay hiding (exact engine only — the DOM engine uses ignoreElements)
+// ---------------------------------------------------------------------------
+
+/**
+ * Hide every top-level piece of QA UI, run `fn`, then restore.
+ *
+ * The exact engine photographs the real screen, so unlike html2canvas it has
+ * no notion of "ignore this element" — the scrim, the selection outline and
+ * the annotation card would all end up baked into the tester's screenshot.
+ * Hiding is done with `visibility`, not `display`, so nothing in the host page
+ * reflows while we do it.
+ */
+async function withOverlayHidden<T>(fn: () => Promise<T>): Promise<T> {
+  const hosts = Array.from(
+    document.querySelectorAll<HTMLElement>('body > [data-qa-overlay]'),
+  );
+  const previous = hosts.map((el) => el.style.visibility);
+  for (const el of hosts) el.style.visibility = 'hidden';
   try {
-    const { default: html2canvas } = await import('html2canvas');
-    const scale = Math.min(window.devicePixelRatio || 1, 2);
-    const canvas = await withTimeout(
+    return await fn();
+  } finally {
+    hosts.forEach((el, i) => { el.style.visibility = previous[i]; });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DOM engine
+// ---------------------------------------------------------------------------
+
+/**
+ * Stamp every element that is scrolled away from its origin with its live
+ * offsets, so the clone can replay them (see the file header, point (a)).
+ *
+ * All reads happen before any write, so this costs a single layout pass.
+ * Returns the touched elements for cleanup.
+ */
+function markScrolledContainers(): HTMLElement[] {
+  const touched: { el: HTMLElement; top: number; left: number }[] = [];
+  let all: NodeListOf<HTMLElement>;
+  try {
+    all = document.body.querySelectorAll<HTMLElement>('*');
+  } catch {
+    return [];
+  }
+  for (const el of Array.from(all)) {
+    const top = el.scrollTop;
+    const left = el.scrollLeft;
+    if (!top && !left) continue;
+    if (el.closest('[data-qa-overlay]')) continue;
+    touched.push({ el, top, left });
+  }
+  for (const { el, top, left } of touched) {
+    el.setAttribute(SCROLL_ATTR, `${Math.round(top)},${Math.round(left)}`);
+  }
+  return touched.map((t) => t.el);
+}
+
+function unmarkScrolledContainers(els: HTMLElement[]): void {
+  for (const el of els) el.removeAttribute(SCROLL_ATTR);
+}
+
+/** onclone hook: replay the offsets stamped by markScrolledContainers(). */
+function replayClonedScroll(cloned: Document): void {
+  try {
+    cloned.querySelectorAll<HTMLElement>(`[${SCROLL_ATTR}]`).forEach((el) => {
+      const raw = el.getAttribute(SCROLL_ATTR) || '';
+      const [top, left] = raw.split(',').map((n) => Number(n));
+      if (Number.isFinite(top)) el.scrollTop = top;
+      if (Number.isFinite(left)) el.scrollLeft = left;
+      el.removeAttribute(SCROLL_ATTR);
+    });
+  } catch {
+    // A clone we can't touch just renders unscrolled — same as 0.3.x.
+  }
+}
+
+/**
+ * Crop a viewport-sized render down to `rect`.
+ *
+ * `scale` is the device-pixel factor the viewport was rendered at, so the
+ * source rectangle is simply the CSS rect times that factor. Every edge is
+ * clamped to the rendered canvas so a rect flush against the viewport edge
+ * can't pull in transparent padding.
+ */
+function cropCanvas(full: HTMLCanvasElement, rect: QaRect, scale: number): HTMLCanvasElement | null {
+  const sx = Math.max(0, Math.min(full.width, Math.round(rect.left * scale)));
+  const sy = Math.max(0, Math.min(full.height, Math.round(rect.top * scale)));
+  const sw = Math.max(1, Math.min(full.width - sx, Math.round(rect.width * scale)));
+  const sh = Math.max(1, Math.min(full.height - sy, Math.round(rect.height * scale)));
+
+  const out = document.createElement('canvas');
+  out.width = sw;
+  out.height = sh;
+  const ctx = out.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh);
+  return out;
+}
+
+async function captureViaDom(
+  rect: QaRect,
+  sx: number,
+  sy: number,
+): Promise<HTMLCanvasElement | null> {
+  const { default: html2canvas } = await import('html2canvas');
+  const scale = Math.min(window.devicePixelRatio || 1, 2);
+
+  // The LAYOUT viewport (excludes any classic scrollbar) — the same box the
+  // live page used when the tester's rect was measured. See header point (b).
+  const vw = document.documentElement.clientWidth || window.innerWidth;
+  const vh = document.documentElement.clientHeight || window.innerHeight;
+
+  const marked = markScrolledContainers();
+  try {
+    const full = await withTimeout(
       html2canvas(document.body, {
-        x: sx + rect.left,
-        y: sy + rect.top,
-        width: rect.width,
-        height: rect.height,
+        // Render exactly the current viewport, in document coordinates.
+        x: sx,
+        y: sy,
+        width: vw,
+        height: vh,
         scale,
         useCORS: true,
         allowTaint: true,
@@ -165,20 +359,78 @@ export async function captureRegion(
         logging: false,
         scrollX: sx,
         scrollY: sy,
-        // Viewport-only clone (not the full document) — see iOS canvas-cap
-        // rationale above. Keeps the offscreen render surface ~viewport*scale.
-        windowWidth: window.innerWidth,
-        windowHeight: window.innerHeight,
+        windowWidth: vw,
+        windowHeight: vh,
         ignoreElements: (el: Element) =>
           el.nodeType === 1 &&
           typeof (el as HTMLElement).hasAttribute === 'function' &&
           (el as HTMLElement).hasAttribute('data-qa-overlay'),
+        onclone: (doc: Document) => replayClonedScroll(doc),
       }),
-      HTML2CANVAS_TIMEOUT_MS
+      HTML2CANVAS_TIMEOUT_MS,
     );
+    if (!full) return null;
+    return cropCanvas(full, rect, scale);
+  } finally {
+    unmarkScrolledContainers(marked);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Capture a rectangular region of the page.
+ *
+ * @param rect - viewport coordinates (getBoundingClientRect-style)
+ * @param scroll - page scroll offset (x/y) to treat as "now", snapshotted at
+ *   selection time. Only the DOM engine needs it (the exact engine
+ *   photographs whatever is on screen); passing an explicit snapshot keeps the
+ *   crop correct even if momentum scrolling shifts the page while the
+ *   html2canvas chunk is being dynamically imported.
+ * @param prefer - engine preference; 'auto' uses exact whenever a live
+ *   current-tab stream already exists, otherwise the DOM engine.
+ */
+export async function captureRegion(
+  rect: QaRect,
+  scroll?: { x: number; y: number },
+  prefer: CapturePreference = 'auto',
+): Promise<CaptureOutcome> {
+  if (typeof document === 'undefined' || typeof window === 'undefined') {
+    return { status: 'empty' };
+  }
+  if (!rect || rect.width < 2 || rect.height < 2) return { status: 'empty' };
+
+  // Snapshot the scroll position now (before the async work below) so a
+  // caller-supplied snapshot — or this fallback — can't be shifted by scroll
+  // that happens while html2canvas is loading.
+  const sx = scroll?.x ?? window.scrollX;
+  const sy = scroll?.y ?? window.scrollY;
+
+  // ── Exact engine ────────────────────────────────────────────────────────
+  if (prefer !== 'dom' && getExactCaptureStatus() === 'live') {
+    try {
+      const canvas = await withOverlayHidden(() => grabExactRegion(rect));
+      if (canvas) {
+        const blob = await encodeShot(canvas);
+        if (blob) return { status: 'ok', blob, engine: 'exact' };
+      }
+      // Fall through to the DOM engine rather than failing outright: a
+      // dropped frame shouldn't cost the tester their screenshot.
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[QA] exact capture failed, falling back to DOM render:', err);
+    }
+    if (prefer === 'exact') return { status: 'failed' };
+  }
+
+  // ── DOM engine ──────────────────────────────────────────────────────────
+  try {
+    const canvas = await captureViaDom(rect, sx, sy);
     if (!canvas) return { status: 'failed' };
-    const blob = await toBlob(canvas);
-    return blob ? { status: 'ok', blob } : { status: 'failed' };
+    const blob = await encodeShot(canvas);
+    return blob ? { status: 'ok', blob, engine: 'dom' } : { status: 'failed' };
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn('[QA] region capture failed:', err);

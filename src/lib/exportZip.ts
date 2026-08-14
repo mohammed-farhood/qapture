@@ -29,6 +29,7 @@ import type { QaJourneyLane, QaTheme, QaCredential, QaPreamble } from '../config
 import type { QaNote } from '../context/QaContext';
 import { computeCoverage } from './coverage';
 import { noteToMarkdown } from './noteMarkdown';
+import { shotExtension } from './capture';
 
 // ---------------------------------------------------------------------------
 // Config shape accepted by buildAndDownloadZip
@@ -352,7 +353,8 @@ export async function buildAndDownloadZip(
   // ── Screenshots ───────────────────────────────────────────────────────────
   notes.forEach((n, i) => {
     if (n.screenshot && shots) {
-      shots.file(`point-${i + 1}.png`, n.screenshot);
+      // Must match the reference noteMarkdown.ts writes into notes.md.
+      shots.file(`point-${i + 1}.${shotExtension(n.screenshot)}`, n.screenshot);
     }
   });
 

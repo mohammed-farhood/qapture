@@ -54,6 +54,20 @@
  *    resize/move tick; a raw drag that's tiny on BOTH axes falls back to an
  *    element-click selection instead of forcing a degenerate region.
  *
+ * v0.4 "Ledger" (this file):
+ *  - COMPACT MODE. When `compactCapture` is on, the annotation step is a small
+ *    box beside the selection — a textarea and a send button — instead of the
+ *    full card. Enter saves. The screenshot and the location are still
+ *    captured; only the chrome (preview, location reveal, severity row) is
+ *    hidden, and `expanded` brings it back for a single note without changing
+ *    the saved preference. Minimizing the full card sets the preference, so
+ *    "shrink it once" means "stay small".
+ *  - The hint bar offers the pixel-exact screenshot opt-in, deliberately
+ *    placed where a mis-framed screenshot is actually noticed. The click
+ *    doubles as the user gesture getDisplayMedia requires.
+ *  - captureRegion() now picks between the exact and DOM engines itself (see
+ *    lib/capture.ts); nothing in this file changes per engine.
+ *
  * Shadow-DOM / elementFromPoint note:
  *   The interceptor div lives inside the shadow root. Temporarily setting its
  *   pointer-events to 'none' lets document.elementFromPoint() return host
@@ -141,7 +155,11 @@ const REGION_HANDLES: { edge: ResizeEdge; top: string; left: string; cursor: str
 ];
 
 export default function CaptureMode() {
-  const { addNote, endCapture, t, dir } = useQa();
+  const {
+    addNote, endCapture, t, dir,
+    compactCapture, setCompactCapture,
+    exactShots, enableExactShots,
+  } = useQa();
   const coarse = useCoarsePointer();
   const layerRef = useRef<HTMLDivElement>(null);
   const overlayRootRef = useRef<HTMLDivElement>(null);
@@ -179,6 +197,13 @@ export default function CaptureMode() {
   // Card fade-in state: true once the annotating card is in the DOM and we
   // want to trigger the CSS transition from opacity-0 → 1.
   const [cardIn, setCardIn] = useState(false);
+
+  // Compact mode: a small box next to the selection instead of the full card.
+  // `compactCapture` is the tester's saved preference; `expanded` is a
+  // per-selection override, so "show me the full card just for this one" is a
+  // single click and doesn't change the default.
+  const [expanded, setExpanded] = useState(!compactCapture);
+  const compact = compactCapture && !expanded;
 
   // ── See through our own shadow interceptor ──────────────────────────────
   // Temporarily sets pointer-events:none on the interceptor so that
@@ -240,10 +265,11 @@ export default function CaptureMode() {
     setHover(null);
     setRegionMode(false);
     setSeverity('bug'); // fresh selection → fresh default severity
+    setExpanded(!compactCapture); // a new selection returns to the preference
     setPhase('annotating');
     setCardIn(false); // reset: card will fade in on next frame
     await runCapture(sel.rect);
-  }, [runCapture]);
+  }, [runCapture, compactCapture]);
 
   // Trigger card fade-in one frame after phase switches to annotating
   useEffect(() => {
@@ -532,7 +558,7 @@ export default function CaptureMode() {
   //     internally (see the qa-overflow-y-auto class below) — so even a
   //     wrong above/below guess, or a card taller than fits either way,
   //     never leaves any part of it unreachable.
-  const popStyleFor = useCallback((r: QaRect): React.CSSProperties => {
+  const popStyleFor = useCallback((r: QaRect, cardWidth = 340): React.CSSProperties => {
     if (typeof window === 'undefined') return {};
     const margin = 12;
     const spaceBelow = window.innerHeight - (r.top + r.height + margin);
@@ -540,7 +566,7 @@ export default function CaptureMode() {
     const placeAbove = spaceBelow < spaceAbove;
     const top = placeAbove ? Math.max(margin, r.top - margin) : r.top + r.height + margin;
     let left = r.left;
-    left = Math.min(left, window.innerWidth - 340);
+    left = Math.min(left, window.innerWidth - cardWidth);
     left = Math.max(margin, left);
     const available = (placeAbove ? spaceAbove : spaceBelow) - margin;
     return {
@@ -551,7 +577,7 @@ export default function CaptureMode() {
     };
   }, []);
 
-  const popStyle = selection ? popStyleFor(selection.rect) : {};
+  const popStyle = selection ? popStyleFor(selection.rect, compact ? 296 : 340) : {};
   const confirmPopStyle = candidate ? popStyleFor(candidate.rect) : {};
 
   const activeRect = drag?.rect ?? candidate?.rect ?? selection?.rect ?? hover?.rect ?? null;
@@ -589,6 +615,29 @@ export default function CaptureMode() {
             <Icon name="Square" size={16} />
             {t('cap_drag')}
           </span>
+          {/* Pixel-exact opt-in, offered exactly where a mis-framed shot is
+              noticed. The click is the user gesture getDisplayMedia needs. */}
+          {exactShots.supported && (
+            exactShots.status === 'live' ? (
+              <span
+                className="qa-flex qa-items-center qa-gap-1 qa-rounded-full qa-px-2 qa-py-0.5 qa-text-11"
+                style={{ background: 'var(--qa-success-tint)', color: 'var(--qa-success)' }}
+                title={t('exact_on')}
+              >
+                <Icon name="Camera" size={13} />
+              </span>
+            ) : (
+              <button
+                onClick={() => void enableExactShots()}
+                title={t('exact_hint')}
+                className="qa-tap qa-flex qa-items-center qa-gap-1 qa-rounded-full qa-border qa-border-white-40 qa-px-2 qa-py-0.5 qa-text-11 qa-text-hi qa-hover-bg-white-15"
+                style={{ background: 'transparent', cursor: 'pointer' }}
+              >
+                <Icon name="Camera" size={13} />
+                {t('exact_label')}
+              </button>
+            )
+          )}
           <button
             onClick={() => endCapture()}
             className="qa-tap-icon qa-ms-1 qa-rounded-full qa-border qa-border-white-40 qa-px-2 qa-py-0.5 qa-text-xs qa-text-hi qa-hover-bg-white-15"
@@ -765,8 +814,87 @@ export default function CaptureMode() {
         </div>
       )}
 
+      {/* ── Compact composer ─────────────────────────────────────────────── */}
+      {/* The full card carries a screenshot preview, the location reveal and
+          the severity row — everything you want when filing a considered bug,
+          and everything in the way when you just want to type "this label is
+          wrong" and move on. Compact mode is the second case: one box, next to
+          what you picked. The screenshot is still captured, the location is
+          still recorded; only the chrome is gone, and one click brings it
+          back for this note. */}
+      {phase === 'annotating' && selection && compact && (
+        <div
+          data-qa-overlay="true"
+          dir={dir}
+          className={`qa-fixed qa-z-10096 qa-overflow-hidden qa-rounded-xl qa-border qa-border-subtle qa-elev-3 qa-card-anim${cardIn ? ' qa-card-in' : ''}`}
+          style={{
+            ...popStyle,
+            width: 280,
+            background: 'var(--qa-surface-1)',
+          }}
+        >
+          <div className="qa-flex qa-items-end qa-gap-1.5 qa-p-2">
+            <textarea
+              ref={taRef}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void save(); }
+              }}
+              rows={2}
+              placeholder={t('annotate_placeholder')}
+              className="qa-min-w-0 qa-flex-1 qa-rounded-lg qa-border qa-border-subtle qa-bg-0 qa-text-hi qa-px-2 qa-py-1.5 qa-text-sm qa-focus-ring"
+              style={{ resize: 'none' }}
+            />
+            <button
+              onClick={() => void save()}
+              disabled={!description.trim()}
+              title={t('save_point')}
+              aria-label={t('save_point')}
+              className="qa-tap-icon qa-rounded-lg qa-bg-accent"
+              style={{ border: 'none', cursor: 'pointer' }}
+            >
+              <Icon name="Send" size={15} />
+            </button>
+          </div>
+
+          <div className="qa-flex qa-items-center qa-gap-2 qa-px-2 qa-pb-1.5 qa-text-10 qa-text-lo">
+            {capturing ? (
+              <span className="qa-flex qa-items-center qa-gap-1 qa-text-accent">
+                <Icon name="Loader2" size={11} className="qa-animate-spin" />
+                {t('capturing')}
+              </span>
+            ) : shotUrl ? (
+              <span className="qa-flex qa-items-center qa-gap-1 qa-text-success">
+                <Icon name="Check" size={11} />
+                {selection.kind === 'region' ? t('sel_region') : t('sel_element')}
+              </span>
+            ) : (
+              <span className="qa-truncate">{t('no_shot')}</span>
+            )}
+            <button
+              onClick={() => setExpanded(true)}
+              title={t('expand_card')}
+              aria-label={t('expand_card')}
+              className="qa-tap-icon qa-ms-auto qa-text-mid qa-hover-text-slate-600"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+            >
+              <Icon name="Maximize2" size={12} />
+            </button>
+            <button
+              onClick={() => endCapture()}
+              aria-label={t('cancel')}
+              className="qa-tap-icon qa-text-mid qa-hover-text-slate-600"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+            >
+              <Icon name="X" size={12} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Inline annotation card ───────────────────────────────────────── */}
-      {phase === 'annotating' && selection && (
+      {phase === 'annotating' && selection && !compact && (
         <div
           data-qa-overlay="true"
           dir={dir}
@@ -795,8 +923,17 @@ export default function CaptureMode() {
               {selection.kind === 'region' ? t('sel_region') : t('sel_element')}
             </span>
             <button
-              onClick={() => endCapture()}
+              onClick={() => { setExpanded(false); setCompactCapture(true); }}
+              title={t('collapse_card')}
+              aria-label={t('collapse_card')}
               className="qa-tap-icon qa-ms-auto qa-opacity-80 qa-hover-opacity-100"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--qa-ink-hi)' }}
+            >
+              <Icon name="Minimize2" size={14} />
+            </button>
+            <button
+              onClick={() => endCapture()}
+              className="qa-tap-icon qa-opacity-80 qa-hover-opacity-100"
               style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--qa-ink-hi)' }}
             >
               <Icon name="X" size={16} />

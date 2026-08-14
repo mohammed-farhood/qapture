@@ -27,6 +27,16 @@ export type QaIdb = {
   put(record: object): Promise<boolean>;
   delete(id: string): Promise<void>;
   clear(): Promise<void>;
+  /**
+   * Read a value from the `meta` store. Used for things localStorage cannot
+   * hold: v0.4 stores the tester's chosen sync folder here, because a
+   * FileSystemDirectoryHandle is a structured-cloneable object, not a string.
+   */
+  getMeta<T>(key: string): Promise<T | undefined>;
+  /** Write a value to the `meta` store. true = persisted. Never throws. */
+  setMeta(key: string, value: unknown): Promise<boolean>;
+  /** Remove a `meta` entry. Never throws. */
+  deleteMeta(key: string): Promise<void>;
 };
 
 // Each namespace gets its own db-promise cache.
@@ -133,6 +143,9 @@ export function createIdb(namespace: string): QaIdb {
       put:    () => Promise.resolve(true),
       delete: () => Promise.resolve(),
       clear:  () => Promise.resolve(),
+      getMeta: () => Promise.resolve(undefined),
+      setMeta: () => Promise.resolve(true),
+      deleteMeta: () => Promise.resolve(),
     };
   }
 
@@ -166,6 +179,34 @@ export function createIdb(namespace: string): QaIdb {
     clear: async () => {
       try {
         await run(dbName, NOTES_STORE, 'readwrite', (s) => s.clear());
+      } catch {
+        // ignore
+      }
+    },
+
+    getMeta: async <T,>(key: string) => {
+      try {
+        const row = await run<{ key: string; value: T }>(
+          dbName, META_STORE, 'readonly', (s) => s.get(key),
+        );
+        return row?.value;
+      } catch {
+        return undefined;
+      }
+    },
+
+    setMeta: async (key, value) => {
+      try {
+        await run(dbName, META_STORE, 'readwrite', (s) => s.put({ key, value }));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    deleteMeta: async (key) => {
+      try {
+        await run(dbName, META_STORE, 'readwrite', (s) => s.delete(key));
       } catch {
         // ignore
       }

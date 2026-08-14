@@ -34,7 +34,8 @@ This project uses **Qapture** — an in-browser QA capture widget that ships
 6. **Each point/cluster, before fixing:**
    - **Page** + **Selector** + **Note** → locate the element in the source
      (priority: `#id` → `[data-testid]` → `aria-label` → `name` → visual match
-     via the `screenshots/point-N.png`).
+     via the screenshot named in the point's **Screenshot** line —
+     `screenshots/point-N.webp`, or `.png` on browsers without WebP).
    - **Severity** (`bug`/`question`/`polish`) and **Status** (`open`/`verified`)
      tell you how to treat the point — a `question` may not need a code
      change; a `verified` point was already re-checked once.

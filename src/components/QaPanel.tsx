@@ -46,6 +46,8 @@ import { useQa } from '../context/QaContext';
 import { Icon } from '../icons/Icon';
 import NoteEditor from './NoteEditor';
 import NoteList from './NoteList';
+import NoteFilterBar from './NoteFilterBar';
+import SettingsSheet from './SettingsSheet';
 import CredentialsSection from './CredentialsSection';
 import GuideSection from './GuideSection';
 import { computeCoverage } from '../lib/coverage';
@@ -123,11 +125,13 @@ export default function QaPanel() {
     t, lang, setLang, dir,
     brand,
     journey, guideChecked,
+    simpleMode, sync, storageHealth,
   } = useQa();
 
   const [confirmClear, setConfirmClear] = useState(false);
   const [naming, setNaming]             = useState(false);
   const [filename, setFilename]         = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // ── Panel animation ──────────────────────────────────────────────────────
   const [phase, dispatch] = useReducer(panelReducer, 'hidden');
@@ -158,6 +162,7 @@ export default function QaPanel() {
       // and resurface a stale dialog instead of the expected tab content.
       setNaming(false);
       setConfirmClear(false);
+      setSettingsOpen(false);
     }
     if (phase === 'visible') {
       setShowIn(true); // keep it showing
@@ -393,6 +398,34 @@ export default function QaPanel() {
           ))}
         </div>
 
+        {/* settings: folder saving, storage, screenshots, view modes */}
+        <button
+          onClick={() => setSettingsOpen(true)}
+          title={t('settings')}
+          aria-label={t('settings')}
+          className="qa-tap-icon qa-relative qa-rounded-lg qa-border qa-border-subtle qa-bg-transparent qa-text-hi qa-hover-bg-2 qa-transition"
+          style={{ cursor: 'pointer' }}
+        >
+          <Icon name="Settings" size={16} />
+          {/* A dot when something in there wants attention: the folder link
+              broke, or the browser is running out of room. */}
+          {(sync.state === 'needs-permission' || storageHealth.level !== 'ok') && (
+            <span
+              aria-hidden="true"
+              className="qa-absolute qa-rounded-full"
+              style={{
+                top: 2,
+                insetInlineEnd: 2,
+                width: 6,
+                height: 6,
+                background: storageHealth.level === 'critical'
+                  ? 'var(--qa-danger)'
+                  : 'var(--qa-warn)',
+              }}
+            />
+          )}
+        </button>
+
         {/* global capture button */}
         <button
           onClick={startCapture}
@@ -422,21 +455,35 @@ export default function QaPanel() {
       </div>
 
       {/* ── Tabs ─────────────────────────────────────────────────────────── */}
-      <TabsBar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        t={t}
-        lang={lang}
-      />
+      {/* Simple mode drops Logins/Guide entirely: a tester handed a beta link
+          needs to capture, review and export, and the other two tabs are
+          setup surfaces for whoever configured the project. */}
+      {!simpleMode && (
+        <TabsBar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          t={t}
+          lang={lang}
+        />
+      )}
+
+      {/* live folder-sync strip — the tester's proof their notes are on disk */}
+      {sync.state === 'syncing' && (
+        <div className="qa-flex qa-items-center qa-gap-1.5 qa-px-3 qa-py-1 qa-bg-1 qa-text-10 qa-text-success">
+          <Icon name="FolderCheck" size={11} className="qa-shrink-0" />
+          <span className="qa-truncate qa-dir-ltr" dir="ltr" title={sync.path}>{sync.path}</span>
+        </div>
+      )}
 
       {/* separator */}
       <div className="qa-h-px qa-bg-3" />
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div className="qa-flex-1 qa-space-y-3 qa-overflow-y-auto qa-p-3 qa-bg-0">
-        {activeTab === 'notes' && (
+        {(simpleMode || activeTab === 'notes') && (
           <>
             <NoteEditor />
+            <NoteFilterBar />
             <NoteList />
             {notes.length > 0 && (
               <div className="qa-pt-1 qa-text-center">
@@ -473,9 +520,12 @@ export default function QaPanel() {
             )}
           </>
         )}
-        {activeTab === 'logins' && <CredentialsSection />}
-        {activeTab === 'guide'  && <GuideSection />}
+        {!simpleMode && activeTab === 'logins' && <CredentialsSection />}
+        {!simpleMode && activeTab === 'guide'  && <GuideSection />}
       </div>
+
+      {/* ── Settings sheet ───────────────────────────────────────────────── */}
+      {settingsOpen && <SettingsSheet onClose={() => setSettingsOpen(false)} />}
 
       {/* ── Export-name dialog ───────────────────────────────────────────── */}
       {naming && (

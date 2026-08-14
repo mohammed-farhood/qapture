@@ -14,8 +14,12 @@ npm install qapture2
 
 ## Contents
 
+- [What's new in v0.4 "Ledger"](#whats-new-in-v04-ledger)
 - [Breaking Changes (v0.3.0 "Graphite")](#breaking-changes-v030-graphite)
 - [Quick Start](#quick-start)
+- [Screenshots: two engines](#screenshots-two-engines)
+- [Saving to a folder](#saving-to-a-folder)
+- [Where notes live, and what "storage full" means](#where-notes-live-and-what-storage-full-means)
 - [Config Reference](#config-reference)
 - [Graded Risk Model](#graded-risk-model)
 - [Guided Walkthrough (Test-Along)](#guided-walkthrough-test-along)
@@ -29,6 +33,23 @@ npm install qapture2
 - [Isolation and Known Limitations](#isolation-and-known-limitations)
 - [Uninstall](#uninstall)
 - [License](#license)
+
+---
+
+## What's new in v0.4 "Ledger"
+
+v0.4 is **not** a breaking release — every 0.3.x config, note and export keeps
+working, and each new feature is off until someone turns it on.
+
+| | |
+|---|---|
+| **Screenshots frame the right thing** | Three bugs made the shot drift away from the region you selected — a scroll lock that reflowed the page mid-capture, a clone laid out ~15px narrower than the live page, and `overflow:auto` containers cloning back to their top. All fixed. See [Screenshots: two engines](#screenshots-two-engines). |
+| **Pixel-exact capture (opt-in)** | A real photograph of the tab rather than a redraw — so canvas/WebGL, video, cross-origin iframes and exotic CSS all come out right. One prompt per session, Chromium desktop. |
+| **Save straight to a folder** | Pick a QA folder once; every note is written to disk as it's saved, organised `Project / Campaign / notes + screenshots + REPORT.md`. See [Saving to a folder](#saving-to-a-folder). |
+| **Storage that explains itself** | A real usage meter, WebP screenshots (~10× smaller), a request to stop the browser evicting your data, and a "drop screenshots, keep findings" recovery valve. |
+| **A usable notes list** | Severity/status filter chips with counts, text search, and a "this page" toggle. |
+| **Simple mode** | Hides Logins and Guide for a tester who was just handed a link. |
+| **Minimized capture** | A small box next to your selection instead of the full card — type, Enter, move on. |
 
 ---
 
@@ -143,6 +164,132 @@ Or use the registered `<qapture-widget>` custom element — accepts a `config` a
   };
 </script>
 ```
+
+---
+
+## Screenshots: two engines
+
+Qapture can produce a screenshot two different ways. Both crop the exact
+viewport rectangle you selected; they differ in where the pixels come from.
+
+### `dom` — the default, works everywhere
+
+html2canvas **re-renders a clone** of your DOM into an offscreen frame and
+rasterises it. No permission prompt, works in every browser, and it is the
+only option on Firefox, Safari and mobile.
+
+Because it is a reconstruction rather than a photograph, it has limits worth
+knowing:
+
+- `<canvas>` / WebGL, `<video>` and cross-origin `<iframe>` content cannot be
+  read and render blank or approximated;
+- CSS the cloner doesn't implement (some `backdrop-filter`, `mask`, exotic
+  gradients) renders differently;
+- anything the clone lays out differently is a shot that doesn't match.
+
+That last category is what v0.4 fixed — see the CHANGELOG for the three
+specific causes (scrollbar-induced reflow from the scroll lock, a clone
+viewport ~15px narrower than the live one, and `overflow:auto` containers
+cloning back to `scrollTop: 0`).
+
+### `exact` — opt-in, pixel-for-pixel
+
+Uses the Screen Capture API to photograph **this tab's real composited
+pixels**, then crops your rectangle out arithmetically. Nothing is
+re-rendered, so it cannot mis-frame, and everything above renders correctly
+because it was never re-drawn in the first place.
+
+- **Turn it on** from the capture hint bar ("Pixel-exact shots") or Settings.
+- The browser asks once per session to share this tab. Nothing leaves the
+  device — the frames are cropped locally and never uploaded.
+- The QA overlay is hidden for the captured frame, so the scrim, the selection
+  outline and the annotation card never appear in the image.
+- **Chromium desktop only** (Chrome, Edge, Brave, Opera), because it depends
+  on `preferCurrentTab`. Elsewhere the picker would let a tester share a
+  screen or another window, whose pixels have nothing to do with our
+  coordinate space — so the option isn't offered, and if a shared surface
+  somehow isn't this tab (wrong `displaySurface`, or a frame whose aspect
+  ratio doesn't match the viewport), Qapture falls back to `dom` rather than
+  returning a confidently wrong image.
+
+---
+
+## Saving to a folder
+
+Export-at-the-end only works if nothing goes wrong before the end. Folder
+sync writes each note to disk **the moment it is saved**.
+
+Open **Settings → Save to a folder**, pick a folder once, then name the
+project and campaign. From then on:
+
+```
+<chosen folder>/
+  Project X/
+    2026-08-14 smoke test/
+      REPORT.md          # the whole campaign, agent-ready, rewritten live
+      campaign.json      # metadata + the note→file index
+      notes/
+        0001-checkout-button-stays-enabled.md
+        0002-arabic-labels-clipped.md
+      screenshots/
+        0001-checkout-button-stays-enabled.webp
+        0002-arabic-labels-clipped.webp
+```
+
+Ten projects become ten folders, each holding its named campaigns. Nothing
+needs a browser to read.
+
+Behaviour worth knowing:
+
+- **Existing notes are mirrored** when you open a campaign, so the folder is
+  complete rather than "everything from now on".
+- **Editing a note renames its file** and removes the old one — no orphans.
+- **Deleting a note** removes its files after the 5-second undo window, not
+  before.
+- **Reloading resumes the same campaign** and continues the numbering, because
+  the note index lives in `campaign.json`.
+- **The folder is remembered across sessions.** Browsers intentionally drop
+  write permission between visits, so you get a one-click *Reconnect* rather
+  than having to find the folder again.
+- Export is unchanged and still works; this is a second, always-on copy.
+
+**Chromium desktop only.** The File System Access API has no equivalent in
+Firefox, Safari or any mobile browser — there, Settings says so and points at
+Export.
+
+---
+
+## Where notes live, and what "storage full" means
+
+Notes and screenshots are stored **in the tester's own browser**
+(IndexedDB) — never on the server your app is deployed from. That is what
+makes Qapture keyless and offline, and it is also why a tester on a shared
+beta link can see:
+
+> Storage full — this note may not survive a reload
+
+Every browser caps how much a single origin may store: usually a share of
+free disk, but as little as a few hundred MB on a busy phone. Safari
+additionally **evicts** data from sites not visited for a week. When the cap
+is hit, the write is refused and the note exists only in the open tab.
+
+v0.4 addresses this from four directions:
+
+1. **Screenshots are ~10× smaller** — WebP at quality 0.92, capped at 1800px
+   on the long edge (PNG fallback where WebP is unsupported). Screenshots are
+   essentially all of the footprint, so this alone moves the ceiling a long way.
+2. **You get warned at 70% of quota**, not at the moment a write fails, with a
+   usage meter in Settings showing the origin total and Qapture's own share.
+   (They differ: `navigator.storage.estimate()` reports the whole origin, so on
+   a real app most of it is the host's caches and service worker.)
+3. **"Ask browser to keep my notes"** calls `navigator.storage.persist()`,
+   which stops eviction where the browser supports it.
+4. **Folder sync** is the real answer for "I cannot lose this" — a file on
+   disk is subject to no browser quota at all.
+
+If a tester is stuck mid-session, **Settings → "Free space: drop screenshots,
+keep notes"** removes every stored image while keeping all findings — and if
+folder sync is on, those images are already safe on disk.
 
 ---
 
@@ -309,10 +456,14 @@ Outside test-along, a captured note is also auto-linked to a journey step whenev
 qa-notes-<timestamp>.zip
 ├── notes.md
 └── screenshots/
-    ├── point-1.png
-    ├── point-2.png
+    ├── point-1.webp
+    ├── point-2.webp
     └── ...
 ```
+
+Since v0.4 screenshots are WebP where the browser supports it (PNG
+otherwise). The extension in `screenshots/` and the one referenced from
+`notes.md` come from the same helper, so they always agree.
 
 ### `notes.md` structure
 
@@ -467,6 +618,21 @@ The **hotkey** (default: `Shift+Alt+Q`) toggles the panel open/closed regardless
 - **Next.js App Router:** use `qapture2/next` (which has `'use client'` baked into its bundle output) rather than `qapture2` directly. This prevents the "attempted to call a Client Component from the Server" error.
 - **Node >= 18** required for the CLI.
 - Heavy dependencies (`jszip`, `html2canvas`) are loaded as **lazy code-split chunks** — they do not affect initial page load and are only fetched when the user triggers a capture or export action.
+
+### Feature availability by browser (v0.4)
+
+| Feature | Chromium desktop | Firefox / Safari desktop | Mobile |
+|---|---|---|---|
+| Capture, notes, export | ✅ | ✅ | ✅ |
+| `dom` screenshots (default) | ✅ | ✅ | ✅ |
+| Pixel-exact screenshots | ✅ opt-in | — | — |
+| Save to a folder | ✅ opt-in | — | — |
+| Storage meter | ✅ | ✅ (Safari reports coarse numbers) | ✅ |
+| Persistent storage request | ✅ | Firefox prompts; Safari ignores | varies |
+
+Nothing here is required. Where a feature is unavailable the UI says so and
+points at the path that always works (Export), and no capability is assumed
+without a runtime check.
 
 ---
 

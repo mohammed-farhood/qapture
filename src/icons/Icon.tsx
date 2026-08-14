@@ -48,7 +48,17 @@ export type IconName =
   | 'RotateCcw'
   | 'ChevronLeft'
   | 'ChevronRight'
-  | 'Play';
+  | 'Play'
+  // — v0.4 "Ledger" —
+  | 'Search'
+  | 'Folder'
+  | 'FolderCheck'
+  | 'Settings'
+  | 'HardDrive'
+  | 'Camera'
+  | 'Minimize2'
+  | 'Maximize2'
+  | 'Send';
 
 // ---------------------------------------------------------------------------
 // SVG element descriptors (mirrors Lucide's internal format)
@@ -233,6 +243,60 @@ const ICONS: Record<IconName, SvgDescriptor[]> = {
 
   ChevronDown: [
     ['path', { d: 'm6 9 6 6 6-6' }],
+  ],
+
+  // — v0.4 "Ledger" —
+
+  Search: [
+    ['circle', { cx: '11', cy: '11', r: '8' }],
+    ['path', { d: 'm21 21-4.3-4.3' }],
+  ],
+
+  Folder: [
+    ['path', { d: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z' }],
+  ],
+
+  FolderCheck: [
+    ['path', { d: 'M20 12V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L7.6 3.9A2 2 0 0 0 5.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h7' }],
+    ['path', { d: 'm16 19 2 2 4-4' }],
+  ],
+
+  Settings: [
+    ['path', { d: 'M20 7h-9' }],
+    ['path', { d: 'M14 17H5' }],
+    ['circle', { cx: '17', cy: '17', r: '3' }],
+    ['circle', { cx: '7',  cy: '7',  r: '3' }],
+  ],
+
+  HardDrive: [
+    ['line', { x1: '22', x2: '2', y1: '12', y2: '12' }],
+    ['path', { d: 'M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z' }],
+    ['line', { x1: '6',  x2: '6.01',  y1: '16', y2: '16' }],
+    ['line', { x1: '10', x2: '10.01', y1: '16', y2: '16' }],
+  ],
+
+  Camera: [
+    ['path', { d: 'M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z' }],
+    ['circle', { cx: '12', cy: '13', r: '3' }],
+  ],
+
+  Minimize2: [
+    ['polyline', { points: '4 14 10 14 10 20' }],
+    ['polyline', { points: '20 10 14 10 14 4' }],
+    ['line', { x1: '14', x2: '21', y1: '10', y2: '3' }],
+    ['line', { x1: '3',  x2: '10', y1: '21', y2: '14' }],
+  ],
+
+  Maximize2: [
+    ['polyline', { points: '15 3 21 3 21 9' }],
+    ['polyline', { points: '9 21 3 21 3 15' }],
+    ['line', { x1: '21', x2: '14', y1: '3',  y2: '10' }],
+    ['line', { x1: '3',  x2: '10', y1: '21', y2: '14' }],
+  ],
+
+  Send: [
+    ['path', { d: 'M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z' }],
+    ['path', { d: 'm21.854 2.147-10.94 10.939' }],
   ],
 };
 

@@ -53,6 +53,17 @@ try {
   // pass its value through untouched.
   const happyResult = await withTimeout(Promise.resolve('ok'), 50);
   assertTrue(happyResult === 'ok', `withTimeout still resolves to the wrapped promise's value on the happy path (got ${JSON.stringify(happyResult)})`);
+
+  // --- v0.4: screenshots are stored as WebP where the browser supports it,
+  // so the filename the export writes and the filename notes.md references
+  // both have to follow the blob's REAL type. They are derived from the same
+  // helper precisely so they can't drift apart into a broken image link.
+  const { shotExtension } = await import(pathToFileURL(OUT).href);
+  assertTrue(typeof shotExtension === 'function', 'shotExtension is exported from the capture.ts bundle');
+  assertTrue(shotExtension(new Blob([], { type: 'image/webp' })) === 'webp', 'shotExtension maps image/webp → webp');
+  assertTrue(shotExtension(new Blob([], { type: 'image/png' })) === 'png', 'shotExtension maps image/png → png');
+  assertTrue(shotExtension(new Blob([], { type: 'image/jpeg' })) === 'jpg', 'shotExtension maps image/jpeg → jpg');
+  assertTrue(shotExtension(undefined) === 'png', 'shotExtension falls back to png for a missing blob');
 } finally {
   rmSync(BUNDLE_DIR, { recursive: true, force: true });
 }

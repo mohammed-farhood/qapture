@@ -3,6 +3,110 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] "Ledger" — 2026-08-14
+
+The theme of this release is **not losing anything**: not the region you
+framed, not the session you captured, not the notes a tester filed on a
+laptop that then ran out of browser storage.
+
+No breaking changes. Every 0.3.x config, note and export keeps working; each
+new feature is off until someone turns it on.
+
+### Fixed
+
+- **Screenshots captured the wrong part of the page.** Three separate causes,
+  all of them fixed:
+  1. *The scroll lock reflowed the page mid-capture.* Capture mode set
+     `overflow: hidden` on `<html>`, which removes the classic scrollbar and
+     therefore **widens the layout viewport by ~15px** — after the tester's
+     rect had been measured and before the screenshot rendered. Every centred
+     container and right-anchored element shifted, so the crop landed beside
+     what was selected. The lock now adds back exactly the width it removed
+     (`scrollLock.ts`).
+  2. *The clone laid out at a different width.* html2canvas was passed
+     `windowWidth: window.innerWidth`, which INCLUDES the scrollbar, while
+     the offscreen clone lays out against its own content box — the same
+     ~15px discrepancy, applied a second time. It now passes
+     `documentElement.clientWidth/clientHeight`, the box the live layout
+     actually used.
+  3. *Scrolled containers cloned back to the top.* Cloning copies the DOM but
+     not the live `scrollTop`/`scrollLeft` of `overflow:auto` elements, so a
+     sidebar, modal body, table or chat log scrolled halfway down rendered
+     from its first row — a screenshot of genuinely different content. Live
+     offsets are now stamped onto an attribute (attributes DO clone) and
+     replayed in html2canvas's `onclone` hook before rendering.
+
+  Cropping also moved out of html2canvas's own `x/y/width/height` options
+  (applied to a re-scrolled clone in document space) into a plain 2D-canvas
+  crop of a viewport-sized render, so the arithmetic is ours and checkable.
+
+### Added
+
+- **Pixel-exact screenshots (opt-in).** A second capture engine that uses the
+  Screen Capture API to photograph this tab's real composited pixels and crop
+  the rect out arithmetically. Because nothing is re-rendered, it cannot
+  mis-frame, and it captures what html2canvas fundamentally cannot: canvas and
+  WebGL, video, cross-origin iframes, `backdrop-filter`, and any CSS the
+  cloner doesn't implement. One permission prompt per session, offered on the
+  capture hint bar and in Settings. Chromium desktop only, validated at
+  runtime (`displaySurface` + frame aspect ratio) so a tester who shares the
+  wrong surface silently falls back rather than getting a confidently wrong
+  image. The QA overlay is hidden for the frame, so the scrim and card never
+  appear in the shot.
+- **Live folder sync.** Pick a QA folder once, name a project and a campaign,
+  and every note is written to disk the moment it is saved:
+
+      <chosen folder>/Project X/2026-08-14 smoke/
+        REPORT.md        ← the whole campaign, agent-ready, rewritten live
+        campaign.json    ← metadata + the note→file index
+        notes/0001-checkout-button-dead.md
+        screenshots/0001-checkout-button-dead.webp
+
+  Ten projects become ten folders of named campaigns, readable without a
+  browser. Editing a note renames its file (no orphans); deleting one removes
+  it after the undo window; reloading resumes the same campaign and continues
+  the numbering. The folder handle survives across sessions (stored in
+  IndexedDB), needing one click to re-grant write access. Chromium desktop
+  only — the File System Access API has no equivalent elsewhere; other
+  browsers keep using Export.
+- **Storage that explains itself.** A usage meter with real numbers (origin
+  total, and Qapture's own share), `navigator.storage.persist()` to ask the
+  browser to stop evicting the data, and a recovery valve that drops
+  screenshots while keeping every finding.
+- **Note filters.** Severity and status chips with live counts, a text
+  search, and a "this page" toggle over the same single list — so a
+  forty-point session can answer "just the red flags" without scrolling.
+- **Simple mode.** Hides the Logins and Guide tabs for testers who were handed
+  a link and only need to capture, review and export.
+- **Minimized capture.** A small box next to the selection instead of the full
+  card: type, hit Enter, move on. The screenshot and location are still
+  captured; one click expands to the full card for a single note, and the
+  preference is remembered.
+
+### Changed
+
+- **Screenshots are stored as WebP (quality 0.92) and capped at 1800px on the
+  long edge**, falling back to PNG where WebP isn't supported. Typical notes
+  shrink by roughly an order of magnitude, which is the direct fix for testers
+  on deployed betas hitting "storage full". Export filenames and the
+  `notes.md` reference both follow the blob's real type, from one shared
+  helper, so an image link can never point at the wrong extension.
+- **The "Storage full" toast now says what happened and offers a way out**
+  (Export) instead of dead-ending, and a warning now fires at 70% of quota
+  rather than only at the moment a write fails.
+- `idb.ts` gained `getMeta`/`setMeta`/`deleteMeta` over the existing `meta`
+  store (v2 schema, no migration) — a directory handle is a structured-
+  cloneable object, so localStorage cannot hold it.
+
+### Tests
+
+- New `fs-sync-smoke` drives the whole folder-sync flow against an in-memory
+  fake of the File System Access API and asserts the resulting tree: path
+  segments, filenames, the campaign index, REPORT.md content, rename-on-edit
+  cleanup, numbering across a reload, and delete. Added to `npm run verify`.
+- `capture-timeout-smoke` gained coverage for the shared screenshot-extension
+  helper that keeps `notes.md` links and ZIP filenames in agreement.
+
 ## [0.3.1] — 2026-07-28
 
 Two real bugs found within hours of 0.3.0 shipping, by actually installing it

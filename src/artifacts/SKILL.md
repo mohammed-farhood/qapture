@@ -95,8 +95,8 @@ mechanism for quietly rewriting a payment flow nobody asked you to touch.
 qa-notes-<timestamp>.zip
 ├── notes.md          ← ALWAYS read this first (see Step 1)
 └── screenshots/
-    ├── point-1.png
-    ├── point-2.png
+    ├── point-1.webp
+    ├── point-2.webp
     └── ...
 ```
 
@@ -230,7 +230,9 @@ context (stack, conventions, invariants, login), and its risk zone.
 
 ### 3d. Open the screenshot
 
-Load `screenshots/point-N.png` to visually confirm what the tester saw.
+Load the screenshot named in that point's **Screenshot** line (
+`screenshots/point-N.webp`, or `.png` on browsers without WebP) to visually
+confirm what the tester saw.
 The screenshot is truth — if the selector doesn't resolve, the screenshot tells
 you what element they meant.
 

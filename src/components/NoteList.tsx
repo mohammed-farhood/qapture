@@ -340,7 +340,9 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
 // ---------------------------------------------------------------------------
 
 export default function NoteList() {
-  const { notes, notesLoading, t } = useQa();
+  // Filtering itself lives in QaContext, so export and folder sync always see
+  // the complete list no matter what the tester is looking at right now.
+  const { notes, visibleNotes, setFilter, notesLoading, t } = useQa();
 
   // Loading skeleton — only while IDB hasn't answered yet AND there's nothing
   // to show already (an empty result and a slow load look identical to the
@@ -365,10 +367,34 @@ export default function NoteList() {
     );
   }
 
+  // Notes exist, but the active filter matches none of them. Distinct from
+  // "no notes yet" — the way out is to clear the filter, not to capture more.
+  if (!visibleNotes.length) {
+    return (
+      <div className="qa-rounded-xl qa-border qa-border-dashed qa-border-subtle qa-py-6 qa-text-center qa-text-sm qa-text-lo">
+        {t('filter_none')}
+        <br />
+        <button
+          type="button"
+          onClick={() => setFilter({ severity: 'all', status: 'all', query: '', thisPageOnly: false })}
+          className="qa-tap qa-mt-1 qa-text-xs qa-text-accent"
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+        >
+          {t('filter_clear')}
+        </button>
+      </div>
+    );
+  }
+
+  // Point numbers stay tied to capture order in the FULL list, so a note keeps
+  // the same number whether or not a filter is on — the number is what the
+  // export, the folder and any agent handoff refer to.
+  const numberOf = (id: string) => notes.length - notes.findIndex((n) => n.id === id);
+
   return (
     <ul className="qa-space-y-2">
-      {notes.map((n, i) => (
-        <NoteItem key={n.id} note={n} index={notes.length - i} />
+      {visibleNotes.map((n) => (
+        <NoteItem key={n.id} note={n} index={numberOf(n.id)} />
       ))}
     </ul>
   );

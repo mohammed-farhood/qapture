@@ -94,6 +94,56 @@ type LangMap = {
   evidence_n: string;
   no_evidence: string;
   expected_label: string;
+  // — v0.4 "Ledger" —
+  exact_label: string;
+  exact_hint: string;
+  exact_on: string;
+  exact_off: string;
+  exact_declined: string;
+  exact_unsupported: string;
+  sync_title: string;
+  sync_hint: string;
+  sync_choose: string;
+  sync_folder: string;
+  sync_project: string;
+  sync_project_ph: string;
+  sync_campaign: string;
+  sync_campaign_ph: string;
+  sync_tester: string;
+  sync_tester_ph: string;
+  sync_start: string;
+  sync_on: string;
+  sync_paused: string;
+  sync_stop: string;
+  sync_reconnect: string;
+  sync_forget: string;
+  sync_lost_permission: string;
+  sync_write_failed: string;
+  sync_unsupported: string;
+  sync_writing_to: string;
+  storage_title: string;
+  storage_used: string;
+  storage_warn: string;
+  storage_critical: string;
+  storage_explain: string;
+  persist_keep: string;
+  persist_granted: string;
+  persist_denied: string;
+  persist_on: string;
+  drop_shots: string;
+  screenshots_dropped: string;
+  filter_all: string;
+  filter_search: string;
+  filter_this_page: string;
+  filter_none: string;
+  filter_clear: string;
+  simple_mode: string;
+  full_mode: string;
+  compact_mode: string;
+  expand_card: string;
+  collapse_card: string;
+  settings: string;
+  done: string;
 };
 
 export type StrKey = keyof LangMap;
@@ -178,6 +228,55 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     evidence_n:            '{n} attached',
     no_evidence:           'ticked, no capture',
     expected_label:        'Expected',
+    exact_label:           'Pixel-exact shots',
+    exact_hint:            'Screenshots become a real photo of the tab instead of a redraw. Asks once to share this tab; nothing leaves your device.',
+    exact_on:              'Pixel-exact screenshots on',
+    exact_off:            'Back to redrawn screenshots',
+    exact_declined:        'Staying on redrawn screenshots',
+    exact_unsupported:     'Needs Chrome, Edge or Brave on desktop',
+    sync_title:            'Save to a folder',
+    sync_hint:             'Every note is written to your disk the moment you save it — nothing is lost if this browser dies.',
+    sync_choose:           'Choose folder',
+    sync_folder:           'Folder',
+    sync_project:          'Project',
+    sync_project_ph:       'e.g. Project X',
+    sync_campaign:         'Campaign',
+    sync_campaign_ph:      'e.g. checkout smoke test',
+    sync_tester:           'Tester (optional)',
+    sync_tester_ph:        'your name',
+    sync_start:            'Start saving here',
+    sync_on:               'Saving to {path}',
+    sync_paused:           'Stopped saving to the folder',
+    sync_stop:             'Stop',
+    sync_reconnect:        'Reconnect folder',
+    sync_forget:           'Forget folder',
+    sync_lost_permission:  'Folder access expired — click Reconnect to keep saving',
+    sync_write_failed:     "Couldn't write to the folder — notes are still saved in this browser",
+    sync_unsupported:      'Folder saving needs Chrome, Edge or Brave on desktop. Use Export here.',
+    sync_writing_to:       'Writing to',
+    storage_title:         'Storage',
+    storage_used:          '{used} of {quota} used',
+    storage_warn:          'This browser is running low on space for saved notes. Export now, or turn on folder saving.',
+    storage_critical:      'Almost out of browser storage — new notes may not survive a reload. Export now.',
+    storage_explain:       'Notes live in YOUR browser, not on the server. Each browser caps how much a site may store.',
+    persist_keep:          'Ask browser to keep my notes',
+    persist_granted:       'Browser will keep your notes',
+    persist_denied:        "Browser wouldn't promise to keep them — use folder saving or export often",
+    persist_on:            'Protected from auto-cleanup',
+    drop_shots:            'Free space: drop screenshots, keep notes',
+    screenshots_dropped:   '{n} screenshot(s) removed — notes kept',
+    filter_all:            'All',
+    filter_search:         'Search notes…',
+    filter_this_page:      'This page',
+    filter_none:           'No notes match this filter.',
+    filter_clear:          'Clear filter',
+    simple_mode:           'Simple mode',
+    full_mode:             'Full mode',
+    compact_mode:          'Small capture box',
+    expand_card:           'Show full card',
+    collapse_card:         'Shrink',
+    settings:              'Settings',
+    done:                  'Done',
   },
   ar: {
     tab_notes:             'الملاحظات',
@@ -258,6 +357,55 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     evidence_n:            '{n} مرفق',
     no_evidence:           'مُعلّم بدون التقاط',
     expected_label:        'المتوقع',
+    exact_label:           'لقطات مطابقة تمامًا',
+    exact_hint:            'تصبح اللقطة صورة حقيقية للتبويب بدل إعادة رسمه. يُطلب الإذن مرة واحدة، ولا شيء يغادر جهازك.',
+    exact_on:              'تم تفعيل اللقطات المطابقة',
+    exact_off:             'العودة إلى اللقطات المُعاد رسمها',
+    exact_declined:        'سنبقى على اللقطات المُعاد رسمها',
+    exact_unsupported:     'يتطلب Chrome أو Edge أو Brave على سطح المكتب',
+    sync_title:            'الحفظ في مجلد',
+    sync_hint:             'تُكتب كل ملاحظة على القرص لحظة حفظها — لا شيء يضيع إذا تعطّل المتصفح.',
+    sync_choose:           'اختر المجلد',
+    sync_folder:           'المجلد',
+    sync_project:          'المشروع',
+    sync_project_ph:       'مثال: مشروع س',
+    sync_campaign:         'الحملة',
+    sync_campaign_ph:      'مثال: اختبار الدفع',
+    sync_tester:           'المُختبِر (اختياري)',
+    sync_tester_ph:        'اسمك',
+    sync_start:            'ابدأ الحفظ هنا',
+    sync_on:               'يتم الحفظ في {path}',
+    sync_paused:           'تم إيقاف الحفظ في المجلد',
+    sync_stop:             'إيقاف',
+    sync_reconnect:        'إعادة ربط المجلد',
+    sync_forget:           'نسيان المجلد',
+    sync_lost_permission:  'انتهت صلاحية الوصول للمجلد — اضغط إعادة الربط للمتابعة',
+    sync_write_failed:     'تعذّرت الكتابة في المجلد — الملاحظات محفوظة في المتصفح',
+    sync_unsupported:      'الحفظ في مجلد يتطلب Chrome أو Edge أو Brave على سطح المكتب. استخدم التصدير هنا.',
+    sync_writing_to:       'الكتابة إلى',
+    storage_title:         'التخزين',
+    storage_used:          '{used} من {quota} مستخدَمة',
+    storage_warn:          'مساحة المتصفح للملاحظات على وشك النفاد. صدِّر الآن أو فعِّل الحفظ في مجلد.',
+    storage_critical:      'المساحة شبه ممتلئة — قد لا تبقى الملاحظات الجديدة بعد إعادة التحميل. صدِّر الآن.',
+    storage_explain:       'الملاحظات تُحفظ في متصفحك أنت، لا على الخادم. كل متصفح يحدّد سقفًا لما يخزّنه الموقع.',
+    persist_keep:          'اطلب من المتصفح الاحتفاظ بالملاحظات',
+    persist_granted:       'سيحتفظ المتصفح بملاحظاتك',
+    persist_denied:        'لم يضمن المتصفح الاحتفاظ بها — استخدم الحفظ في مجلد أو صدِّر كثيرًا',
+    persist_on:            'محمية من التنظيف التلقائي',
+    drop_shots:            'توفير مساحة: حذف الصور مع الإبقاء على الملاحظات',
+    screenshots_dropped:   'تم حذف {n} صورة — والملاحظات باقية',
+    filter_all:            'الكل',
+    filter_search:         'ابحث في الملاحظات…',
+    filter_this_page:      'هذه الصفحة',
+    filter_none:           'لا ملاحظات تطابق هذا التصفية.',
+    filter_clear:          'مسح التصفية',
+    simple_mode:           'الوضع المبسّط',
+    full_mode:             'الوضع الكامل',
+    compact_mode:          'صندوق التقاط صغير',
+    expand_card:           'إظهار البطاقة الكاملة',
+    collapse_card:         'تصغير',
+    settings:              'الإعدادات',
+    done:                  'تم',
   },
 };
 

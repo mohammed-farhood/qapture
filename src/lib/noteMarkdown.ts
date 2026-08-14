@@ -12,6 +12,7 @@
 
 import type { QaNote } from '../context/QaContext';
 import type { QaContextEvent } from './contextBuffer';
+import { shotExtension } from './capture';
 
 /** Newlines would break the enclosing Markdown table/bullet structure. */
 function oneLine(s: string | undefined | null): string {
@@ -77,7 +78,9 @@ export function noteToMarkdown(
   }
 
   if (idx != null && note.screenshot) {
-    lines.push(`- **Screenshot:** screenshots/point-${idx}.png`);
+    // Extension follows the blob's real type: v0.4 encodes screenshots as
+    // WebP where the browser supports it (far smaller), PNG otherwise.
+    lines.push(`- **Screenshot:** screenshots/point-${idx}.${shotExtension(note.screenshot)}`);
   }
 
   // — the tester's own words —

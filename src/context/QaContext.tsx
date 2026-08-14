@@ -63,6 +63,41 @@ import { createStorage } from '../lib/storage';
 import { createIdb } from '../lib/idb';
 import { translate, pick as pickFn } from '../lib/strings';
 import { buildAndDownloadZip } from '../lib/exportZip';
+import {
+  getExactCaptureStatus,
+  isExactCaptureSupported,
+  resetExactCaptureDecline,
+  startExactCapture,
+  stopExactCapture,
+  type ExactCaptureStatus,
+} from '../lib/screenCapture';
+import {
+  chooseFsSyncRoot,
+  closeFsCampaign,
+  defaultCampaignName,
+  disconnectFsSync,
+  getFsSyncCampaign,
+  getFsSyncError,
+  getFsSyncPath,
+  getFsSyncState,
+  isFsSyncSupported,
+  onFsSyncChange,
+  openFsCampaign,
+  reconnectFsSync,
+  removeNoteFromDisk,
+  restoreFsSync,
+  syncAllToDisk,
+  syncNoteToDisk,
+  type FsCampaign,
+  type FsSyncState,
+} from '../lib/fsSync';
+import {
+  EMPTY_STORAGE_HEALTH,
+  estimateOwnBytes,
+  readStorageHealth,
+  requestPersistentStorage,
+  type StorageHealth,
+} from '../lib/storageHealth';
 
 // ---------------------------------------------------------------------------
 // Data shapes
@@ -157,6 +192,42 @@ export type QaTestAlongStep = {
 };
 
 // ---------------------------------------------------------------------------
+// v0.4 — note filtering
+// ---------------------------------------------------------------------------
+
+export type QaSeverityFilter = 'all' | 'bug' | 'question' | 'polish';
+export type QaStatusFilter = 'all' | 'open' | 'verified';
+
+export type QaNoteFilter = {
+  severity: QaSeverityFilter;
+  status: QaStatusFilter;
+  /** Free-text match over description, route and selector. */
+  query: string;
+  /** Limit to notes captured on the page the tester is looking at now. */
+  thisPageOnly: boolean;
+};
+
+export type QaNoteCounts = {
+  all: number;
+  bug: number;
+  question: number;
+  polish: number;
+  open: number;
+  verified: number;
+  thisPage: number;
+};
+
+/** Everything the UI needs to describe the folder-sync feature. */
+export type QaSyncInfo = {
+  supported: boolean;
+  state: FsSyncState;
+  /** e.g. "QA/Project X/2026-08-14 smoke" */
+  path: string;
+  campaign: FsCampaign | null;
+  error: string;
+};
+
+// ---------------------------------------------------------------------------
 // Context value shape (CONTRACT for the component agent)
 // ---------------------------------------------------------------------------
 
@@ -246,6 +317,53 @@ export type QaContextValue = {
   gradeStep: (key: string, grade: 'pass' | 'fail') => void;
   evidenceByStep: Map<string, QaNote[]>;
 
+  // ── v0.4: screenshot engine ──────────────────────────────────────────────
+  /** Whether pixel-exact (real screen) capture is possible + its live state. */
+  exactShots: { supported: boolean; status: ExactCaptureStatus };
+  /** Ask for the one-time "share this tab" grant. MUST be called from a click. */
+  enableExactShots: () => Promise<boolean>;
+  /** Release the stream and go back to DOM rendering. */
+  disableExactShots: () => void;
+
+  // ── v0.4: live folder sync ───────────────────────────────────────────────
+  sync: QaSyncInfo;
+  /** Pick the QA folder. MUST be called from a click. */
+  chooseSyncFolder: () => Promise<boolean>;
+  /** Re-grant write access to the remembered folder. MUST be called from a click. */
+  reconnectSyncFolder: () => Promise<boolean>;
+  /** Open (or resume) a project/campaign folder and mirror existing notes into it. */
+  startSyncCampaign: (input: { project: string; campaign: string; tester?: string }) => Promise<boolean>;
+  /** Stop writing to the current campaign. The folder stays on disk. */
+  stopSyncCampaign: () => void;
+  /** Forget the folder entirely. Nothing on disk is deleted. */
+  forgetSyncFolder: () => Promise<void>;
+  /** Suggested campaign name for the setup form. */
+  suggestCampaignName: () => string;
+  /** Last project/campaign used, for prefilling the setup form. */
+  lastCampaign: { project: string; campaign: string; tester: string };
+
+  // ── v0.4: storage health ─────────────────────────────────────────────────
+  /** Origin-wide usage, plus the share Qapture itself is responsible for. */
+  storageHealth: StorageHealth & { ownBytes: number };
+  refreshStorageHealth: () => Promise<void>;
+  /** Ask the browser to stop evicting this origin's data. */
+  requestPersistentStorage: () => Promise<boolean>;
+  /** Recovery: keep every note but drop its screenshot, freeing most of the space. */
+  dropAllScreenshots: () => Promise<void>;
+
+  // ── v0.4: note filtering + view modes ────────────────────────────────────
+  filter: QaNoteFilter;
+  setFilter: (patch: Partial<QaNoteFilter>) => void;
+  /** `notes` after the active filter — what the list should render. */
+  visibleNotes: QaNote[];
+  noteCounts: QaNoteCounts;
+  /** Hide Logins/Guide and the walkthrough — just capture, notes, export. */
+  simpleMode: boolean;
+  setSimpleMode: (on: boolean) => void;
+  /** Capture with a small inline box instead of the full annotation card. */
+  compactCapture: boolean;
+  setCompactCapture: (on: boolean) => void;
+
   // Export
   exportZip: (filename?: string) => Promise<void>;
 };
@@ -291,6 +409,11 @@ const LOGIN_KEY         = 'logins';
 // Durable marker for soft-deletes/clears that are mid-undo-window when the
 // tab closes — see the "Soft-delete" note in the file header comment above.
 const PENDING_DELETE_KEY = 'pendingDeleteIds';
+// v0.4 keys
+const EXACT_SHOTS_KEY   = 'exactShots';      // '1' once the tester opted in
+const SIMPLE_MODE_KEY   = 'simpleMode';
+const COMPACT_KEY       = 'compactCapture';
+const LAST_CAMPAIGN_KEY = 'lastCampaign';    // {project, campaign, tester}
 
 // Notice queue rules (contract §5).
 const NOTICE_QUEUE_CAP     = 3;
@@ -319,6 +442,13 @@ export function QaProvider({
   // ── Notes ────────────────────────────────────────────────────────────────
   const [notes, setNotes] = useState<QaNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(true);
+
+  // A ref mirror of `notes`, because the folder-sync writers need the CURRENT
+  // list from inside async callbacks. Reading `notes` there would capture a
+  // render-old array (and a setNotes updater doesn't run early enough to be
+  // read back synchronously in React 18's batching).
+  const notesRef = useRef<QaNote[]>([]);
+  useEffect(() => { notesRef.current = notes; }, [notes]);
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [isOpen,         setIsOpen]         = useState(false);
@@ -349,6 +479,50 @@ export function QaProvider({
   const [loginsUsed, setLoginsUsed] = useState<Set<string>>(
     () => new Set<string>(storage.getJSON<string[]>(LOGIN_KEY, [])),
   );
+
+  // ── v0.4: screenshot engine ──────────────────────────────────────────────
+  // `exactStatus` is a mirror of screenCapture.ts's module state, bumped
+  // whenever we touch it so React re-renders the toggle.
+  const [exactStatus, setExactStatus] = useState<ExactCaptureStatus>(() => getExactCaptureStatus());
+  const exactSupported = isExactCaptureSupported();
+
+  // ── v0.4: folder sync ────────────────────────────────────────────────────
+  const [syncState, setSyncState] = useState<FsSyncState>(() => getFsSyncState());
+  const [syncTick, setSyncTick] = useState(0); // forces path/campaign re-read
+  const [lastCampaign, setLastCampaign] = useState<{ project: string; campaign: string; tester: string }>(
+    () => {
+      const saved = storage.getJSON<{ project?: string; campaign?: string; tester?: string }>(
+        LAST_CAMPAIGN_KEY, {},
+      );
+      return {
+        project: saved.project ?? '',
+        campaign: saved.campaign ?? '',
+        tester: saved.tester ?? '',
+      };
+    },
+  );
+  // One notice per sync outage, not one per note.
+  const syncErrorAnnounced = useRef(false);
+
+  // ── v0.4: storage health ─────────────────────────────────────────────────
+  const [storageStats, setStorageStats] = useState<StorageHealth>(EMPTY_STORAGE_HEALTH);
+  // So the "storage is filling up" warning fires once per session, not on
+  // every recalculation.
+  const storageWarned = useRef(false);
+
+  // ── v0.4: view modes + filtering ─────────────────────────────────────────
+  const [simpleMode, setSimpleModeState] = useState<boolean>(
+    () => storage.getItem(SIMPLE_MODE_KEY) === '1',
+  );
+  const [compactCapture, setCompactCaptureState] = useState<boolean>(
+    () => storage.getItem(COMPACT_KEY) === '1',
+  );
+  const [filter, setFilterState] = useState<QaNoteFilter>({
+    severity: 'all',
+    status: 'all',
+    query: '',
+    thisPageOnly: false,
+  });
 
   // ── Notices ──────────────────────────────────────────────────────────────
   const [notices, setNotices] = useState<QaNotice[]>([]);
@@ -511,6 +685,66 @@ export function QaProvider({
     return id;
   }, []);
 
+  // ── v0.4: folder sync plumbing (declared early — addNote/updateNote below
+  // write through it) ──────────────────────────────────────────────────────
+
+  // Mirror fsSync's module state into React.
+  useEffect(() => {
+    const sync = () => {
+      setSyncState(getFsSyncState());
+      setSyncTick((n) => n + 1);
+    };
+    sync();
+    return onFsSyncChange(sync);
+  }, []);
+
+  // Re-attach to a previously chosen folder, and resume the last campaign if
+  // the browser still trusts us with it. This is what makes "close the laptop,
+  // come back tomorrow" keep writing to the same campaign folder instead of
+  // silently going back to browser-only storage.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const restored = await restoreFsSync(idb);
+      if (!alive || restored !== 'connected') return;
+      const saved = storage.getJSON<{ project?: string; campaign?: string; tester?: string }>(
+        LAST_CAMPAIGN_KEY, {},
+      );
+      if (!saved.project || !saved.campaign) return;
+      await openFsCampaign({
+        project: saved.project,
+        campaign: saved.campaign,
+        tester: saved.tester,
+      });
+    })();
+    return () => { alive = false; };
+  }, [idb, storage]);
+
+  /**
+   * Write one note through to disk when a campaign is open.
+   *
+   * Failures are surfaced ONCE per outage (a broken permission would
+   * otherwise fire a toast on every keystroke-triggered save) and never block
+   * the note itself — IndexedDB has already accepted it by the time we get
+   * here.
+   */
+  const syncNoteThrough = useCallback(async (note: QaNote): Promise<void> => {
+    if (getFsSyncState() !== 'syncing') return;
+    const ok = await syncNoteToDisk(note, notesRef.current);
+    if (ok) {
+      syncErrorAnnounced.current = false;
+      return;
+    }
+    if (!syncErrorAnnounced.current) {
+      syncErrorAnnounced.current = true;
+      const reason = getFsSyncError();
+      notify(
+        reason === 'permission' ? t('sync_lost_permission') : t('sync_write_failed'),
+        { tone: 'error', id: 'sync-failed' },
+      );
+    }
+  }, [notify, t]);
+
   // ── Actions — test-along (declared early: addNote's journeyRef resolution
   // needs `testAlong` + `testAlongSteps`) ──────────────────────────────────
 
@@ -655,12 +889,24 @@ export function QaProvider({
       };
 
       setNotes((prev) => [note, ...prev]);
+      notesRef.current = [note, ...notesRef.current];
       const persisted = await idb.put(note);
       if (!persisted) {
-        notify(t('persist_failed'), { tone: 'error', id: 'persist_failed' });
+        // v0.4: say what actually happened and give a way out, instead of a
+        // dead-end "storage full". See storageHealth.ts for what the browser
+        // is really complaining about.
+        notify(t('persist_failed'), {
+          tone: 'error',
+          id: 'persist_failed',
+          duration: 10000,
+          action: { label: t('export'), onAction: () => { void exportZipRef.current(); } },
+        });
       }
+      // Disk copy (when a campaign folder is open) — the note survives even
+      // if this browser's storage is full or gets cleared.
+      await syncNoteThrough(note);
     },
-    [idb, config.journey, config.captureContext, testAlong, testAlongSteps, notify, t],
+    [idb, config.journey, config.captureContext, testAlong, testAlongSteps, notify, t, syncNoteThrough],
   );
 
   const updateNote = useCallback(
@@ -697,9 +943,10 @@ export function QaProvider({
         if (!persisted) {
           notify(t('persist_failed'), { tone: 'error', id: 'persist_failed' });
         }
+        await syncNoteThrough(updated);
       }
     },
-    [idb, notify, t],
+    [idb, notify, t, syncNoteThrough],
   );
 
   /**
@@ -740,6 +987,10 @@ export function QaProvider({
     const timer = setTimeout(() => {
       pendingDeletes.current.delete(id);
       void idb.delete(id).then(() => removePendingDeleteIds([id]));
+      // Mirror the delete to disk only once the undo window has really
+      // elapsed — deleting the file up front and re-writing it on Undo would
+      // churn the folder and briefly lose the tester's only durable copy.
+      if (getFsSyncState() === 'syncing') void removeNoteFromDisk(id, notesRef.current);
     }, SOFT_DELETE_MS);
     pendingDeletes.current.set(id, { note: noteToRestore, afterId: afterIdToRestore, timer });
 
@@ -813,6 +1064,11 @@ export function QaProvider({
       void Promise.all(snapshot.map((n) => idb.delete(n.id))).then(() =>
         removePendingDeleteIds(snapshotIds),
       );
+      if (getFsSyncState() === 'syncing') {
+        void (async () => {
+          for (const n of snapshot) await removeNoteFromDisk(n.id, notesRef.current);
+        })();
+      }
     }, SOFT_DELETE_MS);
     pendingClear.current = { notes: snapshot, timer };
 
@@ -873,6 +1129,9 @@ export function QaProvider({
       // timers so they never fire a setState after unmount.
       for (const timer of noticeTimers.current.values()) clearTimeout(timer);
       noticeTimers.current.clear();
+      // Release the tab-capture stream so the browser's "sharing" indicator
+      // doesn't outlive the widget.
+      stopExactCapture();
     };
   }, [flushPendingDeletes]);
 
@@ -881,7 +1140,19 @@ export function QaProvider({
   const startCapture = useCallback(() => {
     setIsOpen(false);
     setCaptureActive(true);
-  }, []);
+    // Re-acquire the tab stream for a tester who already opted into exact
+    // screenshots. This runs inside the click that started capture, which is
+    // the transient activation getDisplayMedia requires — asking later, when
+    // the selection is made, would be rejected.
+    if (
+      storage.getItem(EXACT_SHOTS_KEY) === '1' &&
+      isExactCaptureSupported() &&
+      getExactCaptureStatus() !== 'live'
+    ) {
+      resetExactCaptureDecline();
+      void startExactCapture().then(() => setExactStatus(getExactCaptureStatus()));
+    }
+  }, [storage]);
 
   const endCapture = useCallback((reopen = true) => {
     setCaptureActive(false);
@@ -932,6 +1203,195 @@ export function QaProvider({
     },
     [notes, isExporting, config, guideChecked],
   );
+
+  // Late-bound so addNote's "storage full → Export" toast can call the export
+  // that is only defined above it.
+  const exportZipRef = useRef<(filename?: string) => Promise<void>>(async () => {});
+  useEffect(() => { exportZipRef.current = exportZipFn; }, [exportZipFn]);
+
+  // ── v0.4: screenshot engine actions ──────────────────────────────────────
+
+  const enableExactShots = useCallback(async (): Promise<boolean> => {
+    resetExactCaptureDecline();
+    const ok = await startExactCapture();
+    setExactStatus(getExactCaptureStatus());
+    storage.setItem(EXACT_SHOTS_KEY, ok ? '1' : '0');
+    notify(ok ? t('exact_on') : t('exact_declined'), { tone: ok ? 'success' : 'info', id: 'exact-shots' });
+    return ok;
+  }, [storage, notify, t]);
+
+  const disableExactShots = useCallback(() => {
+    stopExactCapture();
+    storage.setItem(EXACT_SHOTS_KEY, '0');
+    setExactStatus(getExactCaptureStatus());
+  }, [storage]);
+
+  // ── v0.4: folder sync actions ────────────────────────────────────────────
+
+  const rememberCampaign = useCallback((next: { project: string; campaign: string; tester: string }) => {
+    setLastCampaign(next);
+    storage.setJSON(LAST_CAMPAIGN_KEY, next);
+  }, [storage]);
+
+  const chooseSyncFolder = useCallback(async (): Promise<boolean> => {
+    const ok = await chooseFsSyncRoot(idb);
+    if (!ok && getFsSyncState() === 'error') {
+      notify(t('sync_write_failed'), { tone: 'error', id: 'sync-failed' });
+    }
+    return ok;
+  }, [idb, notify, t]);
+
+  const reconnectSyncFolder = useCallback(async (): Promise<boolean> => {
+    const ok = await reconnectFsSync();
+    if (ok) {
+      syncErrorAnnounced.current = false;
+      const saved = lastCampaign;
+      if (saved.project && saved.campaign) {
+        await openFsCampaign({ project: saved.project, campaign: saved.campaign, tester: saved.tester });
+      }
+    }
+    return ok;
+  }, [lastCampaign]);
+
+  const startSyncCampaign = useCallback(
+    async (input: { project: string; campaign: string; tester?: string }): Promise<boolean> => {
+      const opened = await openFsCampaign(input);
+      if (!opened) {
+        notify(
+          getFsSyncState() === 'needs-permission' ? t('sync_lost_permission') : t('sync_write_failed'),
+          { tone: 'error', id: 'sync-failed' },
+        );
+        return false;
+      }
+      rememberCampaign({
+        project: input.project,
+        campaign: input.campaign,
+        tester: input.tester ?? '',
+      });
+      syncErrorAnnounced.current = false;
+      // Mirror whatever is already in the browser so the folder is complete,
+      // not just "everything from now on".
+      const mirrored = await syncAllToDisk(notesRef.current);
+      notify(mirrored ? t('sync_on', { path: getFsSyncPath() }) : t('sync_write_failed'), {
+        tone: mirrored ? 'success' : 'error',
+        id: 'sync-state',
+      });
+      return mirrored;
+    },
+    [notify, t, rememberCampaign],
+  );
+
+  const stopSyncCampaign = useCallback(() => {
+    closeFsCampaign();
+    notify(t('sync_paused'), { id: 'sync-state' });
+  }, [notify, t]);
+
+  const forgetSyncFolder = useCallback(async (): Promise<void> => {
+    await disconnectFsSync(idb);
+    storage.setJSON(LAST_CAMPAIGN_KEY, {});
+    setLastCampaign({ project: '', campaign: '', tester: '' });
+  }, [idb, storage]);
+
+  const suggestCampaignName = useCallback(() => defaultCampaignName(), []);
+
+  // ── v0.4: storage health ─────────────────────────────────────────────────
+
+  const refreshStorageHealth = useCallback(async (): Promise<void> => {
+    const health = await readStorageHealth();
+    setStorageStats(health);
+    if (health.level !== 'ok' && !storageWarned.current) {
+      storageWarned.current = true;
+      notify(t(health.level === 'critical' ? 'storage_critical' : 'storage_warn'), {
+        tone: health.level === 'critical' ? 'error' : 'info',
+        id: 'storage-health',
+        duration: 8000,
+        action: { label: t('export'), onAction: () => { void exportZipRef.current(); } },
+      });
+    }
+  }, [notify, t]);
+
+  // Recheck on mount and whenever the note count changes — cheap, and it's the
+  // only moment the number could have moved.
+  useEffect(() => {
+    void refreshStorageHealth();
+  }, [refreshStorageHealth, notes.length]);
+
+  const requestPersist = useCallback(async (): Promise<boolean> => {
+    const ok = await requestPersistentStorage();
+    await refreshStorageHealth();
+    notify(ok ? t('persist_granted') : t('persist_denied'), {
+      tone: ok ? 'success' : 'info',
+      id: 'persist-request',
+    });
+    return ok;
+  }, [notify, t, refreshStorageHealth]);
+
+  /**
+   * Recovery valve for a tester who is out of space mid-session: keep every
+   * note, drop every screenshot. Screenshots are ~99% of the footprint, so
+   * this reliably buys room without losing a single finding — and when folder
+   * sync is on, the images are already safe on disk.
+   */
+  const dropAllScreenshots = useCallback(async (): Promise<void> => {
+    const stripped = notesRef.current
+      .filter((n) => n.screenshot)
+      .map((n) => ({ ...n, screenshot: undefined }));
+    if (!stripped.length) return;
+    setNotes((prev) => prev.map((n) => (n.screenshot ? { ...n, screenshot: undefined } : n)));
+    notesRef.current = notesRef.current.map((n) => (n.screenshot ? { ...n, screenshot: undefined } : n));
+    for (const note of stripped) await idb.put(note);
+    await refreshStorageHealth();
+    notify(t('screenshots_dropped', { n: stripped.length }), { id: 'drop-shots' });
+  }, [idb, notify, t, refreshStorageHealth]);
+
+  // ── v0.4: view modes + filtering ─────────────────────────────────────────
+
+  const setSimpleMode = useCallback((on: boolean) => {
+    setSimpleModeState(on);
+    storage.setItem(SIMPLE_MODE_KEY, on ? '1' : '0');
+    // Simple mode hides the Logins/Guide tabs — don't strand the tester on a
+    // tab that no longer exists.
+    if (on) setActiveTab('notes');
+  }, [storage]);
+
+  const setCompactCapture = useCallback((on: boolean) => {
+    setCompactCaptureState(on);
+    storage.setItem(COMPACT_KEY, on ? '1' : '0');
+  }, [storage]);
+
+  const setFilter = useCallback((patch: Partial<QaNoteFilter>) => {
+    setFilterState((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const currentRoute = safeLocation().pathname;
+
+  const noteCounts = useMemo<QaNoteCounts>(() => {
+    const counts: QaNoteCounts = {
+      all: notes.length, bug: 0, question: 0, polish: 0, open: 0, verified: 0, thisPage: 0,
+    };
+    for (const n of notes) {
+      const sev = n.severity ?? 'bug';
+      if (sev === 'bug') counts.bug++;
+      else if (sev === 'question') counts.question++;
+      else counts.polish++;
+      if ((n.status ?? 'open') === 'verified') counts.verified++;
+      else counts.open++;
+      if (n.route.split('?')[0] === currentRoute) counts.thisPage++;
+    }
+    return counts;
+  }, [notes, currentRoute]);
+
+  const visibleNotes = useMemo<QaNote[]>(() => {
+    const q = filter.query.trim().toLowerCase();
+    return notes.filter((n) => {
+      if (filter.severity !== 'all' && (n.severity ?? 'bug') !== filter.severity) return false;
+      if (filter.status !== 'all' && (n.status ?? 'open') !== filter.status) return false;
+      if (filter.thisPageOnly && n.route.split('?')[0] !== currentRoute) return false;
+      if (!q) return true;
+      const haystack = `${n.description} ${n.route} ${n.target?.selector ?? ''} ${n.target?.text ?? ''}`;
+      return haystack.toLowerCase().includes(q);
+    });
+  }, [notes, filter, currentRoute]);
 
   // ── Context value ─────────────────────────────────────────────────────────
 
@@ -991,6 +1451,45 @@ export function QaProvider({
     gotoStep,
     gradeStep,
     evidenceByStep,
+
+    // v0.4 — screenshots
+    exactShots: { supported: exactSupported, status: exactStatus },
+    enableExactShots,
+    disableExactShots,
+
+    // v0.4 — folder sync. syncTick is read here purely so this object is
+    // rebuilt when fsSync's module state changes (path/campaign live outside
+    // React).
+    sync: {
+      supported: isFsSyncSupported(),
+      state: syncState,
+      path: syncTick >= 0 ? getFsSyncPath() : '',
+      campaign: getFsSyncCampaign(),
+      error: getFsSyncError(),
+    },
+    chooseSyncFolder,
+    reconnectSyncFolder,
+    startSyncCampaign,
+    stopSyncCampaign,
+    forgetSyncFolder,
+    suggestCampaignName,
+    lastCampaign,
+
+    // v0.4 — storage
+    storageHealth: { ...storageStats, ownBytes: estimateOwnBytes(notes) },
+    refreshStorageHealth,
+    requestPersistentStorage: requestPersist,
+    dropAllScreenshots,
+
+    // v0.4 — filtering + view modes
+    filter,
+    setFilter,
+    visibleNotes,
+    noteCounts,
+    simpleMode,
+    setSimpleMode,
+    compactCapture,
+    setCompactCapture,
 
     exportZip: exportZipFn,
   };

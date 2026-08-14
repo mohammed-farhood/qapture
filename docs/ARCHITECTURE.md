@@ -102,6 +102,18 @@ When IndexedDB is unavailable (SSR, jsdom environment, blocked origins), `create
 
 Both storage layers are namespaced so multiple qapture instances on the same origin (with different `namespace` values) do not interfere with each other.
 
+### A third layer: the tester's disk (v0.4)
+
+`src/lib/fsSync.ts` adds an optional layer *outside* the browser entirely. When a tester grants a directory handle (File System Access API, Chromium desktop only), every saved note is also written to `<folder>/<Project>/<Campaign>/` as Markdown plus its image, alongside a `campaign.json` index and a live-rewritten `REPORT.md`.
+
+Three details make it durable rather than decorative:
+
+- The **directory handle lives in the IndexedDB `meta` store**, not localStorage — a `FileSystemDirectoryHandle` is a structured-cloneable object, not a string. `idb.ts` gained `getMeta`/`setMeta`/`deleteMeta` for this; the `meta` store itself already existed in the v2 schema, so there is no migration.
+- **Write permission is expected to lapse** between sessions (browsers deliberately drop it). The restore path therefore never prompts: it reports `needs-permission` and the UI offers a one-click Reconnect.
+- **The note→file index lives in `campaign.json`**, so re-opening a campaign after a reload continues the same numbering and rewrites files in place instead of accumulating duplicates.
+
+Failures never block a note: IndexedDB has already accepted it before the disk write is attempted, and a sync outage surfaces once rather than per-save.
+
 ---
 
 ## Build
@@ -199,6 +211,11 @@ src/
 │   │                           journey step matching the current route (`:param`-aware)
 │   ├── noteMarkdown.ts         (new) noteToMarkdown() — renders one note as agent-ready
 │   │                           Markdown; shared by exportZip.ts and "Copy as agent prompt"
+│   ├── screenCapture.ts        (v0.4) pixel-exact engine — getDisplayMedia(preferCurrentTab)
+│   │                           session stream, frame grab, viewport→frame crop mapping
+│   ├── fsSync.ts               (v0.4) File System Access folder sync — project/campaign
+│   │                           tree, per-note md+image writes, campaign.json index, REPORT.md
+│   ├── storageHealth.ts        (v0.4) navigator.storage estimate/persist + byte formatting
 │   ├── selector.ts             CSS selector generation from DOM elements
 │   ├── storage.ts              createStorage(namespace) — namespaced localStorage
 │   │                           wrapper; in-memory Map fallback
@@ -208,7 +225,9 @@ src/
 │
 ├── icons/
 │   └── Icon.tsx                Lucide-derived SVG icon set (ISC license); includes
-│                               Bug, AlertTriangle, RotateCcw, ChevronLeft, ChevronRight, Play
+│                               Bug, AlertTriangle, RotateCcw, ChevronLeft, ChevronRight, Play,
+│                               Search, Folder, FolderCheck, Settings, HardDrive, Camera,
+│                               Minimize2, Maximize2, Send
 │
 └── bin/
     ├── init.ts                 CLI entry: argument parsing, orchestration, printSummary
