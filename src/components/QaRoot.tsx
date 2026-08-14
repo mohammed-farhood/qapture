@@ -137,7 +137,7 @@ function CaptureGate() {
 // ---------------------------------------------------------------------------
 
 function QaRootInner({ config }: { config: ResolvedConfig }) {
-  const { isOpen, setIsOpen, testAlong } = useQa();
+  const { isOpen, setIsOpen, testAlong, startCapture, endCapture, captureActive } = useQa();
 
   const shouldShowInitially =
     config.alwaysVisible === true ||
@@ -180,6 +180,39 @@ function QaRootInner({ config }: { config: ResolvedConfig }) {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [config.hotkey, widgetShown, isOpen, setIsOpen]);
+
+  // ── Capture hotkey (v0.5) ────────────────────────────────────────────────
+  // Spotting a bug and then hunting for the FAB is three actions before you
+  // can point at the thing; a tester does that dozens of times a session.
+  // This drops straight into capture mode from wherever the cursor is, and
+  // pressing it again backs out.
+  //
+  // A keydown carries transient activation, so this also satisfies the user
+  // gesture that getDisplayMedia needs for pixel-exact capture — the same
+  // reason startCapture() re-acquires the tab stream on a click.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const hk = parseHotkey(config.captureHotkey);
+    if (!hk) return;
+
+    const handler = (e: KeyboardEvent) => {
+      if (
+        e.key.toLowerCase() === hk.key &&
+        !!e.shiftKey === hk.shift &&
+        !!e.altKey   === hk.alt   &&
+        !!e.ctrlKey  === hk.ctrl  &&
+        !!e.metaKey  === hk.meta
+      ) {
+        e.preventDefault();
+        if (captureActive) { endCapture(false); return; }
+        setWidgetShown(true); // capturing while hidden would have nowhere to land
+        startCapture();
+      }
+    };
+
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [config.captureHotkey, captureActive, startCapture, endCapture]);
 
   if (!widgetShown) return null;
 

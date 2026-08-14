@@ -145,6 +145,21 @@ type LangMap = {
   collapse_card: string;
   settings: string;
   done: string;
+  // — v0.5 "Loop" —
+  status_fixed: string;
+  retest_queue: string;
+  autosave_label: string;
+  autosave_hint: string;
+  autosave_done: string;
+  steps_recorded: string;
+  draw_label: string;
+  draw_hint: string;
+  draw_pen: string;
+  draw_arrow: string;
+  draw_box: string;
+  draw_undo: string;
+  draw_clear: string;
+  capture_shortcut: string;
 };
 
 export type StrKey = keyof LangMap;
@@ -279,6 +294,20 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     collapse_card:         'Shrink',
     settings:              'Settings',
     done:                  'Done',
+    status_fixed:          'Re-test',
+    retest_queue:          '{n} waiting to be re-tested',
+    autosave_label:        'Auto-save a backup',
+    autosave_hint:         'Downloads a backup every {n} notes, so a closed tab costs you nothing. Pauses on its own while folder saving is running.',
+    autosave_done:         'Backup saved ({n} notes)',
+    steps_recorded:        '{n} steps recorded',
+    draw_label:            'Draw on it',
+    draw_hint:             'Drag to mark the screenshot',
+    draw_pen:              'Pen',
+    draw_arrow:            'Arrow',
+    draw_box:              'Box',
+    draw_undo:             'Undo',
+    draw_clear:            'Clear',
+    capture_shortcut:      'Shortcut: {keys}',
   },
   ar: {
     tab_notes:             'الملاحظات',
@@ -409,6 +438,20 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     collapse_card:         'تصغير',
     settings:              'الإعدادات',
     done:                  'تم',
+    status_fixed:          'إعادة اختبار',
+    retest_queue:          '{n} بانتظار إعادة الاختبار',
+    autosave_label:        'حفظ نسخة احتياطية تلقائيًا',
+    autosave_hint:         'ينزّل نسخة احتياطية كل {n} ملاحظات، فلا يكلّفك إغلاق التبويب شيئًا. يتوقف تلقائيًا أثناء الحفظ في مجلد.',
+    autosave_done:         'تم حفظ نسخة احتياطية ({n} ملاحظة)',
+    steps_recorded:        'تم تسجيل {n} خطوة',
+    draw_label:            'ارسم عليها',
+    draw_hint:             'اسحب للتعليم على الصورة',
+    draw_pen:              'قلم',
+    draw_arrow:            'سهم',
+    draw_box:              'مربع',
+    draw_undo:             'تراجع',
+    draw_clear:            'مسح',
+    capture_shortcut:      'الاختصار: {keys}',
   },
 };
 

@@ -36,7 +36,9 @@ This project uses **Qapture** — an in-browser QA capture widget that ships
      (priority: `#id` → `[data-testid]` → `aria-label` → `name` → visual match
      via the screenshot named in the point's **Screenshot** line —
      `screenshots/point-N.webp`, or `.png` on browsers without WebP).
-   - **Severity** (`bug`/`question`/`polish`) and **Status** (`open`/`verified`)
+   - **Severity** (`bug`/`question`/`polish`) and **Status**
+     (`open`/`fixed`/`verified` — `fixed` means someone says it is done but
+     nobody has re-tested it yet)
      tell you how to treat the point — a `question` may not need a code
      change; a `verified` point was already re-checked once.
    - **Runtime context** (when present, in a collapsed `<details>` block) —

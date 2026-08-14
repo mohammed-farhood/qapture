@@ -60,10 +60,44 @@ export type QaTargetForensics = {
   };
 };
 
+/**
+ * One thing the tester did. v0.5 "Loop".
+ *
+ * A bug report without steps to reproduce is a riddle. Testers rarely write
+ * them (they were busy testing), and by the time anyone asks, the sequence is
+ * gone. This records it automatically: the handful of interactions leading up
+ * to each note, in order, with timings.
+ *
+ * PRIVACY — this is the strictest part of the module, because unlike console
+ * output, interactions happen ON the data:
+ *  - What was TYPED is never recorded. An edit records only *that* a field
+ *    was typed into, identified by its visible label.
+ *  - A `<select>`'s chosen option is not recorded either — an option's text is
+ *    routinely a customer name or an address.
+ *  - Checkboxes and radios record on/off, which is UI state, not content.
+ *  - Only non-character keys (Enter, Escape, Tab, arrows) are recorded, so a
+ *    keystroke trail can never reconstruct typed text.
+ *  - Anything inside a password field records as the bare fact of an edit.
+ * The same query-string redaction used for URLs applies to navigation.
+ */
+export type QaStep = {
+  t: number;
+  kind: 'click' | 'type' | 'toggle' | 'select' | 'submit' | 'key' | 'nav';
+  /** What the tester would call it — the element's visible/accessible name. */
+  label: string;
+  selector?: string;
+  /** Non-content extras: 'on'/'off' for a toggle, the key name for a key. */
+  detail?: string;
+  /** Consecutive identical steps collapse into one with a count. */
+  repeat?: number;
+};
+
 export type QaNoteContext = {
   events: QaContextEvent[];
   env: QaEnvSnapshot;
   forensics?: QaTargetForensics;
+  /** The last few things the tester did before this note. See QaStep. */
+  steps?: QaStep[];
 };
 
 // ---------------------------------------------------------------------------
@@ -76,7 +110,21 @@ const MAX_MESSAGE_CHARS = 600;
 /** Cap on captured outerHTML. */
 const MAX_HTML_CHARS = 600;
 
+/**
+ * How many interaction steps to keep. Deliberately much smaller than the
+ * event ring: "the last dozen things I did" is a reproduction recipe, while
+ * a hundred would just be a diary nobody reads.
+ */
+const STEP_CAP = 25;
+/** How many are attached to a note by default. */
+const STEPS_PER_NOTE = 12;
+/** Two identical interactions closer than this collapse into one step. */
+const STEP_MERGE_MS = 4000;
+/** Cap on a step's label. */
+const MAX_LABEL_CHARS = 60;
+
 let ring: QaContextEvent[] = [];
+let steps: QaStep[] = [];
 let installed = false;
 /**
  * Nested-mount reference count. React StrictMode's dev-mode double-invoke
@@ -107,6 +155,15 @@ type Original = {
   xhrSend?: typeof XMLHttpRequest.prototype.send;
   onError?: (e: ErrorEvent) => void;
   onRejection?: (e: PromiseRejectionEvent) => void;
+  // v0.5 step recorder
+  onClick?: (e: Event) => void;
+  onInput?: (e: Event) => void;
+  onChange?: (e: Event) => void;
+  onSubmit?: (e: Event) => void;
+  onKeyDown?: (e: KeyboardEvent) => void;
+  onPopState?: () => void;
+  pushState?: typeof history.pushState;
+  replaceState?: typeof history.replaceState;
 };
 const original: Original = {};
 
@@ -159,6 +216,220 @@ export function redactUrl(raw: string): string {
     const cut = s.split(/[?#]/)[0];
     return s.length > cut.length ? `${cut}?…` : cut;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Step recorder (v0.5) — see QaStep for the privacy rules this enforces
+// ---------------------------------------------------------------------------
+
+/** Trim, collapse whitespace, and cap — labels go into a one-line list. */
+function label(raw: string | null | undefined): string {
+  const s = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  return s.length > MAX_LABEL_CHARS ? `${s.slice(0, MAX_LABEL_CHARS)}…` : s;
+}
+
+/**
+ * What a human would call this element.
+ *
+ * Order matters: an explicit accessible name beats visible text, which beats
+ * a placeholder, which beats a machine name. NEVER falls back to the
+ * element's `value` — that is the content the tester typed.
+ */
+function nameFor(el: Element): string {
+  const html = el as HTMLElement;
+  const aria = label(html.getAttribute?.('aria-label'));
+  if (aria) return aria;
+
+  const labelledBy = html.getAttribute?.('aria-labelledby');
+  if (labelledBy) {
+    const owner = document.getElementById(labelledBy.split(/\s+/)[0]);
+    const text = label(owner?.textContent);
+    if (text) return text;
+  }
+
+  // A form control's own <label>, by wrapping or by `for=`.
+  const id = html.getAttribute?.('id');
+  if (id) {
+    try {
+      const explicit = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+      const text = label(explicit?.textContent);
+      if (text) return text;
+    } catch { /* exotic id — fall through */ }
+  }
+  const wrapping = html.closest?.('label');
+  if (wrapping) {
+    const text = label(wrapping.textContent);
+    if (text) return text;
+  }
+
+  const alt = label(html.getAttribute?.('alt'));
+  if (alt) return alt;
+  const title = label(html.getAttribute?.('title'));
+  if (title) return title;
+
+  // Visible text, but only for elements small enough that their text IS
+  // their name — otherwise clicking a page section would dump a paragraph.
+  const text = label(html.innerText ?? html.textContent);
+  if (text && text.length <= MAX_LABEL_CHARS) return text;
+
+  const placeholder = label(html.getAttribute?.('placeholder'));
+  if (placeholder) return placeholder;
+  const name = label(html.getAttribute?.('name'));
+  if (name) return name;
+
+  return el.tagName ? el.tagName.toLowerCase() : 'element';
+}
+
+/** Our own UI must never appear in the tester's steps. */
+function isOurs(target: EventTarget | null): boolean {
+  const el = target as Element | null;
+  if (!el || typeof (el as Element).closest !== 'function') return false;
+  return !!el.closest('[data-qa-overlay]');
+}
+
+function pushStep(step: QaStep): void {
+  const previous = steps[steps.length - 1];
+  // Collapse a repeat of the same interaction (typing into one field fires an
+  // `input` event per keystroke; twenty of those is noise, "typed in Email"
+  // is the step).
+  if (
+    previous &&
+    previous.kind === step.kind &&
+    previous.label === step.label &&
+    previous.detail === step.detail &&
+    step.t - previous.t < STEP_MERGE_MS
+  ) {
+    previous.t = step.t;
+    previous.repeat = (previous.repeat ?? 1) + 1;
+    return;
+  }
+  steps.push(step);
+  if (steps.length > STEP_CAP) steps = steps.slice(steps.length - STEP_CAP);
+}
+
+/**
+ * The closest thing to "what the tester meant to click".
+ *
+ * A click usually lands on an inner <span> or <svg>; the interactive ancestor
+ * is what they would name. Falls back to the raw target.
+ */
+function interactiveAncestor(el: Element): Element {
+  const INTERACTIVE = 'button, a[href], input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"], label';
+  return (el.closest?.(INTERACTIVE) as Element | null) ?? el;
+}
+
+function installStepRecorder(): void {
+  original.onClick = (e: Event) => {
+    const target = e.target as Element | null;
+    if (!target || isOurs(target)) return;
+    const el = interactiveAncestor(target);
+    pushStep({ t: now(), kind: 'click', label: nameFor(el), selector: el.tagName?.toLowerCase() });
+  };
+
+  original.onInput = (e: Event) => {
+    const el = e.target as HTMLInputElement | null;
+    if (!el || isOurs(el)) return;
+    const tag = el.tagName?.toLowerCase();
+    if (tag !== 'input' && tag !== 'textarea' && !el.isContentEditable) return;
+    // NOTE: the event's value is deliberately never read — see QaStep.
+    const isPassword = (el.type || '').toLowerCase() === 'password';
+    pushStep({
+      t: now(),
+      kind: 'type',
+      label: isPassword ? 'password field' : nameFor(el),
+      selector: tag,
+    });
+  };
+
+  original.onChange = (e: Event) => {
+    const el = e.target as HTMLInputElement | HTMLSelectElement | null;
+    if (!el || isOurs(el)) return;
+    const tag = el.tagName?.toLowerCase();
+    const type = ((el as HTMLInputElement).type || '').toLowerCase();
+    if (tag === 'select') {
+      // The chosen option's TEXT is not recorded — it is content.
+      pushStep({ t: now(), kind: 'select', label: nameFor(el), selector: tag });
+      return;
+    }
+    if (type === 'checkbox' || type === 'radio') {
+      pushStep({
+        t: now(),
+        kind: 'toggle',
+        label: nameFor(el),
+        detail: (el as HTMLInputElement).checked ? 'on' : 'off',
+        selector: tag,
+      });
+    }
+  };
+
+  original.onSubmit = (e: Event) => {
+    const el = e.target as Element | null;
+    if (!el || isOurs(el)) return;
+    pushStep({ t: now(), kind: 'submit', label: nameFor(el), selector: 'form' });
+  };
+
+  // Only non-character keys: a character-key trail would reconstruct typing.
+  const NOTABLE_KEYS = new Set([
+    'Enter', 'Escape', 'Tab', 'Backspace', 'Delete',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown',
+  ]);
+  original.onKeyDown = (e: KeyboardEvent) => {
+    if (!NOTABLE_KEYS.has(e.key)) return;
+    if (isOurs(e.target)) return;
+    const target = e.target as Element | null;
+    pushStep({
+      t: now(),
+      kind: 'key',
+      label: target && target !== document.body ? nameFor(interactiveAncestor(target)) : 'page',
+      detail: e.key,
+    });
+  };
+
+  const recordNav = () => {
+    if (typeof location === 'undefined') return;
+    pushStep({ t: now(), kind: 'nav', label: redactUrl(location.pathname + location.search) });
+  };
+  original.onPopState = recordNav;
+
+  document.addEventListener('click', original.onClick, true);
+  document.addEventListener('input', original.onInput, true);
+  document.addEventListener('change', original.onChange, true);
+  document.addEventListener('submit', original.onSubmit, true);
+  document.addEventListener('keydown', original.onKeyDown as EventListener, true);
+  window.addEventListener('popstate', original.onPopState);
+  window.addEventListener('hashchange', original.onPopState);
+
+  // Single-page apps navigate without firing popstate, so wrap the history
+  // methods the router actually calls.
+  if (typeof history !== 'undefined') {
+    original.pushState = history.pushState.bind(history);
+    original.replaceState = history.replaceState.bind(history);
+    history.pushState = function (this: History, ...args: Parameters<History['pushState']>) {
+      const result = original.pushState!.apply(this, args);
+      recordNav();
+      return result;
+    };
+    history.replaceState = function (this: History, ...args: Parameters<History['replaceState']>) {
+      const result = original.replaceState!.apply(this, args);
+      recordNav();
+      return result;
+    };
+  }
+}
+
+function uninstallStepRecorder(): void {
+  if (original.onClick) document.removeEventListener('click', original.onClick, true);
+  if (original.onInput) document.removeEventListener('input', original.onInput, true);
+  if (original.onChange) document.removeEventListener('change', original.onChange, true);
+  if (original.onSubmit) document.removeEventListener('submit', original.onSubmit, true);
+  if (original.onKeyDown) document.removeEventListener('keydown', original.onKeyDown as EventListener, true);
+  if (original.onPopState) {
+    window.removeEventListener('popstate', original.onPopState);
+    window.removeEventListener('hashchange', original.onPopState);
+  }
+  if (original.pushState) history.pushState = original.pushState;
+  if (original.replaceState) history.replaceState = original.replaceState;
+  steps = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -229,6 +500,9 @@ export function installContextCapture(): void {
     };
   }
 
+  // — interaction steps (v0.5) —
+  installStepRecorder();
+
   // — XMLHttpRequest —
   if (typeof XMLHttpRequest !== 'undefined') {
     original.xhrOpen = XMLHttpRequest.prototype.open;
@@ -286,6 +560,8 @@ export function uninstallContextCapture(): void {
     window.removeEventListener('unhandledrejection', original.onRejection as EventListener);
   }
 
+  uninstallStepRecorder();
+
   ring = [];
   drainedUpTo = 0;
 }
@@ -303,6 +579,18 @@ export function drainSinceLastNote(): QaContextEvent[] {
   const slice = ring.slice(drainedUpTo);
   drainedUpTo = ring.length;
   return slice;
+}
+
+/**
+ * The last few things the tester did, oldest first.
+ *
+ * Unlike drainSinceLastNote(), this does NOT consume: filing two notes in a
+ * row should give both of them the run-up, since the second note is usually
+ * about the same sequence.
+ */
+export function readRecentSteps(limit = STEPS_PER_NOTE): QaStep[] {
+  if (!installed) return [];
+  return steps.slice(Math.max(0, steps.length - limit)).map((s) => ({ ...s }));
 }
 
 /** Environment facts that turn "works on my machine" into a reproducible report. */

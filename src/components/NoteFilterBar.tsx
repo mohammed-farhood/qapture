@@ -112,6 +112,15 @@ export default function NoteFilterBar() {
       onClick: stat('open'),
     },
     {
+      key: 'fixed',
+      label: t('status_fixed'),
+      count: noteCounts.fixed,
+      active: filter.status === 'fixed',
+      icon: 'RotateCcw',
+      tone: 'warn',
+      onClick: stat('fixed'),
+    },
+    {
       key: 'verified',
       label: t('status_verified'),
       count: noteCounts.verified,

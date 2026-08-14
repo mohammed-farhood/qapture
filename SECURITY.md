@@ -64,7 +64,9 @@ they live in `src/lib/contextBuffer.ts`):**
 - **No cookie, storage, or form value is ever touched.** The module never
   reads `document.cookie`, `localStorage`, `sessionStorage`, or any form/input
   value. Its entire capture surface is: console output, uncaught
-  errors/unhandled rejections, and network *metadata* as described above.
+  errors/unhandled rejections, network *metadata* as described above, and —
+  since v0.5 — interaction *labels* with no content whatsoever (see
+  "Interaction steps" below).
 - **The ring buffer is capped at 75 events** (`RING_CAP` in `contextBuffer.ts`).
   Once full, the oldest events are dropped first, so a session left open for
   hours cannot grow the buffer without bound. Individual console messages and
@@ -73,8 +75,46 @@ they live in `src/lib/contextBuffer.ts`):**
   can't dominate a note.
 - **Install/uninstall is symmetric and idempotent.** `uninstallContextCapture()`
   restores every wrapped global exactly (`console.error`/`warn`, `fetch`,
-  `XMLHttpRequest.prototype.open`/`send`, the `error`/`unhandledrejection`
-  listeners) and clears the buffer; calling install twice never double-wraps.
+  `XMLHttpRequest.prototype.open`/`send`, `history.pushState`/`replaceState`,
+  and the `error`/`unhandledrejection` plus interaction listeners) and clears
+  both buffers; calling install twice never double-wraps.
+
+#### Interaction steps ("Steps before this")
+
+**New in v0.5.0 "Loop".** The same module now also records the handful of
+things the tester *did* before each note — the clicks, field edits, toggles,
+submits and navigations that lead to the bug — so a note carries steps to
+reproduce without anyone having to write them down. These are attached to the
+note's `context.steps` and, like everything else, ship only inside the ZIP the
+tester exports.
+
+**This is the most sensitive thing the module records, because interactions
+happen directly on the data**, so its rules are stricter than anything above:
+
+- **What was typed is NEVER recorded.** An edit records only *that* a field
+  was typed into, identified by the field's visible label (`aria-label`, its
+  `<label>`, `alt`, `title`, `placeholder`, or `name` — never `value`). The
+  `input` event's value is not read at all. Anything typed into a field of
+  `type="password"` records as the bare label `password field`.
+- **A `<select>`'s chosen option is not recorded either.** Only that the
+  control changed, and its label — an option's text is routinely a customer
+  name, an address, or an account number.
+- **Checkboxes and radios record `on`/`off`.** That is interface state, not
+  content.
+- **Only non-character keys are recorded** (Enter, Escape, Tab, Backspace,
+  Delete, arrows, PageUp/PageDown). Character keys are ignored entirely, so a
+  keystroke trail can never be reassembled into typed text.
+- **Navigation is redacted identically to every other URL** — path only, with
+  any query string replaced by `?…`.
+- **The widget's own UI is excluded.** Anything inside `[data-qa-overlay]` is
+  skipped, so a tester's steps never fill up with their own clicks on Qapture.
+- **Bounded**: 25 steps are kept, 12 are attached to a note, each label capped
+  at 60 characters, and consecutive identical interactions collapse into one
+  entry with a count (typing twenty characters is one "typed in Email" step,
+  not twenty).
+
+Step recording is part of runtime context capture, so `captureContext: false`
+disables it along with everything else — no listener is installed at all.
 
 **Per-element forensics** (`collectTargetForensics()`) — collected only for
 the specific element the tester clicked or drew a region around, not the rest

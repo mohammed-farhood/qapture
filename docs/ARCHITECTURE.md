@@ -60,6 +60,8 @@ The returned `{ destroy() }` handle:
 
 ### Runtime context capture (`contextBuffer.ts`)
 
+`contextBuffer.ts` gained a second, separate recorder in v0.5: an interaction trail (`QaStep`) of the clicks, field edits, toggles, submits, key presses and navigations leading up to each note. It is kept apart from the event ring on purpose — the event ring is *drained* per note ("what happened since the last one"), while steps are *read without consuming* ("the last dozen things I did"), because two notes filed back to back are usually about the same sequence and both deserve the run-up. Its privacy rules are stricter than the rest of the module and are enumerated in [`SECURITY.md`](../SECURITY.md#interaction-steps-steps-before-this): no typed value, no selected option, no character keys.
+
 Alongside the shadow mount, `ShadowMount.ts` starts and stops a small ring buffer (`src/lib/contextBuffer.ts`) that wraps `console.error`/`console.warn`, the window `error`/`unhandledrejection` events, `fetch`, and `XMLHttpRequest`, so every note captured afterwards can carry the runtime facts around it (recent console/network events + an environment snapshot). It is gated end-to-end by `ResolvedConfig.captureContext` (default `true`): `ShadowMount` only installs it when the flag isn't `false`, and `QaContext.addNote()` only assembles a note's `context` field under the same condition — so disabling the flag means nothing is ever wrapped **and** nothing is ever attached, even if a stray event existed. This is a genuinely new privacy surface; the exact guarantees (query-string redaction, no bodies/headers/cookies/storage, a 75-event cap) are documented in full in [`SECURITY.md`](../SECURITY.md#runtime-context-capture) rather than restated here.
 
 ### Light DOM operations
@@ -113,6 +115,10 @@ Three details make it durable rather than decorative:
 - **The note→file index lives in `campaign.json`**, so re-opening a campaign after a reload continues the same numbering and rewrites files in place instead of accumulating duplicates.
 
 Failures never block a note: IndexedDB has already accepted it before the disk write is attempted, and a sync outage surfaces once rather than per-save.
+
+### A fourth layer: the Downloads folder (v0.5)
+
+Folder sync only exists on Chromium desktop, so `QaContext` also drops a backup ZIP into the browser's normal download location every `AUTO_BACKUP_EVERY` (5) notes. It is deliberately inert while a campaign folder is live — two continuously-updated copies of one session is noise, not safety — and the milestone counter is written to localStorage *before* the async export starts, so a slow or failing export can't retrigger the effect into a download loop.
 
 ---
 
@@ -211,6 +217,8 @@ src/
 │   │                           journey step matching the current route (`:param`-aware)
 │   ├── noteMarkdown.ts         (new) noteToMarkdown() — renders one note as agent-ready
 │   │                           Markdown; shared by exportZip.ts and "Copy as agent prompt"
+│   ├── ShotAnnotator.tsx       (v0.5) draw arrows/boxes/pen marks on a screenshot;
+│   │                           flattens them into the stored image on save
 │   ├── screenCapture.ts        (v0.4) pixel-exact engine — getDisplayMedia(preferCurrentTab)
 │   │                           session stream, frame grab, viewport→frame crop mapping
 │   ├── fsSync.ts               (v0.4) File System Access folder sync — project/campaign

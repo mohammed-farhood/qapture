@@ -130,6 +130,18 @@ export type QaConfig = {
   /** Keyboard shortcut to toggle the panel. Default: 'shift+alt+q'. */
   hotkey?: string;
   /**
+   * Keyboard shortcut that jumps straight into capture mode, so a tester
+   * never has to find the button first. Default: 'shift+alt+c'.
+   *
+   * Why not a Cmd/Ctrl shortcut: the obvious candidates are taken by things
+   * a web page cannot and must not override — Cmd/Ctrl+C is copy, and on
+   * macOS Cmd+Q quits the browser before the page ever sees the keystroke.
+   * Alt/Option-based chords are the only family a page can claim safely, and
+   * they are identical on macOS and Windows (Option = Alt), so one setting
+   * covers both.
+   */
+  captureHotkey?: string;
+  /**
    * Whether to capture ambient runtime context (console errors/warnings,
    * uncaught errors, network failures, env snapshot) alongside new notes.
    * Default: true.
@@ -160,6 +172,7 @@ export type ResolvedConfig = {
   visible: boolean | undefined;
   alwaysVisible: boolean;
   hotkey: string;
+  captureHotkey: string;
   captureContext: boolean;
 };
 
@@ -175,6 +188,7 @@ const DEFAULTS = {
   visible:       undefined as boolean | undefined,
   alwaysVisible: false,
   hotkey:        'shift+alt+q',
+  captureHotkey: 'shift+alt+c',
   captureContext: true,
 };
 
@@ -408,6 +422,7 @@ export function validateConfig(
         visible:      DEFAULTS.visible,
         alwaysVisible: DEFAULTS.alwaysVisible,
         hotkey:       DEFAULTS.hotkey,
+        captureHotkey: DEFAULTS.captureHotkey,
         captureContext: DEFAULTS.captureContext,
       },
       warnings,
@@ -428,6 +443,7 @@ export function validateConfig(
         visible:      DEFAULTS.visible,
         alwaysVisible: DEFAULTS.alwaysVisible,
         hotkey:       DEFAULTS.hotkey,
+        captureHotkey: DEFAULTS.captureHotkey,
         captureContext: DEFAULTS.captureContext,
       },
       warnings,
@@ -490,6 +506,9 @@ export function validateConfig(
   const hotkey = isNonEmptyString(raw['hotkey'])
     ? (raw['hotkey'] as string).trim()
     : DEFAULTS.hotkey;
+  const captureHotkey = isNonEmptyString(raw['captureHotkey'])
+    ? (raw['captureHotkey'] as string).trim()
+    : DEFAULTS.captureHotkey;
   const captureContext = typeof raw['captureContext'] === 'boolean'
     ? raw['captureContext']
     : DEFAULTS.captureContext;
@@ -518,6 +537,7 @@ export function validateConfig(
       visible,
       alwaysVisible,
       hotkey,
+      captureHotkey,
       captureContext,
     },
     warnings,

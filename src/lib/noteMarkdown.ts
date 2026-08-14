@@ -11,12 +11,33 @@
  */
 
 import type { QaNote } from '../context/QaContext';
-import type { QaContextEvent } from './contextBuffer';
+import type { QaContextEvent, QaStep } from './contextBuffer';
 import { shotExtension } from './capture';
 
 /** Newlines would break the enclosing Markdown table/bullet structure. */
 function oneLine(s: string | undefined | null): string {
   return String(s ?? '').replace(/\r?\n|\r/g, ' ').trim();
+}
+
+/**
+ * Render one recorded interaction as a line a human can follow and an agent
+ * can replay. Phrased as the tester's own actions ("clicked Place order"),
+ * not as DOM events, because this section is read as steps to reproduce.
+ */
+function formatStep(step: QaStep, t0: number): string {
+  const rel = `${((step.t - t0) / 1000).toFixed(1)}s`;
+  const times = step.repeat && step.repeat > 1 ? ` (×${step.repeat})` : '';
+  const name = oneLine(step.label) || 'element';
+  switch (step.kind) {
+    case 'click':  return `[${rel}] clicked “${name}”${times}`;
+    case 'type':   return `[${rel}] typed in “${name}”`;
+    case 'toggle': return `[${rel}] set “${name}” ${step.detail ?? ''}`.trimEnd();
+    case 'select': return `[${rel}] changed “${name}”`;
+    case 'submit': return `[${rel}] submitted “${name}”`;
+    case 'key':    return `[${rel}] pressed ${step.detail ?? 'a key'} on “${name}”${times}`;
+    case 'nav':    return `[${rel}] went to ${name}`;
+    default:       return `[${rel}] ${name}`;
+  }
 }
 
 function formatEvent(ev: QaContextEvent, t0: number): string {
@@ -86,6 +107,21 @@ export function noteToMarkdown(
   // — the tester's own words —
   lines.push('');
   lines.push(oneLine(note.description) ? note.description.trim() : '_(no description)_');
+
+  // — steps to reproduce, recorded automatically (v0.5) —
+  // Placed directly under the description, ABOVE the runtime-context
+  // <details>, because this is the part a human reads first: it is the
+  // answer to "how do I get to this?".
+  const recordedSteps = note.context?.steps ?? [];
+  if (recordedSteps.length) {
+    const t0 = Date.parse(note.timestamp) || recordedSteps[recordedSteps.length - 1].t;
+    lines.push('');
+    lines.push('**Steps before this** (recorded automatically, oldest first)');
+    lines.push('');
+    recordedSteps.forEach((step, i) => {
+      lines.push(`${i + 1}. ${formatStep(step, t0)}`);
+    });
+  }
 
   // — runtime context —
   const ctx = note.context;

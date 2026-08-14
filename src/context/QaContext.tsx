@@ -58,7 +58,7 @@ import {
 } from 'react';
 import type { ResolvedConfig, QaBilingual, QaCredential, QaJourneyLane, QaPreamble } from '../config/schema';
 import { matchRouteToSteps, type QaJourneyRef } from '../lib/journeyMatch';
-import { drainSinceLastNote, collectEnvSnapshot, redactUrl, type QaNoteContext, type QaTargetForensics } from '../lib/contextBuffer';
+import { drainSinceLastNote, readRecentSteps, collectEnvSnapshot, redactUrl, type QaNoteContext, type QaTargetForensics } from '../lib/contextBuffer';
 import { createStorage } from '../lib/storage';
 import { createIdb } from '../lib/idb';
 import { translate, pick as pickFn } from '../lib/strings';
@@ -150,7 +150,16 @@ export type QaNote = {
    * unchanged and no IndexedDB migration is required.
    */
   severity?: 'bug' | 'question' | 'polish';
-  status?: 'open' | 'verified';
+  /**
+   * Where this finding is in its life.
+   *
+   * v0.5 added `fixed`, the missing middle: someone says they've fixed it,
+   * but nobody has re-checked. Without that state a tester coming back to a
+   * patched build has no idea what to look at — the whole list still reads
+   * "open", so re-testing is guesswork and things quietly ship unverified.
+   * `fixed` IS the re-test queue.
+   */
+  status?: 'open' | 'fixed' | 'verified';
   journeyRef?: QaJourneyRef;
   context?: QaNoteContext;
 };
@@ -196,7 +205,7 @@ export type QaTestAlongStep = {
 // ---------------------------------------------------------------------------
 
 export type QaSeverityFilter = 'all' | 'bug' | 'question' | 'polish';
-export type QaStatusFilter = 'all' | 'open' | 'verified';
+export type QaStatusFilter = 'all' | 'open' | 'fixed' | 'verified';
 
 export type QaNoteFilter = {
   severity: QaSeverityFilter;
@@ -213,6 +222,8 @@ export type QaNoteCounts = {
   question: number;
   polish: number;
   open: number;
+  /** Marked fixed, awaiting a re-test. */
+  fixed: number;
   verified: number;
   thisPage: number;
 };
@@ -279,7 +290,7 @@ export type QaContextValue = {
     screenshot?: Blob;
     target?: QaTarget;
     severity?: 'bug' | 'question' | 'polish';
-    status?: 'open' | 'verified';
+    status?: 'open' | 'fixed' | 'verified';
     forensics?: QaTargetForensics;
   }) => Promise<void>;
   /**
@@ -292,7 +303,7 @@ export type QaContextValue = {
       description?: string;
       screenshot?: Blob | null;
       severity?: 'bug' | 'question' | 'polish';
-      status?: 'open' | 'verified';
+      status?: 'open' | 'fixed' | 'verified';
     },
   ) => Promise<void>;
   /** Soft-delete: removed from state now, IDB write committed 5s later unless undone. */
@@ -350,6 +361,15 @@ export type QaContextValue = {
   requestPersistentStorage: () => Promise<boolean>;
   /** Recovery: keep every note but drop its screenshot, freeing most of the space. */
   dropAllScreenshots: () => Promise<void>;
+  /**
+   * Download a backup ZIP automatically every few notes. On by default, and
+   * only ever acts when folder saving isn't running — see the effect in the
+   * provider for why this exists.
+   */
+  autoBackup: boolean;
+  setAutoBackup: (on: boolean) => void;
+  /** How many notes between automatic backups. */
+  autoBackupEvery: number;
 
   // ── v0.4: note filtering + view modes ────────────────────────────────────
   filter: QaNoteFilter;
@@ -414,6 +434,9 @@ const EXACT_SHOTS_KEY   = 'exactShots';      // '1' once the tester opted in
 const SIMPLE_MODE_KEY   = 'simpleMode';
 const COMPACT_KEY       = 'compactCapture';
 const LAST_CAMPAIGN_KEY = 'lastCampaign';    // {project, campaign, tester}
+// v0.5
+const AUTO_BACKUP_KEY   = 'autoBackup';      // '0' to opt out
+const AUTO_BACKUP_AT_KEY = 'autoBackupAt';   // note count of the last backup
 
 // Notice queue rules (contract §5).
 const NOTICE_QUEUE_CAP     = 3;
@@ -421,6 +444,8 @@ const NOTICE_DURATION_INFO  = 4000;
 const NOTICE_DURATION_ERROR = 6000;
 // Soft-delete / soft-clear undo window (deleteNote, clearNotes).
 const SOFT_DELETE_MS = 5000;
+/** Notes between automatic backup downloads (v0.5). */
+const AUTO_BACKUP_EVERY = 5;
 
 // ---------------------------------------------------------------------------
 // Provider
@@ -545,6 +570,11 @@ export function QaProvider({
   const [compactCapture, setCompactCaptureState] = useState<boolean>(
     () => storage.getItem(COMPACT_KEY) === '1',
   );
+  // v0.5: automatic backup for everyone who can't use folder saving.
+  const [autoBackup, setAutoBackupState] = useState<boolean>(
+    () => storage.getItem(AUTO_BACKUP_KEY) !== '0',
+  );
+
   const [filter, setFilterState] = useState<QaNoteFilter>({
     severity: 'all',
     status: 'all',
@@ -869,7 +899,7 @@ export function QaProvider({
       screenshot?: Blob;
       target?: QaTarget;
       severity?: 'bug' | 'question' | 'polish';
-      status?: 'open' | 'verified';
+      status?: 'open' | 'fixed' | 'verified';
       forensics?: QaTargetForensics;
     }): Promise<void> => {
       const loc = safeLocation();
@@ -899,6 +929,9 @@ export function QaProvider({
           events: drainSinceLastNote(),
           env: collectEnvSnapshot(route),
           forensics: input.forensics,
+          // v0.5: the run-up. Not drained — two notes filed back to back are
+          // usually about the same sequence, and both deserve it.
+          steps: readRecentSteps(),
         };
       }
 
@@ -943,7 +976,7 @@ export function QaProvider({
         description?: string;
         screenshot?: Blob | null;
         severity?: 'bug' | 'question' | 'polish';
-        status?: 'open' | 'verified';
+        status?: 'open' | 'fixed' | 'verified';
       },
     ): Promise<void> => {
       // Build the patched note from the ref (see applyNotes' doc comment) so
@@ -1364,6 +1397,45 @@ export function QaProvider({
     notify(t('screenshots_dropped', { n: stripped.length }), { id: 'drop-shots' });
   }, [idb, notify, t, refreshStorageHealth, applyNotes]);
 
+  // ── v0.5: automatic backup ───────────────────────────────────
+
+  const setAutoBackup = useCallback((on: boolean) => {
+    setAutoBackupState(on);
+    storage.setItem(AUTO_BACKUP_KEY, on ? '1' : '0');
+  }, [storage]);
+
+  /**
+   * Drop a backup ZIP into the tester's Downloads folder every few notes.
+   *
+   * Folder saving (v0.4) solves "don't lose my session" properly, but it only
+   * exists on Chromium desktop. A tester on Safari, Firefox or a phone was
+   * still one closed tab away from losing everything, with "remember to hit
+   * Export" as the only defence — and someone testing another person's beta
+   * does not remember. This is the fallback that needs no permission and no
+   * setup: a download every AUTO_BACKUP_EVERY notes, which browsers write
+   * without prompting.
+   *
+   * Deliberately does NOT run while a campaign folder is live: that would be
+   * two copies of the same session and a Downloads folder full of
+   * near-identical ZIPs for no benefit.
+   */
+  useEffect(() => {
+    if (!autoBackup) return;
+    if (notes.length === 0 || isExporting) return;
+    if (getFsSyncState() === 'syncing') return; // already on disk, continuously
+
+    const lastAt = Number(storage.getItem(AUTO_BACKUP_AT_KEY) ?? '0') || 0;
+    if (notes.length < lastAt + AUTO_BACKUP_EVERY) return;
+
+    // Record the milestone BEFORE the async export, so a slow or failing
+    // export can't retrigger this effect into a download loop.
+    storage.setItem(AUTO_BACKUP_AT_KEY, String(notes.length));
+    const stamp = nowIso().slice(0, 16).replace(/[:T]/g, '-');
+    void exportZipRef.current(`qa-autosave-${stamp}-${notes.length}`).then(() => {
+      notify(t('autosave_done', { n: notes.length }), { id: 'autosave', duration: 3000 });
+    });
+  }, [notes.length, autoBackup, isExporting, storage, notify, t]);
+
   // ── v0.4: view modes + filtering ─────────────────────────────────────────
 
   const setSimpleMode = useCallback((on: boolean) => {
@@ -1387,14 +1459,16 @@ export function QaProvider({
 
   const noteCounts = useMemo<QaNoteCounts>(() => {
     const counts: QaNoteCounts = {
-      all: notes.length, bug: 0, question: 0, polish: 0, open: 0, verified: 0, thisPage: 0,
+      all: notes.length, bug: 0, question: 0, polish: 0, open: 0, fixed: 0, verified: 0, thisPage: 0,
     };
     for (const n of notes) {
       const sev = n.severity ?? 'bug';
       if (sev === 'bug') counts.bug++;
       else if (sev === 'question') counts.question++;
       else counts.polish++;
-      if ((n.status ?? 'open') === 'verified') counts.verified++;
+      const status = n.status ?? 'open';
+      if (status === 'verified') counts.verified++;
+      else if (status === 'fixed') counts.fixed++;
       else counts.open++;
       if (n.route.split('?')[0] === currentRoute) counts.thisPage++;
     }
@@ -1500,6 +1574,9 @@ export function QaProvider({
     refreshStorageHealth,
     requestPersistentStorage: requestPersist,
     dropAllScreenshots,
+    autoBackup,
+    setAutoBackup,
+    autoBackupEvery: AUTO_BACKUP_EVERY,
 
     // v0.4 — filtering + view modes
     filter,

@@ -228,6 +228,14 @@ context (stack, conventions, invariants, login), and its risk zone.
   whatever the tester's note text says. Treat these as acceptance criteria,
   not supplementary trivia.
 
+### 3c-bis. Read "Steps before this"
+
+Most points carry a numbered **Steps before this** list — what the tester
+clicked, typed into, toggled and navigated on the way to the bug, recorded
+automatically with timings. Treat it as the steps to reproduce: replay it
+before you theorise. Note that field CONTENTS are deliberately never
+recorded, so "typed in Email" tells you a field was filled, not with what.
+
 ### 3d. Open the screenshot
 
 Load the screenshot named in that point's **Screenshot** line (
@@ -368,10 +376,12 @@ line item that reads as if it happened.
   context at capture" section is often the actual root cause, not
   supplementary detail — check it before guessing at one from the note text
   and screenshot alone.
-- **Don't treat a `question`-severity or `verified`-status point like a
-  routine bug fix.** A `question` may just need an answer, not code; a
-  `verified` point was already re-confirmed once and should be double-checked
-  before you assume it's still broken.
+- **Don't treat a `question`-severity, `fixed`- or `verified`-status point
+  like a routine bug fix.** A `question` may just need an answer, not code; a
+  `fixed` point is already claimed done and is sitting in the tester's
+  re-test queue, so re-fixing it blindly risks undoing someone's work; a
+  `verified` point was re-confirmed once and should be double-checked before
+  you assume it's still broken.
 - **Don't work every point serially when they could parallelize.** If you
   catch yourself fixing point after point one at a time on a batch of five
   independent-file points, stop and re-read the Working Model section above.

@@ -125,7 +125,7 @@ export default function QaPanel() {
     t, lang, setLang, dir,
     brand,
     journey, guideChecked,
-    simpleMode, sync, storageHealth,
+    simpleMode, sync, storageHealth, noteCounts, setFilter,
   } = useQa();
 
   const [confirmClear, setConfirmClear] = useState(false);
@@ -378,6 +378,23 @@ export default function QaPanel() {
         <span className="qa-rounded-full qa-bg-3 qa-text-mid qa-px-2 qa-text-xs qa-font-medium">
           {notes.length}
         </span>
+
+        {/* Re-test queue (v0.5): notes someone has marked fixed but nobody
+            has re-checked. Shown in the header rather than only as a filter
+            chip, because the whole point is that a tester coming back to a
+            patched build should SEE that there is something waiting. */}
+        {noteCounts.fixed > 0 && (
+          <button
+            onClick={() => { setActiveTab('notes'); setFilter({ status: 'fixed', severity: 'all', thisPageOnly: false }); }}
+            title={t('retest_queue', { n: noteCounts.fixed })}
+            aria-label={t('retest_queue', { n: noteCounts.fixed })}
+            className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-bg-warn-tint qa-text-warn qa-px-2 qa-text-xs qa-font-medium"
+            style={{ border: 'none', cursor: 'pointer' }}
+          >
+            <Icon name="RotateCcw" size={11} />
+            {noteCounts.fixed}
+          </button>
+        )}
 
         {/* EN / ع language toggle */}
         <div

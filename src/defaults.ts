@@ -27,5 +27,8 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   visible:      undefined,
   alwaysVisible: false,
   hotkey:       'shift+alt+q',
+  // Alt/Option-based, because it is the only shortcut family a web page can
+  // claim without fighting the browser or the OS — see QaConfig.captureHotkey.
+  captureHotkey: 'shift+alt+c',
   captureContext: true,
 };

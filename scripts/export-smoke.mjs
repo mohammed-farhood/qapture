@@ -60,6 +60,15 @@ const notes = [{
       viewportW: 1280, viewportH: 800, dpr: 1,
       userAgent: 'jsdom-test-agent', language: 'en-US', online: true, timezone: 'UTC',
     },
+    // v0.5: the recorded run-up. The `type` step deliberately carries only a
+    // field LABEL — asserted below, because the whole privacy promise of the
+    // step recorder is that a typed value can never reach the export.
+    steps: [
+      { t: Date.parse('2026-06-29T09:59:50Z'), kind: 'click', label: 'Sign in' },
+      { t: Date.parse('2026-06-29T09:59:53Z'), kind: 'type', label: 'Email', repeat: 14 },
+      { t: Date.parse('2026-06-29T09:59:56Z'), kind: 'nav', label: '/checkout' },
+      { t: Date.parse('2026-06-29T09:59:58Z'), kind: 'click', label: 'Place order' },
+    ],
   },
 }];
 
@@ -82,10 +91,27 @@ const must = [
   // rather than being silently dropped by the delegation.
   '**Severity:** bug', '**Status:** open', '**Journey step:** buyer → /checkout',
   'Runtime context at capture', 'POST /api/checkout → 500', 'viewport   1280×800 @1x',
+  // v0.5: steps to reproduce, rendered as a numbered list above the runtime
+  // context block.
+  '**Steps before this**', '1. [-10.0s] clicked “Sign in”', 'typed in “Email”', 'went to /checkout',
 ];
 const missing = must.filter((s) => !md.includes(s));
 console.log('\nASSERT required content:', missing.length ? 'MISSING ' + missing.join(', ') : 'all present ✅');
 if (missing.length) throw new Error('FAIL: preamble missing: ' + missing.join(', '));
+
+// --- v0.5 privacy: a step must never carry what was typed. The fixture's
+// `type` step has only the field's label; assert the export contains the
+// label and nothing that looks like a value, and that a repeated interaction
+// collapsed into a count rather than 14 separate lines.
+if (!md.includes('typed in “Email”')) throw new Error('FAIL: typed-field step missing from notes.md');
+if (md.includes('typed in “Email”: ') || /typed in “Email”[^\n]*@/.test(md)) {
+  throw new Error('FAIL: a typed VALUE reached the export — the step recorder must record labels only');
+}
+const typedLines = md.split('\n').filter((l) => l.includes('typed in “Email”'));
+if (typedLines.length !== 1) {
+  throw new Error(`FAIL: expected one collapsed typing step, got ${typedLines.length}`);
+}
+console.log('ASSERT v0.5 steps: rendered, collapsed, and value-free ✅');
 
 // --- Bug #14: mdTable() must replace embedded \r\n/\r/\n in cell values with
 // a space, not leave them intact, or a config field with a literal newline

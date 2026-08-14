@@ -14,9 +14,11 @@ npm install qapture2
 
 ## Contents
 
+- [What's new in v0.5 "Loop"](#whats-new-in-v05-loop)
 - [What's new in v0.4 "Ledger"](#whats-new-in-v04-ledger)
 - [Breaking Changes (v0.3.0 "Graphite")](#breaking-changes-v030-graphite)
 - [Quick Start](#quick-start)
+- [Steps to reproduce, recorded for you](#steps-to-reproduce-recorded-for-you)
 - [Screenshots: two engines](#screenshots-two-engines)
 - [Saving to a folder](#saving-to-a-folder)
 - [Where notes live, and what "storage full" means](#where-notes-live-and-what-storage-full-means)
@@ -33,6 +35,20 @@ npm install qapture2
 - [Isolation and Known Limitations](#isolation-and-known-limitations)
 - [Uninstall](#uninstall)
 - [License](#license)
+
+---
+
+## What's new in v0.5 "Loop"
+
+Not a breaking release. Notes from 0.3.x and 0.4.x read back unchanged.
+
+| | |
+|---|---|
+| **Steps to reproduce, written for you** | Every note now carries what the tester clicked, typed into, toggled and navigated on the way to it. Never what they typed — see [below](#steps-to-reproduce-recorded-for-you). |
+| **Draw on the screenshot** | Tap the shot, add an arrow / box / pen mark in one of four colours. Burned into the image, so it survives everywhere the screenshot goes. Never interrupts the capture flow. |
+| **A capture shortcut** | `Alt+Shift+C` (`Option+Shift+C` on macOS) jumps straight into capture from anywhere; press again to back out. Configurable via `captureHotkey`. |
+| **A re-test queue** | Note status is now Open → **Re-test** → Verified. "Re-test" is the state that tells a tester what to check on the next build, with a filter chip and a header badge so the queue can't be missed. |
+| **Automatic backups** | A backup ZIP downloads every 5 notes, for everyone who can't use folder saving (Safari, Firefox, phones). Pauses itself while folder saving is on. |
 
 ---
 
@@ -164,6 +180,56 @@ Or use the registered `<qapture-widget>` custom element — accepts a `config` a
   };
 </script>
 ```
+
+---
+
+## Steps to reproduce, recorded for you
+
+The hardest part of a bug report is the part testers skip: *how do I get to
+this?* They skip it because they were busy testing, and by the time anyone
+asks, the sequence is gone.
+
+So every note now carries the run-up automatically:
+
+```
+**Steps before this** (recorded automatically, oldest first)
+
+1. [-18.2s] clicked “Sign in”
+2. [-14.9s] typed in “Email”
+3. [-13.1s] typed in “password field”
+4. [-11.4s] clicked “Continue”
+5. [-9.8s]  went to /checkout
+6. [-2.1s]  clicked “Place order”
+```
+
+It appears in the note, in `notes.md`, in the folder report, and in "Copy as
+agent prompt" — right under the tester's own words, above the runtime console
+and network context, because it is what a human reads first.
+
+### What it will not record
+
+This is the most sensitive thing Qapture touches, because interactions happen
+directly on the data. The rules are deliberately strict:
+
+- **What was typed is never recorded.** An edit records only *that* a field
+  was edited, named by its visible label. The value is never read. A password
+  field records as `password field`.
+- **A dropdown's chosen option is not recorded** — only that it changed. An
+  option's text is routinely a customer name or an address.
+- **Character keys are ignored entirely**, so no keystroke trail can be
+  reassembled into typed text. Only Enter, Escape, Tab, Backspace, Delete and
+  the arrows are noted.
+- Checkboxes and radios record `on`/`off` — interface state, not content.
+- Navigation is path-only; query strings are redacted to `?…` like every other
+  URL.
+- Qapture's own UI is excluded, so your steps are yours, not clicks on the
+  widget.
+- 25 steps are kept, 12 travel with a note, labels cap at 60 characters, and
+  repeats collapse (typing twenty characters is one step, not twenty).
+
+Set `captureContext: false` to switch this off along with all other runtime
+capture — no listener is installed at all. The complete guarantees are in
+[SECURITY.md](SECURITY.md#interaction-steps-steps-before-this).
 
 ---
 
@@ -319,7 +385,8 @@ All fields are optional. Passing an empty object (or no config at all) produces 
 | `rtl` | `boolean` | `false` | When `true`, the UI initialises in Arabic / RTL mode. |
 | `visible` | `boolean \| undefined` | `undefined` | `true` = always show; `false` = always hide; `undefined` = dev-only (hidden in production). |
 | `alwaysVisible` | `boolean` | `false` | When `true`, overrides `visible` and shows the panel even in production. |
-| `hotkey` | `string` | `'shift+alt+q'` | Keyboard shortcut that toggles the panel open/closed. |
+| `hotkey` | `string` | `'shift+alt+q'` |
+| `captureHotkey` | `string` | `'shift+alt+c'` — jumps straight into capture mode | Keyboard shortcut that toggles the panel open/closed. |
 | `captureContext` | `boolean` | `true` | Whether to record ambient runtime context (recent console errors/warnings, uncaught errors, failed network calls, and an environment snapshot) into each note as it's captured. Set to `false` to disable entirely. See [Runtime Context Capture](#runtime-context-capture). |
 
 ### `QaTheme` (deprecated)
@@ -616,6 +683,10 @@ By default the widget is **dev-only** — hidden when `NODE_ENV === 'production'
 | `alwaysVisible: true` | Always shown — overrides `visible` |
 
 The **hotkey** (default: `Shift+Alt+Q`) toggles the panel open/closed regardless of `visible`. Change it via `hotkey: 'ctrl+shift+q'` or any `modifier+key` combination recognised by the browser `keydown` event.
+
+The **capture hotkey** (default: `Shift+Alt+C`, i.e. `Option+Shift+C` on macOS) jumps straight into capture mode from anywhere on the page, and pressing it again backs out. Change it via `captureHotkey`.
+
+> Why Alt/Option rather than Cmd/Ctrl: the obvious chords belong to things a web page cannot and must not override — Cmd/Ctrl+C is copy, and on macOS Cmd+Q quits the browser at the OS level, before the page ever sees the key. Alt/Option combinations are the only family a page can claim safely, and the same physical keys behave identically on macOS and Windows.
 
 ---
 

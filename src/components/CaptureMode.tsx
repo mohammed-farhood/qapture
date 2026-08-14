@@ -85,6 +85,7 @@ import { useCoarsePointer } from '../lib/coarse';
 import { lockPageScroll, unlockPageScroll } from '../lib/scrollLock';
 import { collectTargetForensics, type QaTargetForensics } from '../lib/contextBuffer';
 import LocationReveal from './LocationReveal';
+import ShotAnnotator from './ShotAnnotator';
 
 const DRAG_THRESHOLD = 6; // px before a mouse press becomes a region drag
 const TOUCH_DRAG_THRESHOLD = 12; // px before a touch press becomes a region drag
@@ -197,6 +198,10 @@ export default function CaptureMode() {
   // Card fade-in state: true once the annotating card is in the DOM and we
   // want to trigger the CSS transition from opacity-0 → 1.
   const [cardIn, setCardIn] = useState(false);
+
+  // Drawing on the shot is opt-in and never blocks the flow: the tester taps
+  // the preview they already have in front of them (v0.5).
+  const [drawing, setDrawing] = useState(false);
 
   // Compact mode: a small box next to the selection instead of the full card.
   // `compactCapture` is the tester's saved preference; `expanded` is a
@@ -893,6 +898,22 @@ export default function CaptureMode() {
         </div>
       )}
 
+      {/* ── Draw-on-screenshot editor ────────────────────────────────────── */}
+      {drawing && shot && (
+        <ShotAnnotator
+          blob={shot}
+          onCancel={() => setDrawing(false)}
+          onDone={(next) => {
+            setDrawing(false);
+            setShot(next);
+            setShotUrl((old) => {
+              if (old) URL.revokeObjectURL(old);
+              return URL.createObjectURL(next);
+            });
+          }}
+        />
+      )}
+
       {/* ── Inline annotation card ───────────────────────────────────────── */}
       {phase === 'annotating' && selection && !compact && (
         <div
@@ -956,11 +977,33 @@ export default function CaptureMode() {
                   {t('capturing')}
                 </span>
               ) : shotUrl ? (
-                <img
-                  src={shotUrl}
-                  alt="capture"
-                  className="qa-max-h-32 qa-rounded-md"
-                />
+                <button
+                  type="button"
+                  onClick={() => setDrawing(true)}
+                  title={t('draw_label')}
+                  aria-label={t('draw_label')}
+                  className="qa-relative qa-group qa-tap"
+                  style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
+                >
+                  <img
+                    src={shotUrl}
+                    alt="capture"
+                    className="qa-max-h-32 qa-rounded-md"
+                  />
+                  <span
+                    className="qa-absolute qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-px-1.5 qa-py-0.5 qa-text-10"
+                    style={{
+                      bottom: 4,
+                      insetInlineEnd: 4,
+                      background: 'var(--qa-surface-1)',
+                      color: 'var(--qa-ink-hi)',
+                      border: '1px solid var(--qa-border-subtle)',
+                    }}
+                  >
+                    <Icon name="Pencil" size={10} />
+                    {t('draw_label')}
+                  </span>
+                </button>
               ) : captureError ? (
                 // The render broke rather than being skipped — offer a retry
                 // against the same selection instead of a dead-end message.

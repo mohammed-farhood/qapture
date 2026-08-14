@@ -3,6 +3,80 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] "Loop" — 2026-08-15
+
+Where 0.4 was about not losing anything, 0.5 is about closing the loop: a
+finding that carries its own steps to reproduce, can be drawn on, and comes
+back around for a re-test after someone fixes it.
+
+No breaking changes. Notes written by 0.3.x and 0.4.x read back unchanged, and
+every new field is optional.
+
+### Added
+
+- **Steps before this — recorded automatically.** Every note now carries the
+  handful of things the tester did on the way to it: what they clicked, which
+  fields they edited, what they toggled or submitted, and where they
+  navigated, with timings, rendered as a numbered list in the note, the
+  export and the folder report. A bug report without steps to reproduce is a
+  riddle; testers rarely write them because they were busy testing, and by the
+  time anyone asks, the sequence is gone.
+
+  **What was typed is never recorded** — only *that* a field was edited, named
+  by its visible label. A `<select>`'s chosen option isn't recorded either
+  (option text is routinely a customer name), only that it changed. Character
+  keys are ignored entirely, so no keystroke trail can be reassembled into
+  typed text; only Enter/Escape/Tab/arrows are noted. Qapture's own UI is
+  excluded, 25 steps are kept, 12 ride along with a note, and repeated
+  interactions collapse into one entry with a count. It is part of runtime
+  context capture, so `captureContext: false` switches it off with everything
+  else. Full rules in [SECURITY.md](SECURITY.md#interaction-steps-steps-before-this).
+
+- **Draw on the screenshot.** Tap the screenshot — in the capture card or when
+  editing a saved note — and mark it up with an arrow, a box or a pen in one
+  of four colours, with undo and clear. "This bit, right here" is the hardest
+  thing to say in words and the easiest thing to draw. Marks are flattened
+  into the image on save, so they survive into the note, the folder, the ZIP
+  and an agent's context with no viewer and no second file. It never
+  interrupts: capture is exactly as fast as before, and drawing is something
+  you opt into on an image you already have in front of you.
+
+- **A capture shortcut.** `Alt+Shift+C` (`Option+Shift+C` on a Mac) drops
+  straight into capture mode from anywhere on the page, and again backs out —
+  no hunting for the button first, which a tester otherwise does dozens of
+  times a session. Configurable via `captureHotkey`.
+
+  Why not a Cmd/Ctrl chord: the obvious candidates are taken by things a web
+  page cannot and must not override. Cmd/Ctrl+C is copy; and on macOS Cmd+Q
+  quits the browser at the OS level, before the page ever sees the keystroke.
+  Alt/Option chords are the only family a page can claim safely, and the same
+  physical keys work identically on macOS and Windows.
+
+- **A re-test queue.** Note status gained a third state: Open → **Re-test** →
+  Verified, cycled by tapping the status pill. `Re-test` is the missing middle
+  — someone says it's fixed, nobody has checked — and it is what a tester
+  coming back to a patched build needs in order to know what to look at.
+  There's a filter chip for it and a badge in the panel header, so a queue
+  can't sit there unnoticed.
+
+- **Automatic backups.** A backup ZIP downloads every 5 notes. Folder saving
+  (0.4) solves this properly but only exists on Chromium desktop; a tester on
+  Safari, Firefox or a phone was still one closed tab away from losing
+  everything, with "remember to hit Export" as the only defence — and someone
+  testing another person's beta does not remember. It needs no permission and
+  no setup, pauses on its own while folder saving is running (two copies of
+  the same session helps nobody), and can be switched off in Settings.
+
+### Tests
+
+- New **`npm run loop-features-test`** — real Chrome, 19 assertions across all
+  five features, asserting on the stored data rather than the UI: the shortcut
+  enters and leaves capture mode, the step trail records the right things in
+  the right order **and provably does not contain a secret typed into a
+  field**, the status pill cycles through all three states and raises the
+  header badge, a backup download fires on the 5th note, and a drawn mark ends
+  up in the saved screenshot's pixels.
+
 ## [0.4.0] "Ledger" — 2026-08-14
 
 The theme of this release is **not losing anything**: not the region you

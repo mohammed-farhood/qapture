@@ -76,6 +76,7 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
     sync, chooseSyncFolder, reconnectSyncFolder, startSyncCampaign,
     stopSyncCampaign, forgetSyncFolder, suggestCampaignName, lastCampaign,
     storageHealth, refreshStorageHealth, requestPersistentStorage, dropAllScreenshots,
+    autoBackup, setAutoBackup, autoBackupEvery,
     exactShots, enableExactShots, disableExactShots,
     simpleMode, setSimpleMode, compactCapture, setCompactCapture,
     notes,
@@ -243,6 +244,24 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
               </p>
             </>
           )}
+
+          {/* Auto-backup: the safety net for every browser that can't do
+              folder saving. Sits under Storage because that is where a
+              tester looks when they are worried about losing work. */}
+          <label className="qa-flex qa-items-start qa-gap-2 qa-text-xs qa-text-hi" style={{ cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={autoBackup}
+              onChange={(e) => setAutoBackup(e.target.checked)}
+              style={{ marginTop: 2 }}
+            />
+            <span>
+              {t('autosave_label')}
+              <span className="qa-block qa-text-10 qa-text-lo qa-leading-relaxed">
+                {t('autosave_hint', { n: autoBackupEvery })}
+              </span>
+            </span>
+          </label>
 
           <div className="qa-flex qa-flex-wrap qa-gap-2">
             {storageHealth.persisted ? (

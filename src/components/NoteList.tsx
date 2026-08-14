@@ -24,9 +24,10 @@ import type { QaNote, QaTarget } from '../context/QaContext';
 import { Icon } from '../icons/Icon';
 import { noteToMarkdown } from '../lib/noteMarkdown';
 import LocationReveal from './LocationReveal';
+import ShotAnnotator from './ShotAnnotator';
 
 type QaSeverity = 'bug' | 'question' | 'polish';
-type QaStatus = 'open' | 'verified';
+type QaStatus = 'open' | 'fixed' | 'verified';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,28 +108,45 @@ function SeverityChip({ severity, t }: { severity: QaSeverity; t: (key: string) 
 // StatusPill — tap toggles open ⇄ verified directly, no edit mode needed.
 // ---------------------------------------------------------------------------
 
+/**
+ * Tapping cycles open → fixed → verified → open.
+ *
+ * `fixed` is the re-test queue: "someone says this is done, nobody has
+ * checked". Keeping it on the same one-tap control (rather than a separate
+ * menu) is deliberate — a tester marks a batch fixed in seconds when the
+ * developer says so, then filters to Re-test on the next build and taps each
+ * one through to verified as they confirm it.
+ */
+const STATUS_ORDER: QaStatus[] = ['open', 'fixed', 'verified'];
+
+const STATUS_STYLE: Record<QaStatus, { cls: string; icon: 'Circle' | 'RotateCcw' | 'CheckCircle2'; key: string }> = {
+  open:     { cls: 'qa-bg-3 qa-text-mid qa-hover-bg-2',        icon: 'Circle',       key: 'status_open' },
+  fixed:    { cls: 'qa-bg-warn-tint qa-text-warn',             icon: 'RotateCcw',    key: 'status_fixed' },
+  verified: { cls: 'qa-bg-success-tint qa-text-success',       icon: 'CheckCircle2', key: 'status_verified' },
+};
+
 function StatusPill({
   status,
-  onToggle,
+  onCycle,
   t,
 }: {
   status: QaStatus;
-  onToggle: () => void;
+  onCycle: (next: QaStatus) => void;
   t: (key: string) => string;
 }) {
-  const verified = status === 'verified';
+  const style = STATUS_STYLE[status] ?? STATUS_STYLE.open;
+  const next = STATUS_ORDER[(STATUS_ORDER.indexOf(status) + 1) % STATUS_ORDER.length];
   return (
     <button
       type="button"
-      onClick={onToggle}
-      aria-label={t(verified ? 'status_verified' : 'status_open')}
-      className={`qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-px-1.5 qa-py-0.5 qa-text-10 qa-font-medium qa-transition ${
-        verified ? 'qa-bg-success-tint qa-text-success' : 'qa-bg-3 qa-text-mid qa-hover-bg-2'
-      }`}
+      onClick={() => onCycle(next)}
+      aria-label={`${t(style.key)} — ${t(STATUS_STYLE[next].key)}`}
+      title={t(STATUS_STYLE[next].key)}
+      className={`qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-px-1.5 qa-py-0.5 qa-text-10 qa-font-medium qa-transition ${style.cls}`}
       style={{ border: 'none', cursor: 'pointer' }}
     >
-      <Icon name={verified ? 'CheckCircle2' : 'Circle'} size={10} />
-      {t(verified ? 'status_verified' : 'status_open')}
+      <Icon name={style.icon} size={10} />
+      {t(style.key)}
     </button>
   );
 }
@@ -142,6 +160,9 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
   const [editing, setEditing] = useState(false);
   const [desc, setDesc] = useState(note.description);
   const [img, setImg] = useState<Blob | null>(note.screenshot ?? null);
+  // v0.5: a saved note's screenshot can be marked up too — plenty of "wait,
+  // which button?" only surfaces when reviewing the list later.
+  const [drawing, setDrawing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const thumbUrl = useObjectUrl(editing ? (img ?? undefined) : note.screenshot);
@@ -150,6 +171,7 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
   const severity: QaSeverity = note.severity ?? 'bug';
   const status: QaStatus = note.status ?? 'open';
   const contextEventCount = note.context?.events.length ?? 0;
+  const stepCount = note.context?.steps?.length ?? 0;
 
   const startEdit = () => {
     setDesc(note.description);
@@ -180,8 +202,8 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
     setEditing(false);
   };
 
-  const toggleStatus = () => {
-    updateNote(note.id, { status: status === 'open' ? 'verified' : 'open' });
+  const cycleStatus = (next: QaStatus) => {
+    updateNote(note.id, { status: next });
   };
 
   const copyPrompt = async () => {
@@ -203,7 +225,7 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
         </span>
         <KindBadge target={note.target} t={t} />
         <SeverityChip severity={severity} t={t} />
-        <StatusPill status={status} onToggle={toggleStatus} t={t} />
+        <StatusPill status={status} onCycle={cycleStatus} t={t} />
         <div className="qa-ms-auto qa-flex qa-items-center qa-gap-1.5">
           <button
             onClick={() => void copyPrompt()}
@@ -249,11 +271,20 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
           <div className="qa-rounded-lg qa-border qa-border-dashed qa-border-subtle qa-p-2 qa-text-center qa-text-xs">
             {thumbUrl ? (
               <div className="qa-relative qa-inline-block">
-                <img
-                  src={thumbUrl}
-                  alt="screenshot"
-                  style={{ maxHeight: '7rem', borderRadius: '0.25rem' }}
-                />
+                <button
+                  type="button"
+                  onClick={() => setDrawing(true)}
+                  title={t('draw_label')}
+                  aria-label={t('draw_label')}
+                  className="qa-tap"
+                  style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', display: 'block' }}
+                >
+                  <img
+                    src={thumbUrl}
+                    alt="screenshot"
+                    style={{ maxHeight: '7rem', borderRadius: '0.25rem' }}
+                  />
+                </button>
                 <button
                   onClick={() => setImg(null)}
                   className="qa-tap-icon qa-absolute qa-rounded-full qa-bg-danger-tint qa-text-danger"
@@ -267,6 +298,13 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
                 >
                   <Icon name="X" size={12} />
                 </button>
+                {drawing && img && (
+                  <ShotAnnotator
+                    blob={img}
+                    onCancel={() => setDrawing(false)}
+                    onDone={(next) => { setDrawing(false); setImg(next); }}
+                  />
+                )}
               </div>
             ) : (
               <button
@@ -320,6 +358,12 @@ function NoteItem({ note, index }: { note: QaNote; index: number }) {
             {note.target && <LocationReveal target={note.target} />}
             {contextEventCount > 0 && (
               <div>{t('context_attached', { n: contextEventCount })}</div>
+            )}
+            {stepCount > 0 && (
+              <div className="qa-flex qa-items-center qa-gap-1">
+                <Icon name="ClipboardList" size={12} className="qa-shrink-0" />
+                {t('steps_recorded', { n: stepCount })}
+              </div>
             )}
           </div>
           {thumbUrl && (
