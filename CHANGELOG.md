@@ -3,6 +3,48 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.2] "All of It" — 2026-08-16
+
+One defect, reported from a real app as *"it only takes part of the screenshot
+— but when I drag a region it's fine."* No breaking changes.
+
+### Fixed
+
+- **Clicking an element captured only the part of it that was on screen.** A
+  dragged region is clamped inside the viewport before it is ever captured, so
+  the crop can never be asked for pixels that were not rendered. An element
+  *pick* had no such clamp: `getBoundingClientRect()` happily describes a box
+  that starts above the fold, ends below it, or runs off the side — which is
+  the normal shape of a table column, a sidebar, a long form, or a wide
+  toolbar. The capture rendered the viewport and nothing more, so the tester
+  filed a fragment of the thing they pointed at.
+
+  Worse, the same code failed a second way that does not look like a failure at
+  all. When the element started *above* the viewport (a negative `top`), the
+  crop origin was clamped to zero while its height was not, so the capture slid
+  down the page to fill itself: the right size, of the wrong content. The note
+  showed something the tester never selected, with nothing to indicate it.
+
+  The capture now renders the union of the live viewport and the selection, so
+  an element that leaves the screen in any direction is rendered in full and
+  the crop always has real pixels to take. The viewport stays inside that
+  union, which keeps `position: fixed` chrome and pinned sticky elements where
+  the tester sees them. Selections are followed up to 4000px per side and the
+  render scale drops rather than the framing once a capture would cost more
+  than four viewports of canvas, so a click on a page-sized wrapper cannot
+  exhaust the tab's memory.
+
+  The exact (screen-share) engine cannot photograph off-screen pixels at any
+  price, so there it trims the selection to the visible part instead — a
+  correctly framed fragment, never displaced content.
+
+  Measured, not asserted: `scripts/element-capture-test.mjs` drives real Chrome
+  against colour fixtures that overflow the viewport upward, downward and
+  sideways, and reads the stored screenshot back pixel by pixel. Before the
+  fix, the below-fold half of a tall element scored 0.0% and the
+  above-the-fold case was 50% content the tester never selected; after, all
+  three land on the exact expected mix.
+
 ## [0.7.1] "Any Browser" — 2026-08-16
 
 Three defects found in real use, all of which made a whole feature unusable

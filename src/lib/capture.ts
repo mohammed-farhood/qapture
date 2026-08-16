@@ -43,9 +43,30 @@
  *     place.)
  *
  *  c. CROPPING — html2canvas's own x/y/width/height crop is applied to a
- *     re-scrolled clone in document space. We now render the viewport once
+ *     re-scrolled clone in document space. We now render the box we need once
  *     and crop with a plain 2D canvas, so the arithmetic is ours and
  *     verifiable.
+ *
+ *  d. SELECTIONS THAT LEAVE THE VIEWPORT (v0.7.2) — a dragged region is
+ *     clamped on screen by clampRegionRect(), but an element PICK is a raw
+ *     getBoundingClientRect(): click a tall column or a wide toolbar and the
+ *     box legitimately starts above the fold, ends below it, or runs off the
+ *     side. Rendering only the viewport and then clamping the crop ORIGIN to
+ *     zero while keeping the full width/height produced two failures, and the
+ *     second one is a lie rather than a shortfall:
+ *       • TRUNCATED — the capture stopped at the fold, so the tester filed a
+ *         fragment of the thing they pointed at.
+ *       • DISPLACED — for a negative top/left the crop slid down/right to fill
+ *         its height, so the image was the right SIZE but of the wrong part of
+ *         the page entirely.
+ *     Reported from a real app as "it only takes part of the screenshot — but
+ *     when I drag a region it's fine", which is exactly that asymmetry.
+ *     planRender() below now renders the UNION of the live viewport and the
+ *     selection, so an off-screen element is rendered in full and the crop
+ *     never has to ask for pixels that were not drawn. When the selection is
+ *     on screen the union IS the viewport, so every previously-measured case
+ *     renders byte-identically. scripts/element-capture-test.mjs measures all
+ *     three overflow directions against colour fixtures.
  *
  * Things deliberately NOT "fixed", having been checked and found already
  * correct in html2canvas@1.4.1: inner `overflow:auto` scroll offsets (it
@@ -87,6 +108,27 @@ const WEBP_QUALITY = 0.92;
 
 /** Attribute used to ferry live sticky offsets into html2canvas's clone. */
 const STUCK_ATTR = 'data-qa-stuck';
+
+/**
+ * Longest CSS edge of a selection we will follow off-screen.
+ *
+ * An element pick can legitimately be the whole scrolling column of a
+ * calendar, but it can just as easily be a wrapper `<div>` that is the entire
+ * document. Somewhere the "capture all of it" promise has to stop, and 4000px
+ * is several screens deep — past the point where a screenshot is still a
+ * useful thing to look at. Beyond it we keep the slice the tester can see.
+ */
+const MAX_CAPTURE_EDGE = 4000;
+
+/**
+ * How much we are willing to render for one off-screen selection, counted in
+ * whole viewports. A render costs width×height×scale² bytes of canvas, so an
+ * unbounded element on a retina screen is an easy way to be killed by the
+ * tab's memory ceiling. Past the budget the render scale drops instead of the
+ * framing — the stored shot is capped at MAX_SHOT_EDGE anyway, so this costs
+ * far less detail than it looks like it should.
+ */
+const MAX_RENDER_VIEWPORTS = 4;
 
 export type CaptureEngine = 'exact' | 'dom';
 
@@ -391,6 +433,81 @@ function cropCanvas(full: HTMLCanvasElement, rect: QaRect, scale: number): HTMLC
   return out;
 }
 
+/**
+ * The LAYOUT viewport (excludes any classic scrollbar) — the same box the live
+ * page used when the tester's rect was measured. See header point (b).
+ */
+function viewportSize(): { vw: number; vh: number } {
+  return {
+    vw: document.documentElement.clientWidth || window.innerWidth,
+    vh: document.documentElement.clientHeight || window.innerHeight,
+  };
+}
+
+/**
+ * The part of a selection that is actually on screen, or null when none of it
+ * is. Used by the exact engine, which cannot invent off-viewport pixels.
+ */
+export function intersectViewport(rect: QaRect): QaRect | null {
+  const { vw, vh } = viewportSize();
+  const left = Math.max(0, rect.left);
+  const top = Math.max(0, rect.top);
+  const right = Math.min(vw, rect.left + rect.width);
+  const bottom = Math.min(vh, rect.top + rect.height);
+  if (right - left < 2 || bottom - top < 2) return null;
+  return { left, top, width: right - left, height: bottom - top };
+}
+
+/** What to render, and where the selection sits inside it. */
+interface RenderPlan {
+  /** Document-space box to hand html2canvas. */
+  render: { x: number; y: number; width: number; height: number };
+  /** The selection, in coordinates relative to that box. */
+  crop: QaRect;
+}
+
+/**
+ * Decide the document-space box to render for a selection given in viewport
+ * coordinates. See header point (d).
+ *
+ * The box is the union of the live viewport and the selection. That choice is
+ * deliberate rather than "just render the selection":
+ *   - when the selection is on screen the union IS the viewport, so this is
+ *     the exact render every earlier measurement was taken against;
+ *   - the viewport stays in the render even when the selection sits mostly
+ *     outside it, which keeps `position: fixed` chrome and the pinned sticky
+ *     elements from markStuckElements() landing where the tester sees them.
+ */
+function planRender(rect: QaRect, sx: number, sy: number, vw: number, vh: number): RenderPlan {
+  // The selection, in document space.
+  let left = rect.left + sx;
+  let top = rect.top + sy;
+  let width = rect.width;
+  let height = rect.height;
+
+  // Over the edge budget we keep the window the tester is looking at: never
+  // start before the element itself, never start so late that we miss its far
+  // edge, and prefer the top-left of the viewport in between.
+  if (width > MAX_CAPTURE_EDGE) {
+    left = Math.max(left, Math.min(sx, left + width - MAX_CAPTURE_EDGE));
+    width = MAX_CAPTURE_EDGE;
+  }
+  if (height > MAX_CAPTURE_EDGE) {
+    top = Math.max(top, Math.min(sy, top + height - MAX_CAPTURE_EDGE));
+    height = MAX_CAPTURE_EDGE;
+  }
+
+  const x = Math.floor(Math.min(sx, left));
+  const y = Math.floor(Math.min(sy, top));
+  const right = Math.ceil(Math.max(sx + vw, left + width));
+  const bottom = Math.ceil(Math.max(sy + vh, top + height));
+
+  return {
+    render: { x, y, width: right - x, height: bottom - y },
+    crop: { left: left - x, top: top - y, width, height },
+  };
+}
+
 async function captureViaDom(
   rect: QaRect,
   sx: number,
@@ -398,22 +515,26 @@ async function captureViaDom(
   aggressiveColors = false,
 ): Promise<HTMLCanvasElement | null> {
   const { default: html2canvas } = await import('html2canvas');
-  const scale = Math.min(window.devicePixelRatio || 1, 2);
+  const { vw, vh } = viewportSize();
+  const plan = planRender(rect, sx, sy, vw, vh);
 
-  // The LAYOUT viewport (excludes any classic scrollbar) — the same box the
-  // live page used when the tester's rect was measured. See header point (b).
-  const vw = document.documentElement.clientWidth || window.innerWidth;
-  const vh = document.documentElement.clientHeight || window.innerHeight;
+  // Device-pixel factor for the render. Only an off-screen selection can push
+  // the render past one viewport, so the budget below is a no-op for every
+  // region drag and for element picks that fit on screen.
+  let scale = Math.min(window.devicePixelRatio || 1, 2);
+  const budget = vw * vh * MAX_RENDER_VIEWPORTS;
+  const area = plan.render.width * plan.render.height;
+  if (area > budget) scale *= Math.sqrt(budget / area);
 
   const marked = markStuckElements();
   try {
     const full = await withTimeout(
       html2canvas(document.body, {
-        // Render exactly the current viewport, in document coordinates.
-        x: sx,
-        y: sy,
-        width: vw,
-        height: vh,
+        // The box to render, in document coordinates.
+        x: plan.render.x,
+        y: plan.render.y,
+        width: plan.render.width,
+        height: plan.render.height,
         scale,
         useCORS: true,
         allowTaint: true,
@@ -422,6 +543,10 @@ async function captureViaDom(
         // CSS Color 4 treatment the document walk applies.
         backgroundColor: safeBackgroundColor(resolvePageBackground(), FALLBACK_PAGE_BACKGROUND),
         logging: false,
+        // The clone's own scroll + viewport, which is what `position: fixed`
+        // resolves against. It stays the LIVE viewport even when the render
+        // box is bigger, so fixed chrome is drawn where the tester sees it
+        // rather than smeared over the whole render.
         scrollX: sx,
         scrollY: sy,
         windowWidth: vw,
@@ -440,7 +565,7 @@ async function captureViaDom(
       HTML2CANVAS_TIMEOUT_MS,
     );
     if (!full) return null;
-    return cropCanvas(full, rect, scale);
+    return cropCanvas(full, plan.crop, scale);
   } finally {
     unmarkStuckElements(marked);
   }
@@ -480,8 +605,16 @@ export async function captureRegion(
 
   // ── Exact engine ────────────────────────────────────────────────────────
   if (prefer !== 'dom' && getExactCaptureStatus() === 'live') {
+    // It photographs the composited tab, so pixels outside the viewport do not
+    // exist for it at any price. Trim the selection to what is on screen: a
+    // correctly framed fragment beats grabExactRegion()'s origin clamp, which
+    // would slide a partly-off-screen rect across the page and hand back the
+    // wrong content at the right size. (The DOM engine has no such limit — it
+    // re-renders, so planRender() gets it the whole element.)
+    const visible = intersectViewport(rect);
+    if (!visible) return { status: 'empty' };
     try {
-      const canvas = await withOverlayHidden(() => grabExactRegion(rect));
+      const canvas = await withOverlayHidden(() => grabExactRegion(visible));
       if (canvas) {
         const blob = await encodeShot(canvas);
         if (blob) return { status: 'ok', blob, engine: 'exact' };

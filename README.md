@@ -315,6 +315,22 @@ rewritten in place, and a render that still throws is retried once with
 decoration stripped. `npm run modern-css-test` proves it, and proves itself:
 it first asserts that raw html2canvas *still* dies on the same fixture.
 
+**v0.7.2 fixed the last of the mis-framing: clicking an element only captured
+the part of it that was on screen.** Dragged regions are clamped into the
+viewport before capture, so they were always safe — but an element *pick* is a
+raw `getBoundingClientRect()`, and a table column, a sidebar, a long form or a
+wide toolbar routinely extends past the fold. You got a fragment. And when the
+element started *above* the viewport, the crop slid down the page to fill its
+height, so the screenshot was the right size showing the wrong content — a
+failure with nothing on screen to reveal it.
+
+Captures now render the union of the viewport and the selection, so an element
+that leaves the screen in any direction is rendered whole, up to 4000px per
+side (past a four-viewport render budget the scale drops, not the framing).
+The exact engine can't photograph off-screen pixels, so there the selection is
+trimmed to the visible part instead — cropped, never displaced. `npm run
+element-capture-test` measures all three overflow directions.
+
 ### `exact` — opt-in, pixel-for-pixel
 
 Uses the Screen Capture API to photograph **this tab's real composited
