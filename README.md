@@ -298,6 +298,23 @@ You can measure this yourself — `npm run capture-accuracy-test` captures a
 rectangle straddling a colour boundary and reports the error in pixels. It
 reads 0.0px on 0.4.0 and 20px (of a 40px capture) on 0.3.1.
 
+**v0.7.1 fixed a second, much louder failure: no screenshot at all.**
+html2canvas ships its own CSS colour parser, and it predates CSS Color 4.
+Handed `oklch(...)` it throws, and the throw aborts the whole render — so the
+tester saw "Screenshot failed" and a Retry that re-ran the identical render and
+could never succeed. Tailwind v4 emits `oklch()` for its entire default
+palette and shadcn/ui inherits it, so on those stacks screenshots never worked
+at all, on any page. `lab()`, `lch()`, `oklab()`, `color()` and `color-mix()`
+failed the same way.
+
+Qapture now rewrites those colours to plain sRGB inside the clone html2canvas
+renders — never in your page. The conversion paints each colour onto a 1×1
+canvas and reads the pixel back rather than reading `fillStyle` as a string,
+because Chrome round-trips `oklch(...)` unchanged. Gradients and shadows are
+rewritten in place, and a render that still throws is retried once with
+decoration stripped. `npm run modern-css-test` proves it, and proves itself:
+it first asserts that raw html2canvas *still* dies on the same fixture.
+
 ### `exact` — opt-in, pixel-for-pixel
 
 Uses the Screen Capture API to photograph **this tab's real composited
@@ -359,9 +376,22 @@ Behaviour worth knowing:
   than having to find the folder again.
 - Export is unchanged and still works; this is a second, always-on copy.
 
-**Chromium desktop only.** The File System Access API has no equivalent in
-Firefox, Safari or any mobile browser — there, Settings says so and points at
-Export.
+**Everywhere, by one of two routes (v0.7.1).** Writing into a folder the
+tester picked is the File System Access API, which is Chromium desktop only —
+Safari has never shipped `showDirectoryPicker`, and its only filesystem API is
+a sandbox the tester cannot see.
+
+So on Safari, Firefox and phones the same feature runs a second way: name the
+project and campaign as usual, and Qapture assembles the identical tree and
+hands it over as a **ZIP whose internal paths are `<Project>/<Campaign>/…`**.
+Unzip it into your QA folder and you get the same layout, the same filenames
+and the same sequence numbers Chromium writes live. It refreshes itself every
+few points, and **Save folder now** grabs it on demand.
+
+The engine is chosen by feature detection rather than by sniffing the browser,
+so Safari upgrades itself to live writing the day WebKit ships the picker.
+Stopping a campaign and restarting it keeps its numbering, so a later ZIP never
+disagrees with one already in your folder.
 
 ---
 
@@ -412,7 +442,7 @@ All fields are optional. Passing an empty object (or no config at all) produces 
 | `brand` | `{ label?: string }` | `{ label: 'Qapture' }` | Panel heading label. |
 | `loginField` | `{ en: string; ar?: string }` | `{ en: 'Username', ar: 'اسم المستخدم' }` | Display label for the login column in the Credentials tab. |
 | `credentials` | `QaCredential[]` | `[]` | DEV/TEST/SEED login rows shown in the Credentials tab. |
-| `journey` | `QaJourneyLane[]` | `[]` | Role-grouped testing journey shown in the Guide tab. |
+| `journey` | `QaJourneyLane[]` | `[]` | Role-grouped testing journey shown in the Guide tab. **If you leave this empty, the Guide falls back to a built-in generic plan** (see below) rather than rendering an empty tab. |
 | `preamble` | `QaPreamble` | `null` | AI agent handoff context block embedded in the export. |
 | `rtl` | `boolean` | `false` | When `true`, the UI initialises in Arabic / RTL mode. |
 | `visible` | `boolean \| undefined` | `undefined` | `true` = always show; `false` = always hide; `undefined` = dev-only (hidden in production). |
@@ -491,6 +521,13 @@ Array fields also accept a plain newline-separated string; the export normalises
 ---
 
 ## Graded Risk Model
+
+**If you define no journey at all (v0.7.1),** the Guide shows a built-in
+generic plan instead of an empty page — first look, moving around, the main
+task, when it goes wrong, on a phone. It is labelled in the UI as generic, with
+a pointer to `qa.config`, so nobody mistakes it for coverage of *your* app; it
+exists because an empty checklist taught the tester nothing and silently asked
+them to invent one. Define `journey` and it disappears.
 
 Each journey step carries a `risk` value. The Guide tab shows a coloured dot beside every step; the export leads with a coverage report scored on RED steps.
 
@@ -737,7 +774,8 @@ The **capture hotkey** (default: `Shift+Alt+C`, i.e. `Option+Shift+C` on macOS) 
 | Capture, notes, export | ✅ | ✅ | ✅ |
 | `dom` screenshots (default) | ✅ | ✅ | ✅ |
 | Pixel-exact screenshots | ✅ opt-in | — | — |
-| Save to a folder | ✅ opt-in | — | — |
+| Save to a folder, live | ✅ opt-in | — | — |
+| Save to a folder, as a zip | ✅ | ✅ | ✅ |
 | Storage meter | ✅ | ✅ (Safari reports coarse numbers) | ✅ |
 | Persistent storage request | ✅ | Firefox prompts; Safari ignores | varies |
 

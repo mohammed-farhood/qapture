@@ -171,8 +171,6 @@ let campaign: FsCampaign | null = null;
 let noteIndex: Record<string, NoteIndexEntry> = {};
 let state: FsSyncState = 'unsupported';
 let lastError = '';
-/** Chosen by feature detection on first use, never by user-agent sniffing. */
-let engine: FsSyncEngine = 'disk';
 /**
  * The meta store, captured on restore/choose so the download engine can
  * persist its campaign without every call site having to pass it through.
@@ -213,11 +211,19 @@ export function isFsSyncSupported(): boolean {
  * the picker the campaign is delivered as a folder-shaped ZIP instead.
  */
 export function isFsSyncAvailable(): boolean {
-  return typeof window !== 'undefined' && typeof document !== 'undefined';
+  return typeof window !== 'undefined';
 }
 
+/**
+ * Which engine is in play.
+ *
+ * The ZIP engine additionally needs a `document` to hand the file over, so a
+ * window without one (SSR shims, test harnesses) reports 'disk' and simply
+ * finds no picker — rather than promising a download it cannot deliver.
+ */
 export function getFsSyncEngine(): FsSyncEngine {
-  return isFsSyncSupported() ? 'disk' : 'download';
+  if (isFsSyncSupported() || typeof document === 'undefined') return 'disk';
+  return 'download';
 }
 
 export function getFsSyncState(): FsSyncState {
@@ -248,10 +254,10 @@ export function getFsSyncRootName(): string {
 export function getFsSyncPath(): string {
   // The download engine has no root folder — the path it reports is the tree
   // the tester will find INSIDE the ZIP, which is the thing they care about.
-  if (!root) {
-    if (getFsSyncEngine() === 'download' && campaign) return campaignRelativePath();
-    return '';
-  }
+  // Keyed off the engine, not off `root`: a stale handle must never make the
+  // ZIP claim to be writing somewhere on disk.
+  if (getFsSyncEngine() === 'download') return campaign ? campaignRelativePath() : '';
+  if (!root) return '';
   if (!campaign) return root.name;
   return `${root.name}/${campaignRelativePath()}`;
 }
@@ -353,17 +359,16 @@ async function permissionFor(handle: FsDirectoryHandle, request: boolean): Promi
  */
 export async function restoreFsSync(store: FsSyncStore): Promise<FsSyncState> {
   metaStore = store;
-  engine = getFsSyncEngine();
   if (!isFsSyncAvailable()) { setState('unsupported'); return 'unsupported'; }
 
   // Download engine: nothing to re-permission, but the campaign and its note
   // numbering must survive the reload or the next ZIP renumbers everything.
-  if (engine === 'download') {
+  if (getFsSyncEngine() === 'download') {
     try {
-      const saved = await store.getMeta<{ campaign: FsCampaign; notes: Record<string, NoteIndexEntry> }>(
-        FS_CAMPAIGN_META_KEY,
-      );
-      if (saved?.campaign?.project) {
+      const saved = await store.getMeta<DownloadRecord>(FS_CAMPAIGN_META_KEY);
+      // active === false means the tester stopped it on purpose; the record is
+      // kept only so restarting that campaign continues its numbering.
+      if (saved?.campaign?.project && saved.active !== false) {
         campaign = saved.campaign;
         noteIndex = saved.notes ?? {};
         setState('syncing');
@@ -469,8 +474,21 @@ export async function openFsCampaign(input: {
   if (getFsSyncEngine() === 'download') {
     const sameAsBefore =
       campaign?.project === input.project && campaign?.campaign === input.campaign;
-    const startedAt = sameAsBefore && campaign ? campaign.startedAt : new Date().toISOString();
-    if (!sameAsBefore) noteIndex = {};
+    let startedAt = sameAsBefore && campaign ? campaign.startedAt : new Date().toISOString();
+    if (!sameAsBefore) {
+      noteIndex = {};
+      // Re-opening a campaign by name — after a stop, or after a reload —
+      // must continue where it left off, exactly as the disk engine does by
+      // re-reading campaign.json.
+      try {
+        const saved = await metaStore?.getMeta<DownloadRecord>(FS_CAMPAIGN_META_KEY);
+        if (saved?.campaign?.project === input.project &&
+            saved.campaign.campaign === input.campaign) {
+          noteIndex = saved.notes ?? {};
+          startedAt = saved.campaign.startedAt || startedAt;
+        }
+      } catch { /* start fresh rather than fail to open */ }
+    }
     campaign = {
       project: input.project,
       campaign: input.campaign,
@@ -524,11 +542,13 @@ export async function openFsCampaign(input: {
 
 /** Stop writing to the current campaign (the folder stays on disk). */
 export function closeFsCampaign(): void {
+  // Record the stopped campaign before dropping it, so restarting it later
+  // resumes its numbering instead of colliding with files already saved.
+  if (getFsSyncEngine() === 'download') void persistDownloadCampaign(false);
   campaignDir = notesDir = shotsDir = null;
   campaign = null;
   noteIndex = {};
   if (getFsSyncEngine() === 'download') {
-    void metaStore?.deleteMeta(FS_CAMPAIGN_META_KEY);
     setState('connected');
     return;
   }
@@ -536,15 +556,29 @@ export function closeFsCampaign(): void {
 }
 
 /**
+ * What the download engine remembers between sessions.
+ *
+ * `active` separates "the tester is mid-campaign" from "this campaign is
+ * finished but its numbering still matters". Stopping used to erase the
+ * record, so restarting the same campaign renumbered from 0001 and the next
+ * ZIP disagreed with the one already sitting in the tester's QA folder.
+ */
+type DownloadRecord = {
+  campaign: FsCampaign;
+  notes: Record<string, NoteIndexEntry>;
+  active: boolean;
+};
+
+/**
  * Persist the download engine's campaign + note index.
  *
  * Best-effort: a failure here costs continuity of numbering after a reload,
  * never a note — those live in the notes store regardless.
  */
-async function persistDownloadCampaign(): Promise<void> {
+async function persistDownloadCampaign(active = true): Promise<void> {
   if (!metaStore || !campaign) return;
   try {
-    await metaStore.setMeta(FS_CAMPAIGN_META_KEY, { campaign, notes: noteIndex });
+    await metaStore.setMeta(FS_CAMPAIGN_META_KEY, { campaign, notes: noteIndex, active });
   } catch { /* numbering may restart after a reload; nothing is lost */ }
 }
 

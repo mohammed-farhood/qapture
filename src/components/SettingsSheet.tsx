@@ -75,6 +75,7 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
     t, dir,
     sync, chooseSyncFolder, reconnectSyncFolder, startSyncCampaign,
     stopSyncCampaign, forgetSyncFolder, suggestCampaignName, lastCampaign,
+    saveSyncFolderNow,
     storageHealth, refreshStorageHealth, requestPersistentStorage, dropAllScreenshots,
     autoBackup, setAutoBackup, autoBackupEvery,
     errorCatcher, setErrorCatcher,
@@ -103,6 +104,8 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
   };
 
   const syncing = sync.state === 'syncing';
+  // No folder picker here — the campaign is delivered as a folder-shaped ZIP.
+  const viaZip = sync.engine === 'download';
   const quotaKnown = storageHealth.supported && storageHealth.quotaBytes > 0;
   const usedPct = quotaKnown ? Math.min(100, Math.round(storageHealth.ratio * 100)) : 0;
   const meterColor =
@@ -134,6 +137,12 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
         <Section icon="Folder" title={t('sync_title')}>
           <p className="qa-m-0 qa-text-10 qa-text-lo qa-leading-relaxed">{t('sync_hint')}</p>
 
+          {viaZip ? (
+            <p className="qa-m-0 qa-rounded-lg qa-border qa-border-dashed qa-border-subtle qa-p-2 qa-text-10 qa-text-mid qa-leading-relaxed">
+              {t('sync_zip_mode')}
+            </p>
+          ) : null}
+
           {!sync.supported ? (
             <p className="qa-m-0 qa-rounded-lg qa-border qa-border-dashed qa-border-subtle qa-p-2 qa-text-10 qa-text-mid">
               {t('sync_unsupported')}
@@ -162,26 +171,51 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
             </button>
           ) : syncing ? (
             <div className="qa-space-y-2">
+              {viaZip && (
+                <p className="qa-m-0 qa-text-10 qa-text-lo">{t('sync_zip_where')}</p>
+              )}
               <p className="qa-m-0 qa-flex qa-items-center qa-gap-1.5 qa-rounded-lg qa-bg-success-tint qa-text-success qa-px-2 qa-py-1.5 qa-text-10">
                 <Icon name="FolderCheck" size={13} className="qa-shrink-0" />
                 <span className="qa-truncate qa-dir-ltr" dir="ltr" title={sync.path}>{sync.path}</span>
               </p>
-              <button
-                type="button"
-                onClick={stopSyncCampaign}
-                className="qa-tap qa-rounded-lg qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-10 qa-text-mid"
-                style={{ background: 'transparent', cursor: 'pointer' }}
-              >
-                {t('sync_stop')}
-              </button>
+              <div className="qa-flex qa-flex-wrap qa-gap-2">
+                {/*
+                  The ZIP engine saves itself every few points, but a tester
+                  about to close the laptop should never have to wait for the
+                  next milestone to get their folder.
+                */}
+                {viaZip && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void run(saveSyncFolderNow)}
+                    className="qa-tap qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-lg qa-bg-accent qa-px-3 qa-py-1.5 qa-text-xs qa-font-semibold"
+                    style={{ border: 'none', cursor: 'pointer' }}
+                  >
+                    <Icon name="Download" size={13} />
+                    {t('sync_zip_save_now')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={stopSyncCampaign}
+                  className="qa-tap qa-rounded-lg qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-10 qa-text-mid"
+                  style={{ background: 'transparent', cursor: 'pointer' }}
+                >
+                  {t('sync_stop')}
+                </button>
+              </div>
             </div>
           ) : (
             /* connected: folder chosen, campaign not open yet */
             <div className="qa-space-y-2">
-              <p className="qa-m-0 qa-flex qa-items-center qa-gap-1.5 qa-text-10 qa-text-mid">
-                <Icon name="Folder" size={12} className="qa-shrink-0" />
-                <span className="qa-truncate qa-dir-ltr" dir="ltr">{sync.path}</span>
-              </p>
+              {/* No root folder exists on the ZIP engine — nothing to show. */}
+              {!viaZip && (
+                <p className="qa-m-0 qa-flex qa-items-center qa-gap-1.5 qa-text-10 qa-text-mid">
+                  <Icon name="Folder" size={12} className="qa-shrink-0" />
+                  <span className="qa-truncate qa-dir-ltr" dir="ltr">{sync.path}</span>
+                </p>
+              )}
               <Field label={t('sync_project')} value={project} placeholder={t('sync_project_ph')} onChange={setProject} />
               <Field label={t('sync_campaign')} value={campaign} placeholder={t('sync_campaign_ph')} onChange={setCampaign} />
               <Field label={t('sync_tester')} value={tester} placeholder={t('sync_tester_ph')} onChange={setTester} />
@@ -198,17 +232,20 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
                   style={{ border: 'none', cursor: 'pointer' }}
                 >
                   <Icon name="Check" size={13} />
-                  {t('sync_start')}
+                  {viaZip ? t('sync_zip_start') : t('sync_start')}
                 </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void run(forgetSyncFolder)}
-                  className="qa-tap qa-rounded-lg qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-10 qa-text-mid"
-                  style={{ background: 'transparent', cursor: 'pointer' }}
-                >
-                  {t('sync_forget')}
-                </button>
+                {/* "Forget folder" is meaningless when no folder was picked. */}
+                {!viaZip && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void run(forgetSyncFolder)}
+                    className="qa-tap qa-rounded-lg qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-10 qa-text-mid"
+                    style={{ background: 'transparent', cursor: 'pointer' }}
+                  >
+                    {t('sync_forget')}
+                  </button>
+                )}
               </div>
             </div>
           )}

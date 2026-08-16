@@ -195,6 +195,93 @@ try {
   ok(!JSON.parse(campaignDir._files.get('campaign.json').data).notes.n2,
     'the deleted note is dropped from the campaign index');
 
+  // ── The download engine (Safari, Firefox, phones) ──────────────────────
+  // Same feature, no picker: the campaign is bookkept in memory and delivered
+  // as a folder-shaped ZIP. What matters here is that removing the picker does
+  // NOT disable the feature — it used to leave the tester with nothing.
+  {
+    const savedWindow = globalThis.window;
+    globalThis.window = {};                     // no showDirectoryPicker
+    globalThis.document = { createElement: () => ({ click() {}, remove() {} }) };
+    // JSZip reads Blob inputs through FileReader, which browsers have and Node
+    // does not. The product code hands JSZip Blobs exactly as the ZIP export
+    // has always done, so shim the missing browser API rather than weaken it.
+    if (typeof globalThis.FileReader === 'undefined') {
+      globalThis.FileReader = class {
+        readAsArrayBuffer(blob) {
+          blob.arrayBuffer().then(
+            (buf) => { this.result = buf; this.onload?.({ target: this }); },
+            (err) => { this.error = err; this.onerror?.({ target: this }); },
+          );
+        }
+      };
+    }
+    const zipStore = makeStore();
+
+    ok(fs.isFsSyncSupported() === false, 'no picker here, so live disk writing is off');
+    ok(fs.isFsSyncAvailable() === true, 'but folder saving is still AVAILABLE (this is the Safari fix)');
+    ok(fs.getFsSyncEngine() === 'download', 'and it runs on the download engine');
+
+    await fs.restoreFsSync(zipStore);
+    ok(fs.getFsSyncState() === 'connected',
+      'it needs no folder to be picked — it is ready immediately');
+
+    ok(await fs.openFsCampaign({ project: 'Project Z', campaign: 'safari run' }) === true,
+      'a campaign opens with no filesystem at all');
+    ok(fs.getFsSyncState() === 'syncing', 'and it reports as syncing');
+
+    const zn = note({ id: 'z1', description: 'Safari finding', screenshot: shot });
+    ok(await fs.syncNoteToDisk(zn, [zn]) === true, 'notes are accepted');
+    const persisted = await zipStore.getMeta('fsSyncCampaign');
+    ok(!!persisted && persisted.notes.z1.seq === 1,
+      'the campaign + numbering is persisted, so a reload does not renumber');
+    ok(persisted.notes.z1.file === '0001-safari-finding.md',
+      `filenames match the disk engine exactly (got "${persisted.notes.z1.file}")`);
+    ok(persisted.notes.z1.shot === '0001-safari-finding.webp',
+      'screenshots keep the same base name and real extension');
+
+    ok(fs.getFsSyncPath() === 'Project Z/safari run',
+      `the reported path is the tree inside the zip (got "${fs.getFsSyncPath()}")`);
+    ok(fs.campaignZipFileName() === 'Project Z - safari run.zip',
+      `the zip is named for the campaign, not timestamped (got "${fs.campaignZipFileName()}")`);
+
+    // Resuming after a reload must continue, not restart.
+    fs.closeFsCampaign();
+    await fs.openFsCampaign({ project: 'Project Z', campaign: 'safari run' });
+    const zn2 = note({ id: 'z2', description: 'Second safari finding' });
+    await fs.syncNoteToDisk(zn2, [zn2, zn]);
+    const after = await zipStore.getMeta('fsSyncCampaign');
+    ok(after.notes.z2.seq === 2, 'reopening the same campaign continues the numbering');
+
+    // The actual deliverable: a ZIP whose INTERNAL PATHS are the folder tree.
+    // If these paths are wrong the tester unzips a mess into their QA folder,
+    // and nothing else in this file would notice.
+    const blob = await fs.buildCampaignZipBlob([zn2, zn]);
+    ok(!!blob && blob.size > 0, `buildCampaignZipBlob() produces an archive (${fs.getFsSyncError() || 'no error'})`);
+    if (blob) {
+      const { default: JSZip } = await import('jszip');
+      const zip = await JSZip.loadAsync(Buffer.from(await blob.arrayBuffer()));
+      const paths = Object.keys(zip.files).filter((f) => !zip.files[f].dir).sort();
+      const want = [
+        'Project Z/safari run/REPORT.md',
+        'Project Z/safari run/campaign.json',
+        'Project Z/safari run/notes/0001-safari-finding.md',
+        'Project Z/safari run/notes/0002-second-safari-finding.md',
+        'Project Z/safari run/screenshots/0001-safari-finding.webp',
+      ];
+      for (const w of want) {
+        ok(paths.includes(w), `the zip contains ${w}`);
+      }
+      const report = await zip.file('Project Z/safari run/REPORT.md').async('string');
+      ok(report.includes('Project Z') && report.includes('Safari finding'),
+        'REPORT.md inside the zip is the real campaign report');
+    }
+
+    globalThis.window = savedWindow;
+    delete globalThis.document;
+    delete globalThis.FileReader;
+  }
+
   // ── Disconnecting ──────────────────────────────────────────────────────
   await fs.disconnectFsSync(store);
   ok(fs.getFsSyncState() === 'off', 'disconnectFsSync() stops syncing');

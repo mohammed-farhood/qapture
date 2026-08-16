@@ -3,6 +3,74 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.1] "Any Browser" — 2026-08-16
+
+Three defects found in real use, all of which made a whole feature unusable
+rather than merely awkward. No breaking changes.
+
+### Fixed
+
+- **Screenshots failed completely on modern apps.** html2canvas@1.4.1 carries
+  its own CSS colour parser, and that parser predates CSS Color 4. Handed
+  `oklch(...)` it does not skip the element or degrade — it throws, and the
+  throw aborts the entire render. The tester got "Screenshot failed" and a
+  Retry button that re-ran the identical render, so it could never succeed.
+
+  This is not an edge case. Tailwind CSS v4 emits `oklch()` for its whole
+  default palette, and shadcn/ui inherits that for every theme token, so any
+  app on that stack could never take a single screenshot, on any page. `lab()`,
+  `lch()`, `oklab()`, `color()` and `color-mix()` failed the same way.
+
+  Colours are now rewritten to plain sRGB inside the document html2canvas
+  renders — the throwaway clone, never the real page. The conversion is done by
+  painting the colour onto a 1×1 canvas and reading the pixel back, **not** by
+  reading `fillStyle` as a string: Chrome round-trips `oklch(...)` as
+  `oklch(...)`, so a string swap silently handed the parser the same value it
+  chokes on. Colours inside gradients and shadows are rewritten in place, and a
+  render that still throws is retried once with decoration stripped, because a
+  flat screenshot beats none.
+
+- **The Retry button looked disabled.** It was the only button in the capture
+  card with no background or cursor style, so it fell back to the user agent's
+  grey `buttonface` — which in a dark panel reads as "you cannot press this".
+  The one control offered after a failure looked broken.
+
+- **The Guide was a blank page** whenever a project shipped no `journey` — it
+  rendered its own title, centred, over nothing. That is the common case,
+  because whoever installs the widget is focused on making it appear. The
+  tester was silently asked to invent a test plan and handed empty space to do
+  it on. The Guide now falls back to a generic plan that fits any web app
+  (first look, moving around, the main task, when it goes wrong, on a phone),
+  clearly labelled as generic with a pointer to `qa.config`, so the tab always
+  says something useful. A project that defines its own journey is unaffected.
+
+### Added
+
+- **Folder saving now works on Safari, Firefox and phones.** It was previously
+  refused outright with "needs Chrome, Edge or Brave" — the tester lost the
+  entire idea, not just the live-writing part of it.
+
+  Safari has never shipped `showDirectoryPicker` (its only filesystem API is
+  the Origin Private File System, a sandbox the tester cannot see), so writing
+  into a folder they picked is genuinely impossible there. But the valuable
+  part of this feature was never the liveness — it was the STRUCTURE: ten
+  projects, each with named campaigns, each campaign a readable folder.
+
+  So there are now two engines behind one feature. Chromium writes each note
+  the instant it is saved, as before. Everywhere else, the identical tree is
+  assembled and delivered as a ZIP whose internal paths are
+  `<Project>/<Campaign>/…` — unzip it into the QA folder and the result is the
+  same layout, the same filenames and the same sequence numbers Chromium
+  writes live. It refreshes itself every few points rather than waiting to be
+  asked, and a "Save folder now" button covers the tester about to close their
+  laptop.
+
+  The engine is chosen by feature detection, never by sniffing the user agent,
+  so Safari upgrades itself to live writing if WebKit ever ships the picker.
+
+  Stopping a campaign and restarting it keeps its numbering, so a later ZIP
+  never disagrees with one already sitting in the tester's folder.
+
 ## [0.7.0] "Walk" — 2026-08-15
 
 The Guide stops being a piece of paper. Everything in this release is about a

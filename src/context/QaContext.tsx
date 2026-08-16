@@ -1679,7 +1679,11 @@ export function QaProvider({
   useEffect(() => {
     if (!autoBackup) return;
     if (notes.length === 0 || isExporting) return;
-    if (getFsSyncState() === 'syncing') return; // already on disk, continuously
+
+    const syncing = getFsSyncState() === 'syncing';
+    const viaDownload = getFsSyncEngine() === 'download';
+    // The disk engine already wrote every note as it happened.
+    if (syncing && !viaDownload) return;
 
     const lastAt = Number(storage.getItem(AUTO_BACKUP_AT_KEY) ?? '0') || 0;
     if (notes.length < lastAt + AUTO_BACKUP_EVERY) return;
@@ -1687,6 +1691,23 @@ export function QaProvider({
     // Record the milestone BEFORE the async export, so a slow or failing
     // export can't retrigger this effect into a download loop.
     storage.setItem(AUTO_BACKUP_AT_KEY, String(notes.length));
+
+    // With a campaign open on the download engine, the periodic save IS the
+    // campaign folder — same tree, same filenames, replacing the previous
+    // copy. Falling back to the generic autosave ZIP here would scatter one
+    // campaign across differently-shaped archives.
+    if (syncing && viaDownload) {
+      const name = campaignZipFileName();
+      void downloadCampaignZip(notesRef.current).then((ok) => {
+        notify(ok ? t('sync_zip_saved', { name }) : t('sync_zip_failed'), {
+          tone: ok ? 'success' : 'error',
+          id: 'sync-zip',
+          duration: 3000,
+        });
+      });
+      return;
+    }
+
     const stamp = nowIso().slice(0, 16).replace(/[:T]/g, '-');
     void exportZipRef.current(`qa-autosave-${stamp}-${notes.length}`).then(() => {
       notify(t('autosave_done', { n: notes.length }), { id: 'autosave', duration: 3000 });
@@ -2113,9 +2134,15 @@ export function QaProvider({
    * becomes a URL. The parameter is consumed on arrival (stripped via
    * replaceState) so that a later reload resumes the tester's actual position
    * instead of restarting the walk from the top.
+   *
+   * Waits for notes to finish loading. A walk over captured points builds its
+   * stops from the notes that exist at the moment it starts, and on a cold
+   * page load IndexedDB has not answered yet — so starting immediately walked
+   * an empty list and silently ended, which looks exactly like a dead link.
    */
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (notesLoading) return;
     const params = new URLSearchParams(window.location.search);
     const raw = params.get('qa');
     if (!raw || !raw.startsWith('walk')) return;
@@ -2135,7 +2162,7 @@ export function QaProvider({
     } else {
       startWalk('plan', 0);
     }
-  }, [startWalk]);
+  }, [startWalk, notesLoading]);
 
   // ── Context value ─────────────────────────────────────────────────────────
 
