@@ -63,6 +63,7 @@
 
 import type { QaRect } from '../context/QaContext';
 import { getExactCaptureStatus, grabExactRegion } from './screenCapture';
+import { neutralizeDocumentColors, safeBackgroundColor } from './cssColors';
 
 const HTML2CANVAS_TIMEOUT_MS = 10000;
 
@@ -394,6 +395,7 @@ async function captureViaDom(
   rect: QaRect,
   sx: number,
   sy: number,
+  aggressiveColors = false,
 ): Promise<HTMLCanvasElement | null> {
   const { default: html2canvas } = await import('html2canvas');
   const scale = Math.min(window.devicePixelRatio || 1, 2);
@@ -416,7 +418,9 @@ async function captureViaDom(
         useCORS: true,
         allowTaint: true,
         // The page's own background, never null — see resolvePageBackground().
-        backgroundColor: resolvePageBackground(),
+        // Passed straight to html2canvas's parser, so it gets the same
+        // CSS Color 4 treatment the document walk applies.
+        backgroundColor: safeBackgroundColor(resolvePageBackground(), FALLBACK_PAGE_BACKGROUND),
         logging: false,
         scrollX: sx,
         scrollY: sy,
@@ -426,7 +430,12 @@ async function captureViaDom(
           el.nodeType === 1 &&
           typeof (el as HTMLElement).hasAttribute === 'function' &&
           (el as HTMLElement).hasAttribute('data-qa-overlay'),
-        onclone: (doc: Document) => pinStuckClones(doc),
+        onclone: (doc: Document) => {
+          // Order matters: colours first, so a sticky element that is pinned
+          // below is also colour-safe by the time html2canvas reads it.
+          neutralizeDocumentColors(doc, aggressiveColors);
+          pinStuckClones(doc);
+        },
       }),
       HTML2CANVAS_TIMEOUT_MS,
     );
@@ -494,7 +503,19 @@ export async function captureRegion(
     return blob ? { status: 'ok', blob, engine: 'dom' } : { status: 'failed' };
   } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn('[QA] region capture failed:', err);
-    return { status: 'failed' };
+    console.warn('[QA] region capture failed, retrying without gradients/shadows:', err);
+    // Second attempt: strip the decoration html2canvas may still be choking
+    // on. A flatter screenshot still shows the tester what they selected —
+    // which is the entire point — where a failure shows them nothing.
+    try {
+      const canvas = await captureViaDom(rect, sx, sy, true);
+      if (!canvas) return { status: 'failed' };
+      const blob = await encodeShot(canvas);
+      return blob ? { status: 'ok', blob, engine: 'dom' } : { status: 'failed' };
+    } catch (retryErr) {
+      // eslint-disable-next-line no-console
+      console.warn('[QA] region capture failed after retry:', retryErr);
+      return { status: 'failed' };
+    }
   }
 }

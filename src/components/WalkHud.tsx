@@ -31,6 +31,7 @@ import { useEffect } from 'react';
 import { useQa } from '../context/QaContext';
 import { Icon, type IconName } from '../icons/Icon';
 import { flashLocate } from '../lib/highlight';
+import { ANY_PAGE } from '../lib/fallbackJourney';
 
 const RISK_COLOR: Record<string, string> = {
   red: 'var(--qa-danger)',
@@ -217,8 +218,11 @@ export default function WalkHud() {
     );
   }
 
+  // '*' means "wherever you are" (generic plan steps), so there is nowhere to
+  // take the tester — offering to navigate to a literal "*" would 404 them.
   const onThisPage =
-    typeof window !== 'undefined' && stop.path === window.location.pathname;
+    stop.path === ANY_PAGE ||
+    (typeof window !== 'undefined' && stop.path === window.location.pathname);
 
   return (
     <div

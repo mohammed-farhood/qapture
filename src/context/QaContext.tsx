@@ -58,6 +58,7 @@ import {
 } from 'react';
 import type { ResolvedConfig, QaBilingual, QaCredential, QaJourneyLane, QaPreamble } from '../config/schema';
 import { matchRouteToSteps, type QaJourneyRef } from '../lib/journeyMatch';
+import { FALLBACK_JOURNEY, ANY_PAGE } from '../lib/fallbackJourney';
 import { drainSinceLastNote, readRecentSteps, collectEnvSnapshot, redactUrl, onIssue, type QaIssue, type QaNoteContext, type QaTargetForensics } from '../lib/contextBuffer';
 import { createStorage } from '../lib/storage';
 import { createIdb } from '../lib/idb';
@@ -88,10 +89,15 @@ import {
   reconnectFsSync,
   removeNoteFromDisk,
   restoreFsSync,
+  isFsSyncAvailable,
+  getFsSyncEngine,
+  downloadCampaignZip,
+  campaignZipFileName,
   syncAllToDisk,
   syncNoteToDisk,
   type FsCampaign,
   type FsSyncState,
+  type FsSyncEngine,
 } from '../lib/fsSync';
 import {
   EMPTY_STORAGE_HEALTH,
@@ -241,7 +247,10 @@ export type QaNoteCounts = {
 
 /** Everything the UI needs to describe the folder-sync feature. */
 export type QaSyncInfo = {
+  /** True where the feature is offered — now every browser (see fsSync.ts). */
   supported: boolean;
+  /** 'disk' writes live; 'download' delivers the same tree as a ZIP. */
+  engine: FsSyncEngine;
   state: FsSyncState;
   /** e.g. "QA/Project X/2026-08-14 smoke" */
   path: string;
@@ -316,6 +325,8 @@ export type QaContextValue = {
   loginField: { en: string; ar?: string };
   credentials: QaCredential[];
   journey: QaJourneyLane[];
+  /** True when `journey` is the built-in generic plan, not the project's own. */
+  journeyIsGeneric: boolean;
   preamble: QaPreamble | null;
 
   // i18n helpers
@@ -397,6 +408,8 @@ export type QaContextValue = {
   startSyncCampaign: (input: { project: string; campaign: string; tester?: string }) => Promise<boolean>;
   /** Stop writing to the current campaign. The folder stays on disk. */
   stopSyncCampaign: () => void;
+  /** Download engine: build and download the campaign folder now. */
+  saveSyncFolderNow: () => Promise<boolean>;
   /** Forget the folder entirely. Nothing on disk is deleted. */
   forgetSyncFolder: () => Promise<void>;
   /** Suggested campaign name for the setup form. */
@@ -1568,6 +1581,22 @@ export function QaProvider({
     notify(t('sync_paused'), { id: 'sync-state' });
   }, [notify, t]);
 
+  /**
+   * Deliver the campaign folder as a ZIP (download engine only).
+   *
+   * Also called on a schedule by the auto-backup effect below — this is the
+   * manual "I want it now" version, for a tester about to close the laptop.
+   */
+  const saveSyncFolderNow = useCallback(async (): Promise<boolean> => {
+    const name = campaignZipFileName();
+    const ok = await downloadCampaignZip(notesRef.current);
+    notify(ok ? t('sync_zip_saved', { name }) : t('sync_zip_failed'), {
+      tone: ok ? 'success' : 'error',
+      id: 'sync-zip',
+    });
+    return ok;
+  }, [notify, t]);
+
   const forgetSyncFolder = useCallback(async (): Promise<void> => {
     await disconnectFsSync(idb);
     storage.setJSON(LAST_CAMPAIGN_KEY, {});
@@ -2133,7 +2162,10 @@ export function QaProvider({
     brand:       config.brand,
     loginField:  config.loginField,
     credentials: config.credentials,
-    journey:     config.journey,
+    // Never the raw config value: an unconfigured project falls back to the
+    // generic plan so the Guide is never a blank page.
+    journey:     journeyOrEmpty(config.journey),
+    journeyIsGeneric: !config.journey?.some((lane) => lane.steps.length > 0),
     preamble:    config.preamble,
 
     // i18n helpers
@@ -2188,7 +2220,8 @@ export function QaProvider({
     // rebuilt when fsSync's module state changes (path/campaign live outside
     // React).
     sync: {
-      supported: isFsSyncSupported(),
+      supported: isFsSyncAvailable(),
+      engine: getFsSyncEngine(),
       state: syncState,
       path: syncTick >= 0 ? getFsSyncPath() : '',
       campaign: getFsSyncCampaign(),
@@ -2198,6 +2231,7 @@ export function QaProvider({
     reconnectSyncFolder,
     startSyncCampaign,
     stopSyncCampaign,
+    saveSyncFolderNow,
     forgetSyncFolder,
     suggestCampaignName,
     lastCampaign,
@@ -2249,8 +2283,17 @@ export function QaProvider({
 }
 
 /** Defensive normalizer — never trust an external config array is non-null. */
+/**
+ * The journey to test against.
+ *
+ * A project that defines one gets exactly that. A project that does not gets
+ * the generic plan rather than an empty Guide tab — see fallbackJourney.ts for
+ * why an empty checklist was worse than a non-specific one.
+ */
 function journeyOrEmpty(journey: QaJourneyLane[] | null | undefined): QaJourneyLane[] {
-  return Array.isArray(journey) ? journey : [];
+  const configured = Array.isArray(journey) ? journey : [];
+  const hasSteps = configured.some((lane) => lane.steps.length > 0);
+  return hasSteps ? configured : FALLBACK_JOURNEY;
 }
 
 // ---------------------------------------------------------------------------

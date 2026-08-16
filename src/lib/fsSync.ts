@@ -24,13 +24,37 @@
  * campaign readable without opening a browser. Export still works and is
  * unchanged — this is a second, always-on copy, not a replacement.
  *
- * PLATFORM REALITY
- * ----------------
- * This is the File System Access API: Chromium desktop only (Chrome, Edge,
- * Brave, Opera). Firefox and Safari have no equivalent that can write to a
- * user-chosen folder without a download prompt per file, and neither does any
- * mobile browser. isFsSyncSupported() gates the whole feature; everywhere
- * else the UI points at Export instead, and nothing here ever runs.
+ * TWO ENGINES (v0.7.1)
+ * --------------------
+ * Writing straight into a folder the tester picked is the File System Access
+ * API, and that is Chromium desktop only. Safari has never shipped
+ * showDirectoryPicker — only the Origin Private File System, a sandbox the
+ * tester cannot see, which is useless for "give me my notes as files". Firefox
+ * is the same, and so is every mobile browser.
+ *
+ * Until v0.7.1 that was where the feature stopped: Safari testers were shown
+ * "use Export instead" and lost the whole idea. But the valuable part of
+ * folder saving was never the live writing — it was the STRUCTURE. Ten
+ * projects, each with named campaigns, each campaign a readable folder. That
+ * part needs no privileged API at all.
+ *
+ * So there are two engines behind one feature:
+ *
+ *   'disk'     — Chromium. Every note is written the instant it is saved.
+ *   'download' — everywhere else. The exact same tree is assembled in memory
+ *                and handed over as a ZIP whose INTERNAL PATHS are
+ *                `<Project>/<Campaign>/…`. Unzip it into the QA folder and the
+ *                result is byte-for-byte the layout Chromium writes live.
+ *
+ * The download engine refreshes itself every few notes rather than waiting for
+ * the tester to remember, so the crash-safety promise survives too — one
+ * unzip behind instead of continuous, which is the honest maximum the platform
+ * allows. Both engines share the naming, the sequence numbering, REPORT.md and
+ * campaign.json, because they are the same feature.
+ *
+ * Deliberately NOT browser-sniffed: the engine is chosen by feature detection,
+ * so if WebKit ever ships the picker, Safari silently upgrades to live writing
+ * with no code change here.
  *
  * The chosen directory handle is stored in IndexedDB (it is a structured-
  * cloneable object, not a string, so localStorage cannot hold it). Browsers
@@ -84,6 +108,17 @@ const MAX_SLUG_LENGTH = 48;
 export const FS_ROOT_META_KEY = 'fsSyncRoot';
 
 /**
+ * IndexedDB `meta` key holding the download engine's campaign state.
+ *
+ * The disk engine keeps this in campaign.json on disk and re-reads it when a
+ * folder is re-opened. The download engine has nowhere to put it — a ZIP in
+ * the Downloads folder cannot be read back — so it lives here instead. Without
+ * it, a reload would restart numbering at 0001 and the next ZIP would disagree
+ * with the previous one about which note is which.
+ */
+export const FS_CAMPAIGN_META_KEY = 'fsSyncCampaign';
+
+/**
  * The subset of the IDB adapter this module needs. Passing it in (rather than
  * creating another connection) keeps one DB open per namespace.
  */
@@ -93,10 +128,18 @@ export type FsSyncStore = {
   deleteMeta(key: string): Promise<void>;
 };
 
+/**
+ * How the campaign folder reaches the tester's disk.
+ *
+ * 'disk'     — written continuously, file by file, as each note is saved.
+ * 'download' — assembled in memory and delivered as a folder-shaped ZIP.
+ */
+export type FsSyncEngine = 'disk' | 'download';
+
 export type FsSyncState =
-  /** No File System Access API here (Firefox, Safari, all mobile). */
+  /** Not in a browser at all (SSR). The download engine covers every browser. */
   | 'unsupported'
-  /** Supported, but no folder chosen yet. */
+  /** Available, but no folder chosen / no campaign named yet. */
   | 'off'
   /** A folder is remembered but the browser dropped write permission. */
   | 'needs-permission'
@@ -128,6 +171,13 @@ let campaign: FsCampaign | null = null;
 let noteIndex: Record<string, NoteIndexEntry> = {};
 let state: FsSyncState = 'unsupported';
 let lastError = '';
+/** Chosen by feature detection on first use, never by user-agent sniffing. */
+let engine: FsSyncEngine = 'disk';
+/**
+ * The meta store, captured on restore/choose so the download engine can
+ * persist its campaign without every call site having to pass it through.
+ */
+let metaStore: FsSyncStore | null = null;
 /** True while syncAllToDisk() is mirroring — suppresses per-note report writes. */
 let bulkWriting = false;
 
@@ -149,13 +199,36 @@ export function onFsSyncChange(fn: Listener): () => void {
   return () => { listeners.delete(fn); };
 }
 
+/**
+ * True where notes can be written into a folder the tester picked, live.
+ * Chromium desktop only — see the engine note at the top of this file.
+ */
 export function isFsSyncSupported(): boolean {
   return typeof window !== 'undefined' &&
     typeof (window as unknown as { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker === 'function';
 }
 
+/**
+ * True where the feature is offered at all. Every browser qualifies: without
+ * the picker the campaign is delivered as a folder-shaped ZIP instead.
+ */
+export function isFsSyncAvailable(): boolean {
+  return typeof window !== 'undefined' && typeof document !== 'undefined';
+}
+
+export function getFsSyncEngine(): FsSyncEngine {
+  return isFsSyncSupported() ? 'disk' : 'download';
+}
+
 export function getFsSyncState(): FsSyncState {
-  if (!isFsSyncSupported()) return 'unsupported';
+  if (!isFsSyncAvailable()) return 'unsupported';
+  // The download engine has no folder to pick and no permission to lose, so
+  // it is 'connected' from the start: all it needs is a campaign name.
+  if (!isFsSyncSupported()) {
+    if (state === 'syncing') return 'syncing';
+    if (state === 'error') return 'error';
+    return 'connected';
+  }
   return state === 'unsupported' ? 'off' : state;
 }
 
@@ -173,9 +246,33 @@ export function getFsSyncRootName(): string {
 
 /** Human-readable "where notes are landing", for the panel. */
 export function getFsSyncPath(): string {
-  if (!root) return '';
+  // The download engine has no root folder — the path it reports is the tree
+  // the tester will find INSIDE the ZIP, which is the thing they care about.
+  if (!root) {
+    if (getFsSyncEngine() === 'download' && campaign) return campaignRelativePath();
+    return '';
+  }
   if (!campaign) return root.name;
-  return `${root.name}/${safeSegment(campaign.project)}/${safeSegment(campaign.campaign)}`;
+  return `${root.name}/${campaignRelativePath()}`;
+}
+
+/** `Project X/2026-08-14 smoke` — the campaign's path under whatever root. */
+function campaignRelativePath(): string {
+  if (!campaign) return '';
+  return `${safeSegment(campaign.project)}/${safeSegment(campaign.campaign)}`;
+}
+
+/**
+ * Filename for the folder-shaped ZIP the download engine produces.
+ *
+ * Deliberately stable across a campaign rather than timestamped: the tester
+ * wants "the latest copy of this campaign", and a browser that appends -2, -3
+ * to repeated downloads already sorts the newest to the bottom. A timestamped
+ * name would instead scatter one campaign across a dozen unrelated files.
+ */
+export function campaignZipFileName(): string {
+  if (!campaign) return 'qa-campaign.zip';
+  return `${safeSegment(campaign.project)} - ${safeSegment(campaign.campaign)}.zip`;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +352,28 @@ async function permissionFor(handle: FsDirectoryHandle, request: boolean): Promi
  * lands in 'needs-permission' so the UI can offer a one-click Reconnect.
  */
 export async function restoreFsSync(store: FsSyncStore): Promise<FsSyncState> {
-  if (!isFsSyncSupported()) { setState('unsupported'); return 'unsupported'; }
+  metaStore = store;
+  engine = getFsSyncEngine();
+  if (!isFsSyncAvailable()) { setState('unsupported'); return 'unsupported'; }
+
+  // Download engine: nothing to re-permission, but the campaign and its note
+  // numbering must survive the reload or the next ZIP renumbers everything.
+  if (engine === 'download') {
+    try {
+      const saved = await store.getMeta<{ campaign: FsCampaign; notes: Record<string, NoteIndexEntry> }>(
+        FS_CAMPAIGN_META_KEY,
+      );
+      if (saved?.campaign?.project) {
+        campaign = saved.campaign;
+        noteIndex = saved.notes ?? {};
+        setState('syncing');
+        return 'syncing';
+      }
+    } catch { /* fall through to a fresh start */ }
+    setState('connected');
+    return 'connected';
+  }
+
   try {
     const saved = await store.getMeta<FsDirectoryHandle>(FS_ROOT_META_KEY);
     if (!saved || typeof saved.getDirectoryHandle !== 'function') {
@@ -276,7 +394,10 @@ export async function restoreFsSync(store: FsSyncStore): Promise<FsSyncState> {
  * Ask the tester to pick the QA folder. MUST be called from a user gesture.
  */
 export async function chooseFsSyncRoot(store: FsSyncStore): Promise<boolean> {
-  if (!isFsSyncSupported()) return false;
+  metaStore = store;
+  // Download engine: there is no folder to choose. It is already "connected"
+  // and only wants a campaign name, so report success and let the UI move on.
+  if (!isFsSyncSupported()) { setState('connected'); return true; }
   const picker = (window as unknown as { showDirectoryPicker: DirectoryPicker }).showDirectoryPicker;
   try {
     const handle = await picker({ id: 'qapture-qa', mode: 'readwrite', startIn: 'documents' });
@@ -343,6 +464,24 @@ export async function openFsCampaign(input: {
   campaign: string;
   tester?: string;
 }): Promise<boolean> {
+  // Download engine: the "folder" is a path inside a ZIP, so opening a
+  // campaign is pure bookkeeping. Re-opening the same one keeps its numbering.
+  if (getFsSyncEngine() === 'download') {
+    const sameAsBefore =
+      campaign?.project === input.project && campaign?.campaign === input.campaign;
+    const startedAt = sameAsBefore && campaign ? campaign.startedAt : new Date().toISOString();
+    if (!sameAsBefore) noteIndex = {};
+    campaign = {
+      project: input.project,
+      campaign: input.campaign,
+      tester: input.tester,
+      startedAt,
+    };
+    await persistDownloadCampaign();
+    setState('syncing');
+    return true;
+  }
+
   if (!root) return false;
   try {
     const perm = await permissionFor(root, false);
@@ -388,7 +527,25 @@ export function closeFsCampaign(): void {
   campaignDir = notesDir = shotsDir = null;
   campaign = null;
   noteIndex = {};
+  if (getFsSyncEngine() === 'download') {
+    void metaStore?.deleteMeta(FS_CAMPAIGN_META_KEY);
+    setState('connected');
+    return;
+  }
   if (root) setState('connected');
+}
+
+/**
+ * Persist the download engine's campaign + note index.
+ *
+ * Best-effort: a failure here costs continuity of numbering after a reload,
+ * never a note — those live in the notes store regardless.
+ */
+async function persistDownloadCampaign(): Promise<void> {
+  if (!metaStore || !campaign) return;
+  try {
+    await metaStore.setMeta(FS_CAMPAIGN_META_KEY, { campaign, notes: noteIndex });
+  } catch { /* numbering may restart after a reload; nothing is lost */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +593,17 @@ function entryFor(note: QaNote): NoteIndexEntry {
  * surfaces that once; the note is still in the browser either way.
  */
 export async function syncNoteToDisk(note: QaNote, allNotes: QaNote[]): Promise<boolean> {
+  // Download engine: assign the note its place in the tree and stop. The files
+  // themselves are generated at delivery time, so there is nothing to write
+  // per note — which is exactly why this costs nothing to keep always-on.
+  if (getFsSyncEngine() === 'download') {
+    if (!campaign) return false;
+    noteIndex[note.id] = entryFor(note);
+    await persistDownloadCampaign();
+    setState('syncing');
+    return true;
+  }
+
   if (!campaignDir || !notesDir || !shotsDir || !campaign) return false;
   try {
     const previous = noteIndex[note.id];
@@ -474,6 +642,12 @@ export async function syncNoteToDisk(note: QaNote, allNotes: QaNote[]): Promise<
 
 /** Remove a deleted note's files and refresh the campaign index. */
 export async function removeNoteFromDisk(noteId: string, allNotes: QaNote[]): Promise<boolean> {
+  if (getFsSyncEngine() === 'download') {
+    if (!noteIndex[noteId]) return true;
+    delete noteIndex[noteId];
+    await persistDownloadCampaign();
+    return true;
+  }
   if (!campaignDir || !notesDir || !shotsDir) return false;
   const entry = noteIndex[noteId];
   if (!entry) return true;
@@ -507,12 +681,21 @@ function noteMarkdownForDisk(note: QaNote, entry: NoteIndexEntry): string {
  */
 async function flushCampaignFiles(allNotes: QaNote[]): Promise<void> {
   if (!campaignDir || !campaign) return;
+  await writeFile(campaignDir, 'campaign.json', campaignJsonText(allNotes));
+  await writeFile(campaignDir, 'REPORT.md', reportMarkdownText(allNotes));
+}
 
-  const known = allNotes.filter((n) => noteIndex[n.id]);
-  const ordered = known
+/** Notes that have a place in the tree, in capture order. */
+function orderedKnownNotes(allNotes: QaNote[]): QaNote[] {
+  return allNotes
+    .filter((n) => noteIndex[n.id])
     .slice()
     .sort((a, b) => (noteIndex[a.id].seq ?? 0) - (noteIndex[b.id].seq ?? 0));
+}
 
+function campaignJsonText(allNotes: QaNote[]): string {
+  if (!campaign) return '{}';
+  const ordered = orderedKnownNotes(allNotes);
   const meta = {
     project: campaign.project,
     campaign: campaign.campaign,
@@ -522,7 +705,12 @@ async function flushCampaignFiles(allNotes: QaNote[]): Promise<void> {
     noteCount: ordered.length,
     notes: noteIndex,
   };
-  await writeFile(campaignDir, 'campaign.json', JSON.stringify(meta, null, 2));
+  return JSON.stringify(meta, null, 2);
+}
+
+function reportMarkdownText(allNotes: QaNote[]): string {
+  if (!campaign) return '';
+  const ordered = orderedKnownNotes(allNotes);
 
   const counts = { bug: 0, question: 0, polish: 0, verified: 0 };
   for (const n of ordered) {
@@ -538,10 +726,12 @@ async function flushCampaignFiles(allNotes: QaNote[]): Promise<void> {
     '',
     campaign.tester ? `Tester: ${campaign.tester}  ` : '',
     `Started: ${campaign.startedAt}  `,
-    `Updated: ${meta.updatedAt}  `,
+    `Updated: ${new Date().toISOString()}  `,
     `Points: ${ordered.length} (${counts.bug} bug, ${counts.question} question, ${counts.polish} polish · ${counts.verified} verified)`,
     '',
-    'Written live by Qapture as each point was saved. Screenshots are in',
+    getFsSyncEngine() === 'download'
+      ? 'Saved by Qapture as the campaign was tested. Screenshots are in'
+      : 'Written live by Qapture as each point was saved. Screenshots are in',
     '`screenshots/`, one Markdown file per point in `notes/`.',
     '',
     '---',
@@ -552,7 +742,63 @@ async function flushCampaignFiles(allNotes: QaNote[]): Promise<void> {
     .map((n) => noteMarkdownForDisk(n, noteIndex[n.id]))
     .join('\n---\n\n');
 
-  await writeFile(campaignDir, 'REPORT.md', `${header}\n${body}`);
+  return `${header}\n${body}`;
+}
+
+/**
+ * Build the campaign as a ZIP whose internal paths ARE the folder tree.
+ *
+ * This is the download engine's delivery step. The tester unzips it into their
+ * QA folder and gets `Project X/2026-08-14 smoke/REPORT.md` — the same paths,
+ * the same filenames and the same sequence numbers the disk engine writes on
+ * Chromium. Merging a later ZIP over an earlier one simply overwrites the
+ * campaign with its newer state, which is what "save again" should mean.
+ */
+export async function buildCampaignZipBlob(allNotes: QaNote[]): Promise<Blob | null> {
+  if (!campaign || typeof document === 'undefined') return null;
+  try {
+    const { default: JSZip } = await import('jszip');
+    const zip = new JSZip();
+    const base = zip.folder(safeSegment(campaign.project, 'Project'))
+      ?.folder(safeSegment(campaign.campaign, defaultCampaignName()));
+    if (!base) return null;
+
+    base.file('campaign.json', campaignJsonText(allNotes));
+    base.file('REPORT.md', reportMarkdownText(allNotes));
+
+    const notesFolder = base.folder('notes');
+    const shotsFolder = base.folder('screenshots');
+    for (const note of orderedKnownNotes(allNotes)) {
+      const entry = noteIndex[note.id];
+      notesFolder?.file(entry.file, noteMarkdownForDisk(note, entry));
+      if (note.screenshot && entry.shot) shotsFolder?.file(entry.shot, note.screenshot);
+      if (note.afterScreenshot && entry.after) shotsFolder?.file(entry.after, note.afterScreenshot);
+    }
+
+    return await zip.generateAsync({ type: 'blob' });
+  } catch (err) {
+    setState('error', describeError(err));
+    return null;
+  }
+}
+
+/**
+ * Build the campaign ZIP and hand it to the browser as a download.
+ * Returns false when there was nothing to save or the build failed.
+ */
+export async function downloadCampaignZip(allNotes: QaNote[]): Promise<boolean> {
+  const blob = await buildCampaignZipBlob(allNotes);
+  if (!blob) return false;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = campaignZipFileName();
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  setState('syncing');
+  return true;
 }
 
 /**
@@ -561,6 +807,17 @@ async function flushCampaignFiles(allNotes: QaNote[]): Promise<void> {
  * than only holding whatever is captured from now on.
  */
 export async function syncAllToDisk(allNotes: QaNote[]): Promise<boolean> {
+  if (getFsSyncEngine() === 'download') {
+    if (!campaign) return false;
+    // Oldest first, so sequence numbers read in capture order.
+    for (const note of allNotes.slice().reverse()) {
+      if (!noteIndex[note.id]) noteIndex[note.id] = entryFor(note);
+    }
+    await persistDownloadCampaign();
+    setState('syncing');
+    return true;
+  }
+
   if (!campaignDir) return false;
   // Oldest first, so sequence numbers read in capture order.
   const ordered = allNotes.slice().reverse();

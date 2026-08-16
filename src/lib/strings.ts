@@ -56,6 +56,7 @@ type LangMap = {
   loc_hide: string;
   loc_locate: string;
   journey_title: string;
+  journey_generic: string;
   export_name_title: string;
   export_name_placeholder: string;
   tap_element: string;
@@ -121,6 +122,12 @@ type LangMap = {
   sync_lost_permission: string;
   sync_write_failed: string;
   sync_unsupported: string;
+  sync_zip_mode: string;
+  sync_zip_start: string;
+  sync_zip_save_now: string;
+  sync_zip_saved: string;
+  sync_zip_failed: string;
+  sync_zip_where: string;
   sync_writing_to: string;
   storage_title: string;
   storage_used: string;
@@ -253,6 +260,7 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     loc_hide:              'Hide location',
     loc_locate:            'Locate on page',
     journey_title:         'Testing journey',
+    journey_generic:       'No test plan was set up for this project, so this is a general one that fits any app. Work through it, or ask whoever set up Qapture to add the real journey to qa.config.',
     export_name_title:     'Name your export',
     export_name_placeholder: 'file name',
     tap_element:           'Tap an element',
@@ -316,6 +324,12 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     sync_lost_permission:  'Folder access expired — click Reconnect to keep saving',
     sync_write_failed:     "Couldn't write to the folder — notes are still saved in this browser",
     sync_unsupported:      'Folder saving needs Chrome, Edge or Brave on desktop. Use Export here.',
+    sync_zip_mode:         'This browser cannot write into a folder directly, so Qapture builds the folder for you: name the project and campaign, and you get a zip that unzips into exactly that structure. It refreshes itself every few points.',
+    sync_zip_start:        'Start saving',
+    sync_zip_save_now:     'Save folder now',
+    sync_zip_saved:        'Saved {name} to your downloads',
+    sync_zip_failed:       "Couldn't build the folder — your notes are still safe in this browser",
+    sync_zip_where:        'Unzip into your QA folder:',
     sync_writing_to:       'Writing to',
     storage_title:         'Storage',
     storage_used:          '{used} of {quota} used',
@@ -440,6 +454,7 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     loc_hide:              'إخفاء الموقع',
     loc_locate:            'إظهار على الصفحة',
     journey_title:         'رحلة الاختبار',
+    journey_generic:       'لم يتم إعداد خطة اختبار لهذا المشروع، لذلك هذه خطة عامة تصلح لأي تطبيق. اعمل بها، أو اطلب ممن ثبّت Qapture أن يضيف رحلة المشروع في qa.config.',
     export_name_title:     'سمِّ ملف التصدير',
     export_name_placeholder: 'اسم الملف',
     tap_element:           'انقر على عنصر',
@@ -503,6 +518,12 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     sync_lost_permission:  'انتهت صلاحية الوصول للمجلد — اضغط إعادة الربط للمتابعة',
     sync_write_failed:     'تعذّرت الكتابة في المجلد — الملاحظات محفوظة في المتصفح',
     sync_unsupported:      'الحفظ في مجلد يتطلب Chrome أو Edge أو Brave على سطح المكتب. استخدم التصدير هنا.',
+    sync_zip_mode:         'هذا المتصفح لا يستطيع الكتابة داخل مجلد مباشرة، لذلك يبني Qapture المجلد نيابةً عنك: اكتب اسم المشروع والحملة، وستحصل على ملف مضغوط يُفَك إلى البنية نفسها تمامًا. ويتحدّث تلقائيًا كل بضع نقاط.',
+    sync_zip_start:        'ابدأ الحفظ',
+    sync_zip_save_now:     'احفظ المجلد الآن',
+    sync_zip_saved:        'تم حفظ {name} في التنزيلات',
+    sync_zip_failed:       'تعذّر بناء المجلد — ملاحظاتك ما زالت محفوظة في هذا المتصفح',
+    sync_zip_where:        'فُكّ الضغط داخل مجلد QA لديك:',
     sync_writing_to:       'الكتابة إلى',
     storage_title:         'التخزين',
     storage_used:          '{used} من {quota} مستخدَمة',

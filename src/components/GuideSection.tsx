@@ -232,7 +232,10 @@ function Lane({
 // ---------------------------------------------------------------------------
 
 export default function GuideSection() {
-  const { guideChecked, toggleGuide, t, journey, pick, lang, startTestAlong, startWalk, testAlongSteps } = useQa();
+  const {
+    guideChecked, toggleGuide, t, journey, journeyIsGeneric, pick, lang,
+    startTestAlong, startWalk, testAlongSteps,
+  } = useQa();
 
   const all  = journey.flatMap((g) => g.steps.map((s) => keyOf(g.id, s.path)));
   const done = all.filter((k) => guideChecked.has(k)).length;
@@ -243,6 +246,21 @@ export default function GuideSection() {
 
   return (
     <div className="qa-space-y-3">
+      {/*
+        Generic-plan notice. Shown instead of the old empty state: a project
+        with no journey of its own now gets a usable checklist, and this says
+        plainly that it is not written for this project, so nobody reads it as
+        authoritative coverage.
+      */}
+      {journeyIsGeneric && (
+        <p
+          className="qa-m-0 qa-rounded-xl qa-border qa-border-dashed qa-border-subtle qa-p-2 qa-text-10 qa-text-mid qa-leading-relaxed"
+          data-qa-generic-plan="true"
+        >
+          {t('journey_generic')}
+        </p>
+      )}
+
       {/* overall progress banner */}
       <div className="qa-rounded-xl qa-border qa-border-accent qa-bg-accent-tint qa-p-3 qa-elev-1">
         {/* RED N/M covered — shown only when the journey has red steps */}
@@ -304,12 +322,10 @@ export default function GuideSection() {
         />
       ))}
 
-      {/* empty state */}
-      {journey.length === 0 && (
-        <p className="qa-py-8 qa-text-center qa-text-sm qa-text-slate-400">
-          {t('tab_guide')}
-        </p>
-      )}
+      {/*
+        No empty state any more: journeyOrEmpty() substitutes the generic plan
+        when a project has none, so this list always has something in it.
+      */}
     </div>
   );
 }

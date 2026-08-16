@@ -1082,6 +1082,10 @@ export default function CaptureMode() {
                     type="button"
                     onClick={() => selection && void runCapture(selection.rect)}
                     className="qa-tap qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-md qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-xs qa-text-mid qa-focus-ring"
+                    // Without these the shadow root falls back to the UA's
+                    // grey buttonface, which reads as "disabled" in dark mode —
+                    // so the one control offered after a failure looked dead.
+                    style={{ background: 'transparent', cursor: 'pointer' }}
                   >
                     <Icon name="RotateCcw" size={13} />
                     {t('retry')}
