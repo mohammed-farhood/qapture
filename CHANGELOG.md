@@ -3,6 +3,53 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.6] "Real Pixels Anywhere" — 2026-08-22
+
+### Added
+
+- **Real screenshots in Safari and Firefox.** Until now the pixel-exact engine
+  was Chromium-only, because it relies on `preferCurrentTab` to capture *this
+  tab*. Safari has no tab capture at all — so Safari testers only ever got
+  html2canvas redraws, which render an inline-SVG chart as bare outlines and a
+  `<canvas>` as a blank box.
+
+  Safari and Firefox *can* share a window or a screen, and that frame contains
+  the page — along with a toolbar, and possibly the whole desktop. The engine
+  now accepts such a grant and works out where the page sits inside it.
+
+  **It measures rather than calculates, and that is the whole design.** The
+  arithmetic route — `outerHeight - innerHeight` for the toolbar, `screenX`
+  for the window, `devicePixelRatio` for Retina — is a stack of guesses, each
+  quietly wrong in some real configuration (a bookmarks bar, a scaled display,
+  a second monitor). Quietly wrong here means a screenshot confidently showing
+  the wrong pixels, which is worse than none: it looks fine, so nobody checks
+  it, and the bug report points at innocent code.
+
+  Instead, on the first capture the page is covered for a fifth of a second by
+  an opaque card carrying four known colours at four known corners. The engine
+  photographs that, finds the colours, and solves for scale and origin
+  directly. Toolbar height, pixel ratio and monitor layout cancel out because
+  none of them are ever used. Two corners solve the mapping; the other two are
+  spent checking it. The measurement is re-taken whenever the window moves,
+  resizes, zooms or changes display.
+
+  **A calibration that cannot be verified is refused** — the grant is dropped
+  and the session falls back to redrawing. Nine ways of being untrustworthy
+  are covered by `npm run frame-calibration-smoke`, which drives the solver
+  with synthetic frames whose right answer is known: it recovers a 2× Retina
+  scale, a 174px toolbar offset and a window's position on a 1920×1080 desktop
+  having been told none of them, ignores a decoy block of marker-coloured
+  pixels, and returns null for every frame it cannot verify.
+
+  Chromium is unaffected: a tab share still takes the direct path, still
+  measured at 0.0px by `npm run capture-accuracy-test`.
+
+  **Verified by construction, not end-to-end.** The solver is exercised
+  against synthetic frames, and the wiring is typechecked and covered by the
+  existing suites — but Safari cannot be driven by this project's test harness,
+  so the real hand-off (Safari's picker → a window frame → a correct crop) has
+  not been observed by machine. Treat the first Safari capture as the test.
+
 ## [0.7.5] "Move It" — 2026-08-22
 
 ### Changed

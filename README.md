@@ -353,13 +353,22 @@ v0.7.3 a redrawn capture says so under the preview and offers a one-tap **Use
 real screenshots**, which grants tab-share and re-shoots the same selection
 with the exact engine below.
 
-That upgrade is Chromium-only, because it depends on `preferCurrentTab`. On
-Safari and Firefox the redraw is the only engine there is — so from v0.7.4 the
-card says so outright and points you at Chrome, rather than leaving you to
-conclude the tool is broken. **If your app draws anything with inline SVG, a
-`<canvas>`, or video, do your screenshot QA in Chrome.** A redraw will render
-an SVG chart as bare outlines and a canvas as a blank box, every time, in any
-tool built this way.
+**From v0.7.6 this works in Safari and Firefox too.** They have no tab capture,
+but they can share a *window*, and Qapture works out where your page sits
+inside that frame — by measuring, not by guessing at toolbar heights. On the
+first capture the page is covered for a fifth of a second by a dark card with
+four coloured corners; the engine photographs it, finds the corners and solves
+for the mapping. That dark flash is the measurement. If it can't verify the
+result it refuses the grant and falls back to redrawing, because a screenshot
+of the wrong pixels is worse than no screenshot.
+
+Chromium still takes the direct path (`preferCurrentTab`), unchanged and still
+0.0px. Only iOS/iPadOS have no Screen Capture API at all, and there the card
+says so.
+
+**If your app draws anything with inline SVG, a `<canvas>`, or video, turn real
+screenshots on.** A redraw will render an SVG chart as bare outlines and a
+canvas as a blank box, every time, in any tool built this way.
 
 ### `exact` — opt-in, pixel-for-pixel
 

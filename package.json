@@ -1,6 +1,6 @@
 {
   "name": "qapture2",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "Drop-in, AI-aware in-browser QA capture widget. A tester annotates the live app (element/region + auto-screenshot + note), tracks a graded testing journey, and exports a ZIP your own coding agent reads. Ships zero AI.",
   "type": "module",
   "license": "MIT",
@@ -86,6 +86,7 @@
     "selector-smoke": "node scripts/selector-smoke.mjs",
     "capture-timeout-smoke": "node scripts/capture-timeout-smoke.mjs",
     "fs-sync-smoke": "node scripts/fs-sync-smoke.mjs",
+    "frame-calibration-smoke": "node scripts/frame-calibration-smoke.mjs",
     "standalone-smoke": "node scripts/standalone-smoke.mjs",
     "browser-test": "node scripts/browser-test.mjs",
     "capture-accuracy-test": "node scripts/capture-accuracy-test.mjs",
@@ -94,7 +95,7 @@
     "loop-features-test": "node scripts/loop-features-test.mjs",
     "walk-test": "node scripts/walk-test.mjs",
     "modern-css-test": "node scripts/modern-css-test.mjs",
-    "verify": "npm run typecheck && npm run typecheck:bin && npm run build && npm run smoke && npm run export-smoke && npm run cli-smoke && npm run cli-detectors-smoke && npm run selector-smoke && npm run capture-timeout-smoke && npm run fs-sync-smoke && npm run standalone-smoke",
+    "verify": "npm run typecheck && npm run typecheck:bin && npm run build && npm run smoke && npm run export-smoke && npm run cli-smoke && npm run cli-detectors-smoke && npm run selector-smoke && npm run capture-timeout-smoke && npm run fs-sync-smoke && npm run frame-calibration-smoke && npm run standalone-smoke",
     "play": "npm --prefix playground run dev"
   },
   "engines": {
