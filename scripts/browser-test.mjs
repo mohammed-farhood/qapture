@@ -1792,7 +1792,88 @@ try {
   if (errors5.length) console.log('   (page5 page errors:', errors5.join(' | '), ')');
   console.log('\nPASS 5 ✅  journeyRef resolution + context ring buffer + soft-delete Undo (restore + commit) + test-along walkthrough + copy-as-agent-prompt');
 
-  console.log('\nBROWSER TEST PASS ✅  mouse + touch + FAB-resize + touch-wobble(best-effort) + panel/dialog/focus-trap + blob-leak tracking + Graphite (journey/context/undo/walkthrough/clipboard)');
+  // ===========================================================================
+  // PASS 6 — the FAB must be draggable with a MOUSE, not just a finger.
+  //
+  // Dragging was gated behind useCoarsePointer() from the day it was added, so
+  // on desktop the launcher was nailed to the bottom-left — which on a real app
+  // is exactly where a sidebar, a language switcher or a "leave a note" button
+  // lives. "Sometimes I need the place that's behind it" is why this exists,
+  // and a touch-only drag never reached the person saying it.
+  //
+  // Three things have to hold at once, and the first two pull against each
+  // other: a DRAG moves the FAB and must NOT toggle the panel; a plain CLICK
+  // must still toggle it; and the dropped spot must survive a reload, or it is
+  // a gesture rather than a setting. Assert all three, or "fixing" one
+  // silently breaks another.
+  //
+  // Runs on its own page so it cannot disturb the annotation card that the
+  // earlier passes hand to each other.
+  // ===========================================================================
+  const page6 = await browser.newPage();
+  await page6.evaluateOnNewDocument(() => {
+    window.__qaSR = () => document.querySelector('qapture-overlay')?.shadowRoot;
+    // The panel is the only .qa-panel-anim node in the shadow root.
+    window.__qaPanelOpen = () => !!window.__qaSR()?.querySelector('.qa-panel-anim');
+  });
+  await page6.goto(BASE, { waitUntil: 'networkidle2' });
+  // Earlier passes share this browser profile and may have left a dropped
+  // position behind, which would start the FAB somewhere unexpected and make
+  // the movement assertion mean nothing. Start from the default spot.
+  await page6.evaluate(() => {
+    for (const k of Object.keys(localStorage)) if (k.endsWith(':fabpos')) localStorage.removeItem(k);
+    localStorage.removeItem('qapture:fabpos');
+  });
+  await page6.reload({ waitUntil: 'networkidle2' });
+  await sleep(1500);
+
+  const fabBefore = await page6.evaluate(() => {
+    const r = window.__qaSR().querySelector('button').getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, left: r.left, top: r.top };
+  });
+  const panelBefore = await page6.evaluate(() => window.__qaPanelOpen());
+
+  await page6.mouse.move(fabBefore.x, fabBefore.y);
+  await page6.mouse.down();
+  await page6.mouse.move(fabBefore.x + 20, fabBefore.y - 15, { steps: 3 });
+  await page6.mouse.move(Math.round(fabBefore.x + 260), Math.round(fabBefore.y - 180), { steps: 10 });
+  await page6.mouse.up();
+  await sleep(700);
+
+  const fabAfter = await page6.evaluate(() => {
+    const r = window.__qaSR().querySelector('button').getBoundingClientRect();
+    return { left: r.left, top: r.top };
+  });
+  const panelAfter = await page6.evaluate(() => window.__qaPanelOpen());
+  const moved = Math.hypot(fabAfter.left - fabBefore.left, fabAfter.top - fabBefore.top);
+  console.log(`36. the FAB followed a mouse drag ${moved.toFixed(0)}px ` +
+    `(${fabBefore.left.toFixed(0)},${fabBefore.top.toFixed(0)} → ${fabAfter.left.toFixed(0)},${fabAfter.top.toFixed(0)})`);
+  if (moved < 100) {
+    throw new Error(`the FAB did not follow a mouse drag (moved ${moved.toFixed(0)}px) — desktop dragging is still gated off`);
+  }
+  if (panelAfter !== panelBefore) throw new Error('a mouse DRAG toggled the panel — a drag must never count as a click');
+  console.log('36. and the drag did NOT toggle the panel: ok');
+
+  await page6.reload({ waitUntil: 'networkidle2' });
+  await sleep(1500);
+  const fabReloaded = await page6.evaluate(() => {
+    const r = window.__qaSR().querySelector('button').getBoundingClientRect();
+    return { left: r.left, top: r.top };
+  });
+  const drift = Math.hypot(fabReloaded.left - fabAfter.left, fabReloaded.top - fabAfter.top);
+  console.log(`36. the dropped spot survived a reload (drift ${drift.toFixed(1)}px)`);
+  if (drift > 4) throw new Error(`the FAB forgot where it was dropped (drift ${drift.toFixed(1)}px)`);
+
+  await page6.mouse.click(fabReloaded.left + 28, fabReloaded.top + 28);
+  await sleep(900);
+  const openedByClick = await page6.evaluate(() => window.__qaPanelOpen());
+  console.log('36. a plain click still opens the panel:', openedByClick);
+  if (!openedByClick) throw new Error('a plain click no longer opens the panel');
+  await page6.close();
+
+  console.log('\nPASS 6 ✅  the launcher can be dragged out of the way with a mouse, remembers where, and still opens on a click');
+
+  console.log('\nBROWSER TEST PASS ✅  mouse + touch + FAB-resize + FAB mouse-drag + touch-wobble(best-effort) + panel/dialog/focus-trap + blob-leak tracking + Graphite (journey/context/undo/walkthrough/clipboard)');
   code = 0;
 } catch (e) {
   console.error('BROWSER TEST FAIL:', e.message);

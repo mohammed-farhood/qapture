@@ -101,6 +101,7 @@ type LangMap = {
   redraw_notice: string;
   redraw_action: string;
   redraw_no_engine: string;
+  fab_title: string;
   exact_on: string;
   exact_off: string;
   exact_declined: string;
@@ -306,6 +307,7 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     redraw_notice:         'This is a redraw of the page, not a real photo.',
     redraw_action:         'Use real screenshots',
     redraw_no_engine:      'This browser cannot photograph a tab, so charts and canvases may come out wrong. Open the app in Chrome, Edge or Brave for true screenshots.',
+    fab_title:             'Qapture — click to open, drag to move it out of the way',
     exact_on:              'Pixel-exact screenshots on',
     exact_off:            'Back to redrawn screenshots',
     exact_declined:        'Staying on redrawn screenshots',
@@ -503,6 +505,7 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     redraw_notice:         'هذه إعادة رسم للصفحة، وليست صورة حقيقية.',
     redraw_action:         'استخدم لقطات حقيقية',
     redraw_no_engine:      'لا يستطيع هذا المتصفح تصوير التبويب، لذا قد تظهر المخططات واللوحات بشكل خاطئ. افتح التطبيق في Chrome أو Edge أو Brave للحصول على لقطات حقيقية.',
+    fab_title:             'Qapture — اضغط للفتح، واسحب لتحريكه من مكانه',
     exact_on:              'تم تفعيل اللقطات المطابقة',
     exact_off:             'العودة إلى اللقطات المُعاد رسمها',
     exact_declined:        'سنبقى على اللقطات المُعاد رسمها',

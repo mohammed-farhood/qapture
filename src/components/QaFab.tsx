@@ -22,29 +22,30 @@
  *    one-time migration reads the old bare key when the namespaced one
  *    doesn't exist yet and writes it forward — see loadFabPos() below.
  *
- * Draggable position — TOUCH ONLY (added):
- *  - Entirely gated behind useCoarsePointer(). When the pointer is NOT
- *    coarse, no pointer handlers are attached, no drag class is applied, and
- *    the FAB always sits at the original fixed spot — the desktop/mouse
- *    experience is unchanged.
- *  - On a coarse (touch) pointer, pressing and moving more than ~8px picks
- *    the FAB up; it can be dropped anywhere on-screen (clamped so it always
- *    stays fully visible, with a small edge margin standing in for
- *    safe-area insets). The dropped spot is remembered (localStorage) and
- *    restored next time.
- *  - A drag never toggles the panel — only a plain tap (movement under the
- *    threshold) does, exactly as before. This is enforced by a didDrag ref
- *    that onClick checks first.
+ * Draggable position — EVERY POINTER (v0.7.5):
+ *  - Press and move more than ~8px to pick the FAB up; drop it anywhere
+ *    on-screen (clamped so it always stays fully visible, with a small edge
+ *    margin standing in for safe-area insets). The dropped spot is remembered
+ *    (localStorage) and restored next time.
+ *  - This used to be gated behind useCoarsePointer(), i.e. touch only. That
+ *    was backwards: the FAB parks itself bottom-left, and on a desktop app
+ *    that is where a sidebar, a language switcher or a "leave a note" button
+ *    usually lives — so the one pointer that COULDN'T move the widget was the
+ *    one most likely to be blocked by it. Reported as "sometimes I need the
+ *    place that's behind it". Mouse now drags exactly like touch; only
+ *    secondary buttons are ignored, so right-click still behaves.
+ *  - A drag never toggles the panel — only a plain tap/click (movement under
+ *    the threshold) does. Enforced by a didDrag ref that onClick checks
+ *    first, which is also why the trailing click after a drag is harmless.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { useQa } from '../context/QaContext';
 import { Icon } from '../icons/Icon';
-import { useCoarsePointer } from '../lib/coarse';
 
-// The original, non-draggable fixed position. Rendered whenever there's no
-// saved touch position yet, or the pointer isn't coarse — kept as CONSTANTS
-// (not recomputed strings) so the desktop path is byte-identical to before.
+// The original fixed position, used until the tester first moves the FAB.
+// Kept as CONSTANTS (not recomputed strings) so an unmoved FAB renders
+// byte-identically to every version before dragging existed.
 const DEFAULT_LEFT = 'calc(1.25rem + env(safe-area-inset-left))';
 const DEFAULT_BOTTOM = 'calc(5rem + env(safe-area-inset-bottom))';
 
@@ -142,8 +143,7 @@ type DragState = {
 };
 
 export default function QaFab() {
-  const { isOpen, setIsOpen, notes, captureActive, namespace } = useQa();
-  const coarse = useCoarsePointer();
+  const { isOpen, setIsOpen, notes, captureActive, namespace, t } = useQa();
 
   // Persisted drag position (touch-only). Loaded once on mount; null means
   // "use the default fixed spot" (byte-identical to the pre-drag CSS).
@@ -179,6 +179,8 @@ export default function QaFab() {
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (dragRef.current) return; // ignore a second simultaneous pointer
+    // Right/middle click must stay a normal click, not the start of a drag.
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     didDragRef.current = false;
     const target = e.currentTarget as Element;
     const rect = target.getBoundingClientRect();
@@ -245,9 +247,9 @@ export default function QaFab() {
     setIsOpen(!isOpen);
   };
 
-  // Only ever non-null on a coarse pointer with a saved position — desktop
-  // (or a coarse pointer with nothing saved yet) always renders the default.
-  const applied = coarse && pos ? clampFabPos(pos) : null;
+  // Non-null once the tester has moved the FAB at least once, on any pointer.
+  // Nothing saved yet → the original fixed spot, exactly as before.
+  const applied = pos ? clampFabPos(pos) : null;
 
   const fabStyle: React.CSSProperties = {
     left: applied ? `${applied.left}px` : DEFAULT_LEFT,
@@ -263,13 +265,15 @@ export default function QaFab() {
       data-qa-overlay="true"
       dir="ltr"
       onClick={handleClick}
-      onPointerDown={coarse ? onPointerDown : undefined}
-      onPointerMove={coarse ? onPointerMove : undefined}
-      onPointerUp={coarse ? onPointerUp : undefined}
-      onPointerCancel={coarse ? onPointerCancel : undefined}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       aria-label="Qapture — testing notes"
-      title="Qapture"
-      className={`qa-fixed qa-flex qa-items-center qa-justify-center qa-rounded-full qa-bg-accent qa-elev-2 qa-print-hidden qa-fab-btn${coarse ? ' qa-touch-none' : ''}`}
+      title={t('fab_title')}
+      // qa-touch-none (touch-action: none) is what stops a touch drag from
+      // scrolling the page instead of moving the FAB. Harmless on a mouse.
+      className="qa-fixed qa-flex qa-items-center qa-justify-center qa-rounded-full qa-bg-accent qa-elev-2 qa-print-hidden qa-fab-btn qa-touch-none"
       style={fabStyle}
     >
       {/* pulse ring — only shown when panel is closed */}

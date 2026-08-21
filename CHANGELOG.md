@@ -3,6 +3,25 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.5] "Move It" — 2026-08-22
+
+### Changed
+
+- **The launcher bubble can now be dragged with a mouse, not just a finger.**
+  Press it, move more than ~8px, drop it anywhere; the spot is remembered and
+  restored next time. A drag never opens the panel, and a plain click still
+  does.
+
+  Dragging has existed since 0.3 but was gated behind a coarse-pointer check —
+  touch only. That was backwards. The bubble parks itself bottom-left, which on
+  a desktop app is where a sidebar, a language switcher or a "leave a note"
+  button lives, so the one pointer that *couldn't* move the widget was the one
+  most likely to be blocked by it. Reported as "sometimes I need the place
+  that's behind it".
+
+  Right- and middle-click still behave as clicks rather than starting a drag,
+  and an unmoved bubble renders exactly where it always did.
+
 ## [0.7.4] "Say Which" — 2026-08-21
 
 No capture behaviour changes. This release closes the gap that kept a real
