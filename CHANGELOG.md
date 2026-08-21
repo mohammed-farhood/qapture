@@ -3,6 +3,33 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.4] "Say Which" — 2026-08-21
+
+No capture behaviour changes. This release closes the gap that kept a real
+limitation looking like a bug.
+
+### Changed
+
+- **On Safari and Firefox the widget now says why a screenshot looks drawn.**
+  0.7.3 added a "This is a redraw of the page, not a real photo" line with a
+  one-tap upgrade to the pixel-exact engine — but that engine needs
+  `preferCurrentTab`, which only Chromium honours, so on every other browser
+  the line was hidden and nothing was shown at all.
+
+  That silence was the actual problem. A tester watching an inline-SVG chart
+  come back as bare outlines has no way to know the tool is *re-drawing* their
+  page rather than photographing it, so they file it as a bug, get a fix that
+  cannot help, and file it again. The card now names the limit and names the
+  way out: open the app in Chrome, Edge or Brave for true screenshots.
+
+### Added
+
+- `npm run svg-vars-test` — inline SVG whose fills come from CSS custom
+  properties, including `color-mix(in srgb, black N%, var(--token))`, which is
+  how a themed chart shades a surface. Both survive a capture today; the test
+  exists so they keep surviving, because "the chart captured as hollow
+  outlines" is a failure that looks like a rendering opinion rather than a bug.
+
 ## [0.7.3] "Only What's There" — 2026-08-16
 
 Corrects a regression shipped in 0.7.2, and answers the complaint underneath

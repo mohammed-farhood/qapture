@@ -1113,26 +1113,40 @@ export default function CaptureMode() {
                   that nobody notices. Offer it HERE instead, under the image
                   that looks wrong, which is the moment it makes sense. One tap
                   grants and re-shoots the same selection. */}
-              {shotUrl && shotEngine === 'dom' && exactShots.supported && exactShots.status !== 'live' && (
-                <span
-                  data-qa-redraw-offer="true"
-                  className="qa-mt-1.5 qa-flex qa-items-center qa-justify-center qa-flex-wrap qa-gap-1.5 qa-text-10 qa-text-mid"
-                >
-                  {t('redraw_notice')}
-                  <button
-                    type="button"
-                    onClick={() => void (async () => {
-                      const granted = await enableExactShots();
-                      if (granted && selection) void runCapture(selection.rect);
-                    })()}
-                    title={t('exact_hint')}
-                    className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-border qa-border-subtle qa-px-1.5 qa-py-0.5 qa-text-10 qa-text-hi qa-focus-ring"
-                    style={{ background: 'transparent', cursor: 'pointer' }}
+              {shotUrl && shotEngine === 'dom' && (
+                exactShots.status !== 'live' && exactShots.supported ? (
+                  <span
+                    data-qa-redraw-offer="true"
+                    className="qa-mt-1.5 qa-flex qa-items-center qa-justify-center qa-flex-wrap qa-gap-1.5 qa-text-10 qa-text-mid"
                   >
-                    <Icon name="Camera" size={10} />
-                    {t('redraw_action')}
-                  </button>
-                </span>
+                    {t('redraw_notice')}
+                    <button
+                      type="button"
+                      onClick={() => void (async () => {
+                        const granted = await enableExactShots();
+                        if (granted && selection) void runCapture(selection.rect);
+                      })()}
+                      title={t('exact_hint')}
+                      className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-border qa-border-subtle qa-px-1.5 qa-py-0.5 qa-text-10 qa-text-hi qa-focus-ring"
+                      style={{ background: 'transparent', cursor: 'pointer' }}
+                    >
+                      <Icon name="Camera" size={10} />
+                      {t('redraw_action')}
+                    </button>
+                  </span>
+                ) : !exactShots.supported ? (
+                  // Safari and Firefox have no way to photograph the tab, so
+                  // there is nothing to offer — but saying NOTHING was the real
+                  // failure. A tester watching an SVG chart come back as bare
+                  // outlines concludes the tool is broken and files it as a bug,
+                  // over and over. Name the limit and name the way out.
+                  <span
+                    data-qa-redraw-note="true"
+                    className="qa-mt-1.5 qa-block qa-text-center qa-text-10 qa-text-mid"
+                  >
+                    {t('redraw_notice')} {t('redraw_no_engine')}
+                  </span>
+                ) : null
               )}
             </div>
 

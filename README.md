@@ -351,9 +351,15 @@ Because by default it is. The DOM engine re-draws your page; fonts shift,
 shadows and gradients flatten, `<canvas>` and video come out blank. From
 v0.7.3 a redrawn capture says so under the preview and offers a one-tap **Use
 real screenshots**, which grants tab-share and re-shoots the same selection
-with the exact engine below. Chromium desktop only — on Safari and Firefox the
-redraw is the only engine there is, so for screenshot-critical QA, test in
-Chrome.
+with the exact engine below.
+
+That upgrade is Chromium-only, because it depends on `preferCurrentTab`. On
+Safari and Firefox the redraw is the only engine there is — so from v0.7.4 the
+card says so outright and points you at Chrome, rather than leaving you to
+conclude the tool is broken. **If your app draws anything with inline SVG, a
+`<canvas>`, or video, do your screenshot QA in Chrome.** A redraw will render
+an SVG chart as bare outlines and a canvas as a blank box, every time, in any
+tool built this way.
 
 ### `exact` — opt-in, pixel-for-pixel
 

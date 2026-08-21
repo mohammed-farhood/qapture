@@ -1,6 +1,6 @@
 {
   "name": "qapture2",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Drop-in, AI-aware in-browser QA capture widget. A tester annotates the live app (element/region + auto-screenshot + note), tracks a graded testing journey, and exports a ZIP your own coding agent reads. Ships zero AI.",
   "type": "module",
   "license": "MIT",
@@ -90,6 +90,7 @@
     "browser-test": "node scripts/browser-test.mjs",
     "capture-accuracy-test": "node scripts/capture-accuracy-test.mjs",
     "element-capture-test": "node scripts/element-capture-test.mjs",
+    "svg-vars-test": "node scripts/svg-vars-test.mjs",
     "loop-features-test": "node scripts/loop-features-test.mjs",
     "walk-test": "node scripts/walk-test.mjs",
     "modern-css-test": "node scripts/modern-css-test.mjs",
