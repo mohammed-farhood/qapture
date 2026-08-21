@@ -157,7 +157,7 @@ export type QaNote = {
    * v0.3 additions — ALL optional, so notes written by 0.2.x read back
    * unchanged and no IndexedDB migration is required.
    */
-  severity?: 'bug' | 'question' | 'polish';
+  severity?: 'bug' | 'design' | 'enhance';
   /**
    * Where this finding is in its life.
    *
@@ -221,7 +221,7 @@ export type QaTestAlongStep = {
 // v0.4 — note filtering
 // ---------------------------------------------------------------------------
 
-export type QaSeverityFilter = 'all' | 'bug' | 'question' | 'polish';
+export type QaSeverityFilter = 'all' | 'bug' | 'design' | 'enhance';
 export type QaStatusFilter = 'all' | 'open' | 'fixed' | 'verified';
 
 export type QaNoteFilter = {
@@ -236,8 +236,8 @@ export type QaNoteFilter = {
 export type QaNoteCounts = {
   all: number;
   bug: number;
-  question: number;
-  polish: number;
+  enhance: number;
+  design: number;
   open: number;
   /** Marked fixed, awaiting a re-test. */
   fixed: number;
@@ -348,7 +348,7 @@ export type QaContextValue = {
     description: string;
     screenshot?: Blob;
     target?: QaTarget;
-    severity?: 'bug' | 'question' | 'polish';
+    severity?: 'bug' | 'design' | 'enhance';
     status?: 'open' | 'fixed' | 'verified';
     forensics?: QaTargetForensics;
   }) => Promise<void>;
@@ -361,7 +361,7 @@ export type QaContextValue = {
     patch: {
       description?: string;
       screenshot?: Blob | null;
-      severity?: 'bug' | 'question' | 'polish';
+      severity?: 'bug' | 'design' | 'enhance';
       status?: 'open' | 'fixed' | 'verified';
     },
   ) => Promise<void>;
@@ -488,7 +488,7 @@ export type QaContextValue = {
   guideSkipped: Set<string>;
 
   /** Apply one patch to many notes at once (one toast, one pass). */
-  updateNotes: (ids: string[], patch: { severity?: 'bug' | 'question' | 'polish'; status?: 'open' | 'fixed' | 'verified' }) => Promise<void>;
+  updateNotes: (ids: string[], patch: { severity?: 'bug' | 'design' | 'enhance'; status?: 'open' | 'fixed' | 'verified' }) => Promise<void>;
   /** Soft-delete many notes with a SINGLE undo. */
   deleteNotes: (ids: string[]) => Promise<void>;
 
@@ -874,6 +874,19 @@ export function QaProvider({
           storage.setJSON(PENDING_DELETE_KEY, []);
         }
 
+        // v0.7.7 renamed two of the three tags: 'question' → 'enhance' and
+        // 'polish' → 'design'. Notes already sitting in IndexedDB still carry
+        // the old words, and an unrecognised tag would fall through every
+        // `else if` and land in the wrong bucket — so translate on the way in.
+        // Cheap, runs once per load, and means a tester's existing campaign
+        // doesn't quietly re-file itself.
+        live = live.map((n) => {
+          const legacy = (n as { severity?: string }).severity;
+          if (legacy === 'question') return { ...n, severity: 'enhance' as const };
+          if (legacy === 'polish') return { ...n, severity: 'design' as const };
+          return n;
+        });
+
         const sorted = live.slice().sort((a, b) =>
           a.timestamp < b.timestamp ? 1 : -1,
         );
@@ -1138,7 +1151,7 @@ export function QaProvider({
       description: string;
       screenshot?: Blob;
       target?: QaTarget;
-      severity?: 'bug' | 'question' | 'polish';
+      severity?: 'bug' | 'design' | 'enhance';
       status?: 'open' | 'fixed' | 'verified';
       forensics?: QaTargetForensics;
     }): Promise<void> => {
@@ -1215,7 +1228,7 @@ export function QaProvider({
       patch: {
         description?: string;
         screenshot?: Blob | null;
-        severity?: 'bug' | 'question' | 'polish';
+        severity?: 'bug' | 'design' | 'enhance';
         status?: 'open' | 'fixed' | 'verified';
       },
     ): Promise<void> => {
@@ -1737,13 +1750,13 @@ export function QaProvider({
 
   const noteCounts = useMemo<QaNoteCounts>(() => {
     const counts: QaNoteCounts = {
-      all: notes.length, bug: 0, question: 0, polish: 0, open: 0, fixed: 0, verified: 0, thisPage: 0,
+      all: notes.length, bug: 0, design: 0, enhance: 0, open: 0, fixed: 0, verified: 0, thisPage: 0,
     };
     for (const n of notes) {
       const sev = n.severity ?? 'bug';
       if (sev === 'bug') counts.bug++;
-      else if (sev === 'question') counts.question++;
-      else counts.polish++;
+      else if (sev === 'enhance') counts.enhance++;
+      else counts.design++;
       const status = n.status ?? 'open';
       if (status === 'verified') counts.verified++;
       else if (status === 'fixed') counts.fixed++;
@@ -1957,7 +1970,7 @@ export function QaProvider({
   const updateNotes = useCallback(
     async (
       ids: string[],
-      patch: { severity?: 'bug' | 'question' | 'polish'; status?: 'open' | 'fixed' | 'verified' },
+      patch: { severity?: 'bug' | 'design' | 'enhance'; status?: 'open' | 'fixed' | 'verified' },
     ): Promise<void> => {
       if (!ids.length) return;
       const idSet = new Set(ids);
@@ -2280,7 +2293,11 @@ export function QaProvider({
     pendingShare,
     sharePending,
     retestNote,
-    showWelcome,
+    // The greeting explains how to capture. Once a note exists, the tester has
+    // either done it or found their own way, so the line has nothing left to
+    // say — take it away rather than making them dismiss it. (The stored flag
+    // still governs a first visit; this only hides it early.)
+    showWelcome: showWelcome && notes.length === 0,
     dismissWelcome,
 
     // v0.6

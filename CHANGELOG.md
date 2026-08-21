@@ -3,6 +3,47 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.7] "Three Kinds of Work" — 2026-08-22
+
+### Changed
+
+- **Bug / Question / Polish → Bug / Design / Enhance.** The old three were
+  moods; the new three are three different *kinds of work* — fix it, restyle
+  it, build it — which is what an agent actually needs to pick a posture. The
+  field is no longer labelled "Severity" (none of them are severities) but
+  **"What is this?"**. Labels stay in English in both languages, so what the
+  tester picks is literally what the agent reads.
+
+  Notes already saved as `question` / `polish` are translated on load
+  (`question → enhance`, `polish → design`), so an in-flight campaign doesn't
+  quietly re-file itself into the wrong bucket.
+
+- **The export now tells the agent what each tag asks of it.** Previously the
+  tag was decoration: a line in the note and a tally in the report, with
+  nothing saying what to do differently. `## What the tags mean` now carries
+  the rules:
+
+  - **Bug** — find the *root cause*, and **state it in one plain sentence
+    before changing anything**. If you can't write that sentence you haven't
+    found it. Crucially: the cause is not always in the code. If the code does
+    exactly what it was asked and the result is still wrong, then nothing is
+    broken — what was *asked for* and what was *meant* didn't match, and that
+    mismatch is the bug. If the note already says what was meant, do that;
+    don't stop to ask a question that's already been answered.
+  - **Design** — functionality is fine and not in question. Don't hunt for a
+    fault; there isn't one. Think about layout, hierarchy, wording, states.
+  - **Enhance** — a new idea, had while using the app. Plan it properly
+    against the surrounding code, then **build it** — no approval gate. Push
+    back only for a real reason, and propose the alternative.
+  - **When the tag and the words disagree, the words win** — and say which
+    lane you took. A note phrased as a question gets *answered*, not acted on.
+
+- **The first-run greeting is one line instead of a card.** It was three
+  bullets and a "Got it" button, met again in every fresh browser profile.
+  Now: one sentence, a dismiss cross, and it removes itself as soon as the
+  first note exists — by then it has either worked or been ignored. The test
+  caps its length, so it can't grow back a bullet at a time.
+
 ## [0.7.6] "Real Pixels Anywhere" — 2026-08-22
 
 ### Added

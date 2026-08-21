@@ -44,7 +44,7 @@
  *  - `theme` is gone from useQa() entirely — every colour below is a fixed
  *    design token (var(--qa-*)) or one of styles.ts's semantic utility
  *    classes, never a value read from context.
- *  - Severity chip row (bug/question/polish, default 'bug') in the
+ *  - Severity chip row (bug/design/enhance, default 'bug') in the
  *    annotation card, threaded into addNote()'s `severity` field.
  *  - collectTargetForensics(el) runs the moment an 'element' (not 'region')
  *    target is picked, and its result rides in local state to save() as
@@ -92,17 +92,17 @@ const TOUCH_DRAG_THRESHOLD = 12; // px before a touch press becomes a region dra
 const MIN_REGION_SIZE = 8; // px floor when resizing a region candidate
 
 /** Severity a tester can tag onto a note — mirrors QaNote['severity']. */
-type Severity = 'bug' | 'question' | 'polish';
-const SEVERITIES: readonly Severity[] = ['bug', 'question', 'polish'];
+type Severity = 'bug' | 'design' | 'enhance';
+const SEVERITIES: readonly Severity[] = ['bug', 'design', 'enhance'];
 const SEVERITY_ICON: Record<Severity, IconName> = {
   bug: 'Bug',
-  question: 'AlertTriangle',
-  polish: 'Pencil',
+  design: 'Pencil',
+  enhance: 'Plus',
 };
 const SEVERITY_LABEL_KEY: Record<Severity, string> = {
   bug: 'sev_bug',
-  question: 'sev_question',
-  polish: 'sev_polish',
+  design: 'sev_design',
+  enhance: 'sev_enhance',
 };
 
 /**
@@ -1164,7 +1164,7 @@ export default function CaptureMode() {
                 const toneClass =
                   sev === 'bug'
                     ? 'qa-bg-danger-tint qa-text-danger'
-                    : sev === 'question'
+                    : sev === 'enhance'
                       ? 'qa-bg-warn-tint qa-text-warn'
                       : 'qa-bg-accent-tint qa-text-accent';
                 return (

@@ -79,8 +79,8 @@ type LangMap = {
   copy_prompt: string;
   severity_label: string;
   sev_bug: string;
-  sev_question: string;
-  sev_polish: string;
+  sev_design: string;
+  sev_enhance: string;
   status_open: string;
   status_verified: string;
   context_attached: string;
@@ -284,10 +284,10 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     copied:                'Copied',
     copy_failed:           'Copy failed',
     copy_prompt:           'Copy as agent prompt',
-    severity_label:        'Severity',
+    severity_label:        'What is this?',
     sev_bug:               'Bug',
-    sev_question:          'Question',
-    sev_polish:            'Polish',
+    sev_design:            'Design',
+    sev_enhance:           'Enhance',
     status_open:           'Open',
     status_verified:       'Verified',
     context_attached:      '{n} runtime events attached',
@@ -482,10 +482,10 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     copied:                'تم النسخ',
     copy_failed:           'فشل النسخ',
     copy_prompt:           'نسخ كموجّه للوكيل',
-    severity_label:        'الأهمية',
-    sev_bug:               'خلل',
-    sev_question:          'سؤال',
-    sev_polish:            'تحسين',
+    severity_label:        'ما هذا؟',
+    sev_bug:               'Bug',
+    sev_design:            'Design',
+    sev_enhance:           'Enhance',
     status_open:           'مفتوح',
     status_verified:       'تم التحقق',
     context_attached:      '{n} من أحداث التشغيل مرفقة',

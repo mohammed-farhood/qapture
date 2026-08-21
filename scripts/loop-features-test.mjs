@@ -107,11 +107,23 @@ try {
     const note = sr.querySelector('[role="note"]');
     return note ? note.textContent : '';
   });
-  ok(/Testing/i.test(welcomeText), `6. a first-time tester sees a welcome card (got "${(welcomeText || '').slice(0, 40)}…")`);
-  ok(/Got it/i.test(welcomeText), '6. the welcome card has a single dismiss action');
+  // v0.7.7: this is ONE line with a dismiss cross, not a three-bullet card
+  // with a "Got it" button. The owner meets it in every fresh browser profile
+  // and called the old one annoying, so "still short" is now part of the
+  // contract — assert the length, or it grows back a bullet at a time.
+  ok(/Capture from page/i.test(welcomeText),
+    `6. a first-time tester is told how to capture (got "${(welcomeText || '').slice(0, 40)}…")`);
+  ok((welcomeText || '').trim().length <= 120,
+    `6. and it stays one line (${(welcomeText || '').trim().length} chars, cap 120)`);
+  ok(await page.evaluate(() => {
+    const sr = window.__qaSR();
+    const note = sr.querySelector('[role="note"]');
+    return !!note?.querySelector('button[aria-label]');
+  }), '6. the greeting has a single dismiss control');
 
   await page.evaluate(() => {
-    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /got it/i.test(x.textContent || ''));
+    const note = window.__qaSR().querySelector('[role="note"]');
+    const b = note?.querySelector('button[aria-label]');
     if (b) b.click();
   });
   await sleep(400);

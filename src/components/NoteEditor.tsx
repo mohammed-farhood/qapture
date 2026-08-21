@@ -22,7 +22,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQa } from '../context/QaContext';
 import { Icon, type IconName } from '../icons/Icon';
 
-type QaSeverity = 'bug' | 'question' | 'polish';
+type QaSeverity = 'bug' | 'design' | 'enhance';
 
 // ---------------------------------------------------------------------------
 // SeverityChipRow — single-select chip row for the quick-note form.
@@ -30,8 +30,8 @@ type QaSeverity = 'bug' | 'question' | 'polish';
 
 const SEVERITIES: Array<{ value: QaSeverity; labelKey: string; icon?: IconName }> = [
   { value: 'bug', labelKey: 'sev_bug', icon: 'Bug' },
-  { value: 'question', labelKey: 'sev_question' },
-  { value: 'polish', labelKey: 'sev_polish' },
+  { value: 'enhance', labelKey: 'sev_enhance' },
+  { value: 'design', labelKey: 'sev_design' },
 ];
 
 function SeverityChipRow({

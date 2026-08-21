@@ -1,60 +1,47 @@
 /**
- * WelcomeCard — three lines, once, for someone who was handed a link.
+ * WelcomeCard — ONE line, once, for someone who was handed a link.
  *
  * The person testing a beta usually did not install this, did not configure
- * it, and has no idea what the floating button is. Everything they need fits
- * in three lines: what this is, how to report something, and the reassurance
- * that they cannot lose their work. Anything longer gets skipped, which is
- * why this deliberately does not explain severity, journeys, folders or
- * export — those are discoverable, and a wall of instructions is how a tester
- * decides the tool is someone else's problem.
+ * it, and has no idea what the floating button is. They need one sentence:
+ * click Capture, then click whatever looks wrong.
  *
- * Shown once per browser (a localStorage flag), inside the panel rather than
- * over the page, so it can never block the app the tester came to look at.
+ * It used to be a three-bullet card with a "Got it" button. The owner — who
+ * meets it in every fresh browser profile, having written the thing — called
+ * it annoying, and was right: a wall of instructions is how a tester decides
+ * the tool is someone else's problem, and how an owner decides it is in the
+ * way. So it is now one line with a dismiss cross, and it takes itself away
+ * as soon as the first note exists, because by then it has either worked or
+ * been ignored.
+ *
+ * Deliberately still says nothing about tags, journeys, folders or export.
+ * Those are discoverable, and this is not the place.
+ *
+ * Lives inside the panel rather than over the page, so it can never block the
+ * app the tester came to look at.
  */
 
 import { useQa } from '../context/QaContext';
 import { Icon } from '../icons/Icon';
 
 export default function WelcomeCard() {
-  const { t, brand, dismissWelcome } = useQa();
+  const { t, dismissWelcome } = useQa();
 
   return (
     <div
-      className="qa-rounded-xl qa-border qa-border-subtle qa-bg-1 qa-p-3 qa-space-y-2"
+      className="qa-flex qa-items-center qa-gap-2 qa-rounded-xl qa-border qa-border-subtle qa-bg-1 qa-px-3 qa-py-2"
       role="note"
     >
-      <p className="qa-m-0 qa-flex qa-items-center qa-gap-1.5 qa-text-sm qa-font-semibold qa-text-hi">
-        <span
-          aria-hidden="true"
-          className="qa-shrink-0"
-          style={{ width: 6, height: 6, background: 'var(--qa-accent)' }}
-        />
-        {t('welcome_title', { brand: brand.label })}
-      </p>
-
-      <ul className="qa-m-0 qa-space-y-1 qa-text-xs qa-text-mid">
-        <li className="qa-flex qa-items-start qa-gap-1.5">
-          <Icon name="Crosshair" size={12} className="qa-shrink-0 qa-mt-1" />
-          <span>{t('welcome_capture')}</span>
-        </li>
-        <li className="qa-flex qa-items-start qa-gap-1.5">
-          <Icon name="Pencil" size={12} className="qa-shrink-0 qa-mt-1" />
-          <span>{t('welcome_say')}</span>
-        </li>
-        <li className="qa-flex qa-items-start qa-gap-1.5">
-          <Icon name="CheckCircle2" size={12} className="qa-shrink-0 qa-mt-1" />
-          <span>{t('welcome_safe')}</span>
-        </li>
-      </ul>
-
+      <Icon name="Crosshair" size={13} className="qa-shrink-0 qa-text-accent" />
+      <span className="qa-flex-1 qa-text-xs qa-text-mid">{t('welcome_capture')}</span>
       <button
         type="button"
         onClick={dismissWelcome}
-        className="qa-tap qa-w-full qa-rounded-lg qa-bg-accent qa-px-3 qa-py-1.5 qa-text-xs qa-font-semibold"
-        style={{ border: 'none', cursor: 'pointer' }}
+        aria-label={t('welcome_got_it')}
+        title={t('welcome_got_it')}
+        className="qa-tap-icon qa-shrink-0 qa-rounded-full qa-text-mid qa-focus-ring"
+        style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 2 }}
       >
-        {t('welcome_got_it')}
+        <Icon name="X" size={13} />
       </button>
     </div>
   );

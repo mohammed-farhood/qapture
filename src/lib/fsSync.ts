@@ -746,12 +746,12 @@ function reportMarkdownText(allNotes: QaNote[]): string {
   if (!campaign) return '';
   const ordered = orderedKnownNotes(allNotes);
 
-  const counts = { bug: 0, question: 0, polish: 0, verified: 0 };
+  const counts = { bug: 0, design: 0, enhance: 0, verified: 0 };
   for (const n of ordered) {
     const sev = n.severity ?? 'bug';
     if (sev === 'bug') counts.bug++;
-    else if (sev === 'question') counts.question++;
-    else counts.polish++;
+    else if (sev === 'enhance') counts.enhance++;
+    else counts.design++;
     if (n.status === 'verified') counts.verified++;
   }
 
@@ -761,7 +761,7 @@ function reportMarkdownText(allNotes: QaNote[]): string {
     campaign.tester ? `Tester: ${campaign.tester}  ` : '',
     `Started: ${campaign.startedAt}  `,
     `Updated: ${new Date().toISOString()}  `,
-    `Points: ${ordered.length} (${counts.bug} bug, ${counts.question} question, ${counts.polish} polish · ${counts.verified} verified)`,
+    `Points: ${ordered.length} (${counts.bug} bug, ${counts.design} design, ${counts.enhance} enhance · ${counts.verified} verified)`,
     '',
     getFsSyncEngine() === 'download'
       ? 'Saved by Qapture as the campaign was tested. Screenshots are in'

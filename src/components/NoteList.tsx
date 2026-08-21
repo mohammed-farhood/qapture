@@ -26,7 +26,7 @@ import { noteToMarkdown } from '../lib/noteMarkdown';
 import LocationReveal from './LocationReveal';
 import ShotAnnotator from './ShotAnnotator';
 
-type QaSeverity = 'bug' | 'question' | 'polish';
+type QaSeverity = 'bug' | 'design' | 'enhance';
 type QaStatus = 'open' | 'fixed' | 'verified';
 
 // ---------------------------------------------------------------------------
@@ -83,14 +83,14 @@ function KindBadge({
 
 const SEVERITY_CLASS: Record<QaSeverity, string> = {
   bug:      'qa-bg-danger-tint qa-text-danger',
-  question: 'qa-bg-warn-tint qa-text-warn',
-  polish:   'qa-bg-accent-tint qa-text-accent',
+  enhance: 'qa-bg-warn-tint qa-text-warn',
+  design:   'qa-bg-accent-tint qa-text-accent',
 };
 
 const SEVERITY_LABEL_KEY: Record<QaSeverity, string> = {
   bug: 'sev_bug',
-  question: 'sev_question',
-  polish: 'sev_polish',
+  enhance: 'sev_enhance',
+  design: 'sev_design',
 };
 
 function SeverityChip({ severity, t }: { severity: QaSeverity; t: (key: string) => string }) {
@@ -238,7 +238,7 @@ function NoteItem({
 
   const severityDot = severity === 'bug'
     ? 'var(--qa-danger)'
-    : severity === 'question' ? 'var(--qa-warn)' : 'var(--qa-accent)';
+    : severity === 'enhance' ? 'var(--qa-warn)' : 'var(--qa-accent)';
 
   // ── Compact row ─────────────────────────────────────────────────────────
   // At thirty notes a list of full cards is a scrolling marathon. One line

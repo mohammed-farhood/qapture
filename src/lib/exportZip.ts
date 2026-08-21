@@ -101,7 +101,7 @@ function fmtPct(n: number, d: number): string {
  */
 function summariseSession(notes: QaNote[], stamp: string): string {
   if (!notes.length) return 'No points captured.';
-  let bugs = 0, questions = 0, polish = 0, verified = 0, awaiting = 0;
+  let bugs = 0, enhancements = 0, designs = 0, verified = 0, awaiting = 0;
   const pages = new Set<string>();
   let earliest = Number.POSITIVE_INFINITY;
   let latest = 0;
@@ -109,8 +109,8 @@ function summariseSession(notes: QaNote[], stamp: string): string {
   for (const n of notes) {
     const sev = n.severity ?? 'bug';
     if (sev === 'bug') bugs++;
-    else if (sev === 'question') questions++;
-    else polish++;
+    else if (sev === 'enhance') enhancements++;
+    else designs++;
     const status = n.status ?? 'open';
     if (status === 'verified') verified++;
     else if (status === 'fixed') awaiting++;
@@ -126,8 +126,8 @@ function summariseSession(notes: QaNote[], stamp: string): string {
     `${notes.length} point${notes.length === 1 ? '' : 's'}`,
     `${bugs} bug${bugs === 1 ? '' : 's'}`,
   ];
-  if (questions) parts.push(`${questions} question${questions === 1 ? '' : 's'}`);
-  if (polish) parts.push(`${polish} polish`);
+  if (enhancements) parts.push(`${enhancements} enhancement${enhancements === 1 ? '' : 's'}`);
+  if (designs) parts.push(`${designs} design`);
   if (verified) parts.push(`${verified} verified`);
   if (awaiting) parts.push(`${awaiting} awaiting re-test`);
   parts.push(`${pages.size} page${pages.size === 1 ? '' : 's'}`);
@@ -186,6 +186,63 @@ function buildPreamble(
     `Exported: ${stamp}  \n` +
     `Points: ${noteCount}\n\n` +
     `**Session:** ${summariseSession(notes, stamp)}`,
+  );
+
+  // ── 2c. What the three tags mean, and what each one asks of the reader ───
+  //
+  // Every point carries one of three tags. They are not severities — they are
+  // three different KINDS OF WORK, and the whole value of the tag is that it
+  // tells the agent which posture to take before it touches anything. Without
+  // this section the tag is decoration: an agent reads "design" and starts
+  // hunting for a fault that was never reported, or reads "enhance" and
+  // bolts a feature on without looking at what it lands next to.
+  //
+  // Deliberately written as instructions to the reader, not as definitions.
+  sections.push(
+    `## What the tags mean\n\n` +
+    `Every point below is tagged **Bug**, **Design** or **Enhance**. These are ` +
+    `not priorities — they are three different kinds of work. Read the tag ` +
+    `before you decide what to do.\n\n` +
+
+    `### Bug — something is broken\n\n` +
+    `Find the **root cause**, not the symptom. Do not patch over it.\n\n` +
+    `State the cause in one plain sentence before you change anything — ` +
+    `e.g. "the date was wrong because the server sends UTC and the list ` +
+    `formats in local time". **If you cannot write that sentence, you have ` +
+    `not found the cause yet.** Keep looking. The real cause is often ` +
+    `something small and silly; that is normal, and it is still the cause.\n\n` +
+    `**The cause is not always in the code.** If the code does exactly what it ` +
+    `was asked to do and the result is still wrong, then nothing is broken — ` +
+    `what was *asked for* and what was *meant* did not match. That mismatch is ` +
+    `the bug. Realign to what the owner meant and fix it there. If the note ` +
+    `already says what they meant ("this isn't what I wanted, I wanted X"), ` +
+    `they have told you — just do X. Do not stop to ask a question they have ` +
+    `already answered.\n\n` +
+
+    `### Design — it works, but it looks or feels wrong\n\n` +
+    `The functionality is fine and is not in question. Do not go hunting for a ` +
+    `fault; there isn't one. Think properly about the interface and the ` +
+    `experience — layout, spacing, hierarchy, wording, states, what the ` +
+    `person is actually trying to do — and change how it looks and feels.\n\n` +
+
+    `### Enhance — a new idea, thought of while using the app\n\n` +
+    `The tester wants something added or changed: a new section, a new ` +
+    `feature, a different way of doing it.\n\n` +
+    `**Plan it before you build it.** Read the surrounding code, work out what ` +
+    `it touches and what it might break, and choose an approach that fits how ` +
+    `the app is already built. Then build it. You do not need to stop and ask ` +
+    `for approval — plan well, then go.\n\n` +
+    `Push back only when you have a real reason: it would break something, or ` +
+    `it conflicts with an invariant below. Then say so plainly and propose the ` +
+    `alternative you would build instead.\n\n` +
+
+    `### When the tag and the words disagree\n\n` +
+    `The tag sets your starting posture; **the words win.** A point tagged ` +
+    `Design that says "this crashes" is a bug — treat it as one, and mention ` +
+    `that you changed lane. People pick the wrong chip all the time; that is ` +
+    `not a reason to do the wrong work.\n\n` +
+    `And if a point is phrased as a question rather than a report, **answer it ` +
+    `— do not change code on a maybe.**`,
   );
 
   // ── 3. Project table ──────────────────────────────────────────────────────
