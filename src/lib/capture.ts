@@ -121,14 +121,17 @@ const STUCK_ATTR = 'data-qa-stuck';
 const MAX_CAPTURE_EDGE = 4000;
 
 /**
- * How much we are willing to render for one off-screen selection, counted in
- * whole viewports. A render costs width×height×scale² bytes of canvas, so an
- * unbounded element on a retina screen is an easy way to be killed by the
- * tab's memory ceiling. Past the budget the render scale drops instead of the
- * framing — the stored shot is capped at MAX_SHOT_EDGE anyway, so this costs
- * far less detail than it looks like it should.
+ * Hard ceiling on one render, in DEVICE pixels (~64 MB of RGBA canvas).
+ *
+ * Counted in device pixels on purpose: the canvas costs width×height×scale²,
+ * so a budget expressed in CSS pixels quietly means four times as much memory
+ * on a retina screen as it appears to. A full-viewport retina render on a 13"
+ * laptop is ~5.6M px, comfortably inside this, so the budget only ever bites
+ * on a selection that leaves the viewport. Past it the render SCALE drops
+ * rather than the framing — the stored shot is capped at MAX_SHOT_EDGE anyway,
+ * so it costs far less detail than it looks like it should.
  */
-const MAX_RENDER_VIEWPORTS = 4;
+const MAX_RENDER_DEVICE_PIXELS = 16e6;
 
 export type CaptureEngine = 'exact' | 'dom';
 
@@ -445,6 +448,67 @@ function viewportSize(): { vw: number; vh: number } {
 }
 
 /**
+ * Shrink a picked element's rect to the part of it the browser actually PAINTS.
+ *
+ * This is the correction to what 0.7.2 got wrong. Chasing an element's full
+ * bounding box only makes sense when the whole box is drawn somewhere in the
+ * document. Inside a scroll container it is not: a dashboard, calendar, table,
+ * chat list or sidebar scrolls an inner `overflow:auto` box, and a 3000px
+ * column inside a 700px box exists as 700px of pixels and 2300px of nothing.
+ * Rendering the full box produced an image that was ~77% empty page background
+ * — and, because the stored shot is capped on its LONGEST edge, it squeezed
+ * the part the tester cared about down to a fraction of its real resolution.
+ * Measured at 23.3% content / 312px wide before, 100% / 1040px after.
+ *
+ * So we walk the ancestors and intersect with every box that clips: any
+ * `overflow` other than `visible`, on either axis, up to and including
+ * `<html>` (a fixed-layout app really does clip at the root). The viewport is
+ * deliberately NOT a clipper here — the DOM engine re-renders in document
+ * space and can legitimately draw below the fold, which is what makes a long
+ * form on an ordinary scrolling page capture in full.
+ *
+ * Returns `rect` unchanged if clipping leaves nothing usable, so a degenerate
+ * measurement can never turn into a blank capture.
+ */
+export function clipToPaintedArea(el: Element, rect: QaRect): QaRect {
+  let left = rect.left;
+  let top = rect.top;
+  let right = rect.left + rect.width;
+  let bottom = rect.top + rect.height;
+
+  let node: Element | null = el.parentElement;
+  while (node) {
+    let style: CSSStyleDeclaration;
+    try {
+      style = getComputedStyle(node);
+    } catch {
+      break;
+    }
+    const clipsX = style.overflowX !== 'visible';
+    const clipsY = style.overflowY !== 'visible';
+    if (clipsX || clipsY) {
+      // Clipping happens at the PADDING box, which is the border box inset by
+      // the border — clientLeft/clientTop and clientWidth/clientHeight.
+      const b = node.getBoundingClientRect();
+      const padLeft = b.left + node.clientLeft;
+      const padTop = b.top + node.clientTop;
+      if (clipsX) {
+        left = Math.max(left, padLeft);
+        right = Math.min(right, padLeft + node.clientWidth);
+      }
+      if (clipsY) {
+        top = Math.max(top, padTop);
+        bottom = Math.min(bottom, padTop + node.clientHeight);
+      }
+    }
+    node = node.parentElement;
+  }
+
+  if (right - left < 2 || bottom - top < 2) return rect;
+  return { left, top, width: right - left, height: bottom - top };
+}
+
+/**
  * The part of a selection that is actually on screen, or null when none of it
  * is. Used by the exact engine, which cannot invent off-viewport pixels.
  */
@@ -522,9 +586,10 @@ async function captureViaDom(
   // the render past one viewport, so the budget below is a no-op for every
   // region drag and for element picks that fit on screen.
   let scale = Math.min(window.devicePixelRatio || 1, 2);
-  const budget = vw * vh * MAX_RENDER_VIEWPORTS;
   const area = plan.render.width * plan.render.height;
-  if (area > budget) scale *= Math.sqrt(budget / area);
+  if (area * scale * scale > MAX_RENDER_DEVICE_PIXELS) {
+    scale = Math.sqrt(MAX_RENDER_DEVICE_PIXELS / area);
+  }
 
   const marked = markStuckElements();
   try {

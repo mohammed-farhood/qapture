@@ -98,6 +98,8 @@ type LangMap = {
   // — v0.4 "Ledger" —
   exact_label: string;
   exact_hint: string;
+  redraw_notice: string;
+  redraw_action: string;
   exact_on: string;
   exact_off: string;
   exact_declined: string;
@@ -300,6 +302,8 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     expected_label:        'Expected',
     exact_label:           'Pixel-exact shots',
     exact_hint:            'Screenshots become a real photo of the tab instead of a redraw. Asks once to share this tab; nothing leaves your device.',
+    redraw_notice:         'This is a redraw of the page, not a real photo.',
+    redraw_action:         'Use real screenshots',
     exact_on:              'Pixel-exact screenshots on',
     exact_off:            'Back to redrawn screenshots',
     exact_declined:        'Staying on redrawn screenshots',
@@ -494,6 +498,8 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     expected_label:        'المتوقع',
     exact_label:           'لقطات مطابقة تمامًا',
     exact_hint:            'تصبح اللقطة صورة حقيقية للتبويب بدل إعادة رسمه. يُطلب الإذن مرة واحدة، ولا شيء يغادر جهازك.',
+    redraw_notice:         'هذه إعادة رسم للصفحة، وليست صورة حقيقية.',
+    redraw_action:         'استخدم لقطات حقيقية',
     exact_on:              'تم تفعيل اللقطات المطابقة',
     exact_off:             'العودة إلى اللقطات المُعاد رسمها',
     exact_declined:        'سنبقى على اللقطات المُعاد رسمها',

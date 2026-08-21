@@ -74,6 +74,9 @@ async function enterCaptureMode(page, desc) {
   if (!inCapture) throw new Error(`could not enter capture mode for "${desc}"`);
 }
 
+/** Set by captureElement(): whether the card offered the pixel-exact upgrade. */
+let lastRedrawOffer = null;
+
 /** Drive an element PICK: a click with no drag, then annotate and save. */
 async function captureElement(page, x, y, desc) {
   await enterCaptureMode(page, desc);
@@ -82,6 +85,13 @@ async function captureElement(page, x, y, desc) {
   await page.mouse.down();
   await page.mouse.up();
   await sleep(3000);
+
+  // Peek at the card BEFORE saving: a DOM-engine shot should be offering the
+  // pixel-exact upgrade right under the preview.
+  lastRedrawOffer = await page.evaluate(() => ({
+    offered: !!window.__qaSR().querySelector('[data-qa-redraw-offer]'),
+    exactSupported: typeof navigator.mediaDevices?.getDisplayMedia === 'function',
+  }));
 
   const ta = (await page.evaluateHandle(() => window.__qaSR().querySelector('textarea'))).asElement();
   if (!ta) throw new Error(`annotation card never appeared for "${desc}"`);
@@ -196,6 +206,17 @@ try {
     stripe(wide, 'left:0;top:0;width:1000px;height:100%;background:#ff0000;');
     stripe(wide, 'left:1000px;top:0;width:1000px;height:100%;background:#00b300;');
 
+    // 4. A dashboard scroll box. The child is far taller than the box that
+    //    clips it, so only its first 600px is ever PAINTED — the rest of the
+    //    child exists in layout and nowhere on screen. Chasing the child's
+    //    full 2500px box is what made captures ~77% empty background.
+    const clip = box('qa-clip', 'left:700px;top:200px;width:400px;height:600px;overflow:auto;background:#ffffff;');
+    const child = document.createElement('div');
+    child.id = 'qa-clip-child';
+    child.style.cssText = 'position:relative;width:100%;height:2500px;background:#ff0000;';
+    stripe(child, 'left:0;top:0;width:100%;height:600px;background:#00b300;');
+    clip.appendChild(child);
+
     document.body.style.minHeight = '6400px';
     window.scrollTo(0, 0);
   });
@@ -225,6 +246,33 @@ try {
     );
   }
 
+  // ── CASE 4: element clipped by an ancestor scroll box ──────────────────
+  // The regression that 0.7.2 shipped. The picked child is 2500px tall but
+  // its scroll box only paints 600px of it, all green; below that the child is
+  // red and undrawn. A capture that chases the full box is mostly empty page
+  // and squeezes the real content down to a fraction of its resolution.
+  const clipInfo = await page.evaluate(() => {
+    const c = document.getElementById('qa-clip');
+    return { clientWidth: c.clientWidth, clientHeight: c.clientHeight };
+  });
+  console.log(`  info   scroll box paints ${clipInfo.clientWidth}x${clipInfo.clientHeight} of a 400x2500 child`);
+  await captureElement(page, 900, 400, 'clipped element fixture');
+  const clipped = report('clipped by scroll box', await measure(page, 'clipped element fixture'));
+  if (clipped) {
+    ok(
+      clipped.greenFraction > 0.95,
+      clipped.greenFraction > 0.95
+        ? 'clipped by scroll box: the capture is the painted part, with no empty filler'
+        : `clipped by scroll box: ${((1 - clipped.greenFraction) * 100).toFixed(1)}% of the image is background the browser never painted`,
+    );
+    ok(
+      clipped.height / clipped.width < 2.5,
+      clipped.height / clipped.width < 2.5
+        ? 'clipped by scroll box: kept its real resolution instead of being squeezed to a sliver'
+        : `clipped by scroll box: chased the full 2500px box (${clipped.width}x${clipped.height})`,
+    );
+  }
+
   // ── CASE 2: element starting above the viewport ────────────────────────
   // Scrolled so the green element spans viewport y -300..300 and the red
   // block beneath it spans 300..900.
@@ -251,6 +299,17 @@ try {
         ? 'starts above viewport: the capture is the element, all of it'
         : `starts above viewport: DISPLACED — ${(disp.redFraction * 100).toFixed(1)}% of the image is the block BELOW the element`,
     );
+  }
+
+  // ── The "it looks simulated" affordance ────────────────────────────────
+  // Every capture above went through html2canvas, which REDRAWS the page. The
+  // card should say so and offer the real-photo engine, because the old opt-in
+  // was a pill in the hint bar that testers never found.
+  if (lastRedrawOffer?.exactSupported) {
+    ok(lastRedrawOffer.offered, 'a redrawn shot offers the pixel-exact upgrade under the preview');
+  } else {
+    console.log('  info   pixel-exact unsupported in this browser — upgrade offer correctly absent');
+    ok(!lastRedrawOffer?.offered, 'no pixel-exact offer where the browser cannot do it');
   }
 
   // ── CASE 3: element wider than the viewport ────────────────────────────

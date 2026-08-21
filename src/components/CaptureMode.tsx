@@ -79,7 +79,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useQa } from '../context/QaContext';
 import type { QaTarget, QaRect } from '../context/QaContext';
 import { Icon, type IconName } from '../icons/Icon';
-import { captureRegion } from '../lib/capture';
+import { captureRegion, clipToPaintedArea, type CaptureEngine } from '../lib/capture';
 import { getStableSelector } from '../lib/selector';
 import { useCoarsePointer } from '../lib/coarse';
 import { lockPageScroll, unlockPageScroll } from '../lib/scrollLock';
@@ -194,6 +194,8 @@ export default function CaptureMode() {
   const [candidate, setCandidate] = useState<Selection | null>(null); // pending selection awaiting touch confirm
   const [regionMode, setRegionMode] = useState(false); // touch draw-region toggle
   const [shot, setShot] = useState<Blob | null>(null);
+  /** Which engine produced the current preview — drives the "redraw" offer. */
+  const [shotEngine, setShotEngine] = useState<CaptureEngine | null>(null);
   const [shotUrl, setShotUrl] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   // Distinguishes a BROKEN render (html2canvas threw/timed out — worth a
@@ -276,6 +278,7 @@ export default function CaptureMode() {
       }
 
       setCaptureError(outcome.status === 'failed');
+      setShotEngine(outcome.status === 'ok' ? outcome.engine : null);
       setShot(blob);
       setShotUrl((old) => {
         if (old) URL.revokeObjectURL(old);
@@ -341,7 +344,9 @@ export default function CaptureMode() {
       if (!el) { setHover(null); return; }
       const r = el.getBoundingClientRect();
       setHover({
-        rect: { top: r.top, left: r.left, width: r.width, height: r.height },
+        // Highlight only what will actually be captured, so the outline is a
+        // promise the screenshot can keep.
+        rect: clipToPaintedArea(el, { top: r.top, left: r.left, width: r.width, height: r.height }),
         selector: getStableSelector(el),
       });
     }
@@ -395,7 +400,10 @@ export default function CaptureMode() {
     const r = el.getBoundingClientRect();
     const sel: Selection = {
       kind: 'element',
-      rect: { top: r.top, left: r.left, width: r.width, height: r.height },
+      // What the browser PAINTS of this element, not its full bounding box —
+      // a row inside a scrolled table is only ever drawn where the table shows
+      // it. See clipToPaintedArea().
+      rect: clipToPaintedArea(el, { top: r.top, left: r.left, width: r.width, height: r.height }),
       selector: getStableSelector(el),
       text: ((el as HTMLElement).innerText ?? el.textContent ?? '').trim().slice(0, 120),
       tagName: el.tagName.toLowerCase(),
@@ -1094,6 +1102,36 @@ export default function CaptureMode() {
               ) : (
                 <span className="qa-py-4 qa-text-xs qa-text-slate-400">
                   {t('no_shot')}
+                </span>
+              )}
+
+              {/* The DOM engine REDRAWS the page rather than photographing it,
+                  and a redraw is never quite the app: fonts shift, shadows and
+                  gradients flatten, canvas/video come out blank. Testers read
+                  that as "the screenshot is fake" and stop trusting the tool —
+                  but the pixel-exact opt-in was a small pill in the hint bar
+                  that nobody notices. Offer it HERE instead, under the image
+                  that looks wrong, which is the moment it makes sense. One tap
+                  grants and re-shoots the same selection. */}
+              {shotUrl && shotEngine === 'dom' && exactShots.supported && exactShots.status !== 'live' && (
+                <span
+                  data-qa-redraw-offer="true"
+                  className="qa-mt-1.5 qa-flex qa-items-center qa-justify-center qa-flex-wrap qa-gap-1.5 qa-text-10 qa-text-mid"
+                >
+                  {t('redraw_notice')}
+                  <button
+                    type="button"
+                    onClick={() => void (async () => {
+                      const granted = await enableExactShots();
+                      if (granted && selection) void runCapture(selection.rect);
+                    })()}
+                    title={t('exact_hint')}
+                    className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-border qa-border-subtle qa-px-1.5 qa-py-0.5 qa-text-10 qa-text-hi qa-focus-ring"
+                    style={{ background: 'transparent', cursor: 'pointer' }}
+                  >
+                    <Icon name="Camera" size={10} />
+                    {t('redraw_action')}
+                  </button>
                 </span>
               )}
             </div>

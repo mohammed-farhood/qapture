@@ -326,10 +326,34 @@ failure with nothing on screen to reveal it.
 
 Captures now render the union of the viewport and the selection, so an element
 that leaves the screen in any direction is rendered whole, up to 4000px per
-side (past a four-viewport render budget the scale drops, not the framing).
-The exact engine can't photograph off-screen pixels, so there the selection is
-trimmed to the visible part instead — cropped, never displaced. `npm run
-element-capture-test` measures all three overflow directions.
+side (past a ~64 MB device-pixel render budget the scale drops, not the
+framing). The exact engine can't photograph off-screen pixels, so there the
+selection is trimmed to the visible part instead — cropped, never displaced.
+`npm run element-capture-test` measures all four cases.
+
+**v0.7.3 corrected the half of that which was wrong.** Chasing an element's
+whole box is only right when the whole box is *drawn*. Inside a scroll
+container it isn't: a dashboard scrolls an inner `overflow:auto` box, so a
+3000px column inside a 700px box is 700px of pixels and 2300px of nothing.
+0.7.2 rendered the nothing — measured at 23.3% element, 76.7% empty page, with
+the real content squeezed from 1040px wide to 312px by the long-edge cap.
+
+Captures are now clipped to what the browser actually paints: the element's box
+intersected with every ancestor that clips it, on either axis, up to `<html>`.
+The viewport is deliberately not a clipper, so a long form on an ordinary
+scrolling page still captures in full. Same fixture after: 100% element, full
+1040×1400. The hover outline is clipped identically, so what you highlight is
+what you get.
+
+### "The screenshot looks simulated"
+
+Because by default it is. The DOM engine re-draws your page; fonts shift,
+shadows and gradients flatten, `<canvas>` and video come out blank. From
+v0.7.3 a redrawn capture says so under the preview and offers a one-tap **Use
+real screenshots**, which grants tab-share and re-shoots the same selection
+with the exact engine below. Chromium desktop only — on Safari and Firefox the
+redraw is the only engine there is, so for screenshot-critical QA, test in
+Chrome.
 
 ### `exact` — opt-in, pixel-for-pixel
 

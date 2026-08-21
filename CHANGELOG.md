@@ -3,6 +3,58 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.3] "Only What's There" — 2026-08-16
+
+Corrects a regression shipped in 0.7.2, and answers the complaint underneath
+it. No breaking changes. **Anyone on 0.7.2 should update.**
+
+### Fixed
+
+- **0.7.2 made captures of clipped elements far worse.** 0.7.2 taught the
+  capture to chase an element's whole bounding box so a tall element would no
+  longer be truncated at the fold. That is right only when the whole box is
+  drawn somewhere in the document — and inside a scroll container it is not.
+  A dashboard, calendar, table, chat list or sidebar scrolls an inner
+  `overflow:auto` box, so a 3000px column inside a 700px box exists as 700px
+  of pixels and 2300px of nothing at all. Chasing the full box rendered that
+  nothing.
+
+  Measured on a fixture matching a real dashboard: the capture came out
+  **23.3% element and 76.7% empty page background** — and because the stored
+  shot is capped on its *longest* edge, the part the tester actually cared
+  about was squeezed from 1040px wide down to **312px**. It read as "the
+  screenshots are broken", and it was.
+
+  Captures are now clipped to what the browser genuinely paints: the picked
+  element's box intersected with every ancestor that clips it (any `overflow`
+  other than `visible`, on either axis, up to `<html>`). The viewport is
+  deliberately *not* treated as a clipper, so a long form on an ordinary
+  scrolling page still captures in full — the thing 0.7.2 got right is kept.
+  Same fixture after the fix: **100% element, at its full 1040×1400.** The
+  hover outline is clipped the same way, so the highlight is a promise the
+  screenshot can keep.
+
+- **The render memory ceiling was counted in the wrong unit.** It budgeted CSS
+  pixels while the canvas costs `width × height × scale²`, so on a retina
+  screen the real allocation was four times what the budget implied. It is now
+  an explicit device-pixel ceiling (~64 MB).
+
+### Changed
+
+- **"It looks simulated" is now something the tool admits and offers to fix.**
+  The default engine re-draws the page with html2canvas rather than
+  photographing it, so fonts shift, shadows and gradients flatten, and
+  `<canvas>`/video come out blank — testers read that as a fake screenshot and
+  stop trusting the tool. The pixel-exact engine that solves it has existed
+  since 0.4, as a small pill in the hint bar that nobody ever noticed.
+
+  A redrawn capture now says so directly under the preview — "This is a redraw
+  of the page, not a real photo" — with a one-tap **Use real screenshots** that
+  grants the permission and immediately re-shoots the same selection. Offered
+  at the moment the tester is looking at an image that seems wrong, which is
+  the only moment the offer means anything. Chromium desktop only; where the
+  browser cannot do it, nothing is shown rather than a dead promise.
+
 ## [0.7.2] "All of It" — 2026-08-16
 
 One defect, reported from a real app as *"it only takes part of the screenshot
