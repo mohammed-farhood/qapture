@@ -51,6 +51,7 @@ import SettingsSheet from './SettingsSheet';
 import WelcomeCard from './WelcomeCard';
 import CredentialsSection from './CredentialsSection';
 import GuideSection from './GuideSection';
+import { GUIDE_TAB_ENABLED } from '../lib/features';
 import { computeCoverage } from '../lib/coverage';
 import { useCoarsePointer } from '../lib/coarse';
 
@@ -60,11 +61,23 @@ import { useCoarsePointer } from '../lib/coarse';
 
 type TabKey = 'notes' | 'logins' | 'guide';
 
-const TABS: { key: TabKey; labelKey: string; icon: 'StickyNote' | 'KeyRound' | 'Map' }[] = [
+const ALL_TABS: { key: TabKey; labelKey: string; icon: 'StickyNote' | 'KeyRound' | 'Map' }[] = [
   { key: 'notes',  labelKey: 'tab_notes',  icon: 'StickyNote' },
   { key: 'logins', labelKey: 'tab_logins', icon: 'KeyRound'   },
   { key: 'guide',  labelKey: 'tab_guide',  icon: 'Map'        },
 ];
+
+/** The tabs that are actually offered — see lib/features.ts. */
+const TABS = ALL_TABS.filter((tab) => tab.key !== 'guide' || GUIDE_TAB_ENABLED);
+
+/**
+ * A tab the panel can actually show. `activeTab` is restored from storage, so
+ * it can name a tab that has since been hidden; without this the body would
+ * render nothing and the indicator bar would have no button to sit under.
+ */
+function visibleTab(tab: TabKey): TabKey {
+  return tab === 'guide' && !GUIDE_TAB_ENABLED ? 'notes' : tab;
+}
 
 function todayName(): string {
   return `qa-notes-${new Date().toISOString().slice(0, 10)}`;
@@ -120,7 +133,7 @@ const PANEL_TRANSITION_WITH_LIFT =
 
 export default function QaPanel() {
   const {
-    isOpen, activeTab, setActiveTab,
+    isOpen, activeTab: storedTab, setActiveTab,
     notes, exportZip, isExporting, clearNotes,
     startCapture,
     t, lang, setLang, dir,
@@ -130,6 +143,11 @@ export default function QaPanel() {
     showWelcome, canShare, shareExport, pendingShare, sharePending, notify,
     panelSide, setPanelSide, panelCollapsed, setPanelCollapsed,
   } = useQa();
+
+  // What the panel actually shows. The stored tab can name one that is
+  // currently hidden (see lib/features.ts), and a tester who last used it
+  // should land on the notes rather than on an empty body.
+  const activeTab = visibleTab(storedTab);
 
   const [confirmClear, setConfirmClear] = useState(false);
   const [naming, setNaming]             = useState(false);
@@ -601,7 +619,7 @@ export default function QaPanel() {
           </>
         )}
         {!simpleMode && activeTab === 'logins' && <CredentialsSection />}
-        {!simpleMode && activeTab === 'guide'  && <GuideSection />}
+        {!simpleMode && GUIDE_TAB_ENABLED && activeTab === 'guide' && <GuideSection />}
       </div>
 
       </>

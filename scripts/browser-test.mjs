@@ -1313,8 +1313,11 @@ try {
     console.log(`25. Bug #9 setup: image attached in quick-note form → createObjectURL logged (${createdUrl.slice(0, 24)}…): ok`);
 
     // Switch to a different tab WITHOUT saving — unmounts NoteEditor.
+    // (Logins, not Guide: the Guide tab is built but no longer offered as of
+    // 0.7.8 — see src/lib/features.ts. Any other tab unmounts the editor just
+    // as well, which is all this bug is about.)
     await page4.evaluate(() => {
-      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^guide$/i.test((x.textContent || '').trim()));
+      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^logins$/i.test((x.textContent || '').trim()));
       if (b) b.click();
     });
     await sleep(400);
@@ -1671,19 +1674,21 @@ try {
   // TestAlongHud, and Next/Back/Pass/Fail/Exit all work.
   // ---------------------------------------------------------------------
   {
+    // The walkthrough still ships; as of 0.7.8 the Guide tab that used to
+    // launch it is hidden (src/lib/features.ts), so the reachable entry point
+    // is the `?qa=walk` deep link. Testing it through a button that is no
+    // longer offered would be testing a path no tester can take.
+    await page5.goto(`${BASE}?qa=walk`, { waitUntil: 'networkidle0' });
+    await sleep(1200);
     await page5.evaluate(() => {
-      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^guide$/i.test((x.textContent || '').trim()));
-      if (b) b.click();
+      const sr = window.__qaSR();
+      // The deep link starts the walk with the panel closed; open the overlay
+      // so the HUD is on screen, exactly as clicking the FAB would.
+      if (!sr.textContent.includes('Step 1 of 2')) sr.querySelector('button')?.click();
     });
-    await sleep(300);
-
-    const started = await page5.evaluate(() => {
-      const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /start walkthrough/i.test(x.textContent || ''));
-      if (b) b.click();
-      return !!b;
-    });
-    if (!started) throw new Error('Graphite: "Start walkthrough" button not found in the Guide tab');
-    await sleep(400);
+    await sleep(600);
+    const started = await page5.evaluate(() => (window.__qaSR().textContent || '').includes('Step '));
+    if (!started) throw new Error('Graphite: ?qa=walk did not start the walkthrough');
 
     const hudShowing = await page5.evaluate(() => (window.__qaSR().textContent || '').includes('Step 1 of 2'));
     const panelGone = await page5.evaluate(() =>

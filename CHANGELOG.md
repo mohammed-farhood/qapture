@@ -3,6 +3,77 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.8] "Round Two" — 2026-08-28
+
+### Fixed
+
+- **Picking an element captured only part of it — the real cause, found at
+  last.** `clipToPaintedArea()`, added in 0.7.3 to stop captures chasing the
+  empty part of a scroll container, walked its ancestor loop all the way
+  through `<html>`. `<html>` is the one element where that arithmetic cannot
+  work: `getBoundingClientRect()` describes the whole *document* (on a page
+  scrolled to 1000, its `top` is -1000) while `clientHeight` reports the
+  *viewport* (900). Mixing them built a clip band pinned, in document space,
+  to the first screenful of the page, and every picked element crossing the
+  bottom of that band was silently cut to it — at any scroll position, because
+  the band moved with the document rather than with the reader.
+
+  It only fired when the root's computed overflow was not `visible`, and a
+  bare `html { overflow-x: hidden }` is enough: CSS promotes the *other* axis
+  from `visible` to `auto` as soon as one axis is not `visible`. That rule is
+  in the base stylesheet of more or less every Tailwind/Next app, and it was
+  in none of the fixtures — which is exactly why the suite stayed green while
+  the field kept reporting "it only captured part of the part I picked".
+
+  Measured on a 1280×900 viewport: an 1800px hero at the top of the page came
+  back 900px (50%), a 700px card came back 400px (57%).
+
+  The root is now handled where its overflow actually lands — on the viewport,
+  whose box is simply `0,0,vw,vh`, with no document-space arithmetic to get
+  wrong — and only `hidden`/`clip` clips there, because `auto`/`scroll` means
+  the page scrolls and the DOM engine can legitimately draw below the fold.
+  `<body>` follows CSS overflow propagation: it clips as a box in its own
+  right only when the root did not take its overflow away.
+
+  Every fixture in `element-capture-test` now runs under
+  `html { overflow-x: hidden }`, so the suite tests the page shape real apps
+  actually have. A new case pins the other side of it: an element wider than a
+  root that forbids horizontal overflow *should* clip to the viewport, because
+  there is no scroll to reach the rest with — so the fix cannot be re-broken
+  by simply deleting the viewport clip.
+
+### Added
+
+- **A follow-up round on a note.** The re-test already re-shot the target and
+  stored the new image beside the original; it could not say *why* what is on
+  screen is still wrong. A note in the re-test queue now takes a second piece
+  of text — "what happened this time" — kept in its own field rather than
+  written over the description, so the original ask survives as the record of
+  what was wanted while the follow-up carries what came back.
+
+  The export says so outright: a point with a round 2 is marked as having been
+  worked on once already and missed, the round-2 text is named as the current
+  ask, and the agent is told to work out what was misunderstood the first time
+  rather than simply try the same reading again more carefully. The session
+  summary counts them.
+
+- **"Keep only these" on the re-test list.** A campaign ends with twenty notes
+  of which five came back wrong, and what gets sent round again should be
+  those five — otherwise the agent re-reads fifteen findings that are already
+  done. Offered only while the re-test filter is on, where "these" has an
+  unambiguous referent; asks before deleting; and goes through the same bulk
+  delete as everything else, so one undo brings it all back.
+
+### Changed
+
+- **The Guide tab is hidden.** The panel's job is capture and the log, and a
+  third tab nobody is using yet costs a third of the tab bar in every session.
+  Nothing was removed — `GuideSection`, its strings, its state and the
+  `?qa=walk` deep links are all still here and still type-checked — so it
+  comes back by flipping `GUIDE_TAB_ENABLED` in the new `src/lib/features.ts`.
+  A tester whose last-used tab was the Guide lands on the notes rather than on
+  an empty panel.
+
 ## [0.7.7] "Three Kinds of Work" — 2026-08-22
 
 ### Changed

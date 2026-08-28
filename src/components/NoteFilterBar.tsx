@@ -12,6 +12,7 @@
  * permanently and there is no second place a note can hide in.
  */
 
+import { useState } from 'react';
 import { useQa } from '../context/QaContext';
 import type { QaSeverityFilter, QaStatusFilter } from '../context/QaContext';
 import { Icon, type IconName } from '../icons/Icon';
@@ -58,10 +59,21 @@ function FilterChip({ chip }: { chip: Chip }) {
 }
 
 export default function NoteFilterBar() {
-  const { filter, setFilter, noteCounts, notes, t } = useQa();
+  const { filter, setFilter, noteCounts, notes, deleteNotes, t } = useQa();
+  const [confirmPrune, setConfirmPrune] = useState(false);
 
   // Nothing to sort through yet — don't spend panel height on chrome.
   if (notes.length < 3) return null;
+
+  // "Keep only these" (v0.7.8). A campaign ends with twenty notes of which
+  // five came back wrong; what gets sent round again should be those five and
+  // nothing else, or the agent re-reads fifteen findings that are already
+  // done. Offered only while the tester is actually LOOKING at the re-test
+  // list, where "these" has an unambiguous referent and the count on screen
+  // is the count that survives. Deletion goes through deleteNotes(), so it
+  // lands in the same undo toast as any other bulk delete.
+  const others = notes.filter((n) => (n.status ?? 'open') !== 'fixed');
+  const showPrune = filter.status === 'fixed' && noteCounts.fixed > 0 && others.length > 0;
 
   const sev = (key: QaSeverityFilter) => () =>
     setFilter({ severity: filter.severity === key ? 'all' : key });
@@ -171,6 +183,47 @@ export default function NoteFilterBar() {
           <FilterChip key={chip.key} chip={chip} />
         ))}
       </div>
+
+      {showPrune && (
+        <div className="qa-text-11" data-qa-prune="true">
+          {confirmPrune ? (
+            <span className="qa-text-mid">
+              {t('keep_only_retest_q', { n: others.length })}{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  void deleteNotes(others.map((n) => n.id));
+                  setConfirmPrune(false);
+                }}
+                className="qa-font-semibold qa-text-danger qa-tap"
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                {t('yes')}
+              </button>
+              {' / '}
+              <button
+                type="button"
+                onClick={() => setConfirmPrune(false)}
+                className="qa-text-accent qa-tap"
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                {t('no')}
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmPrune(true)}
+              title={t('keep_only_retest_hint')}
+              className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-text-lo"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+            >
+              <Icon name="Trash" size={11} />
+              {t('keep_only_retest', { n: noteCounts.fixed })}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -184,6 +184,11 @@ function NoteItem({
   const thumbUrl = useObjectUrl(editing ? (img ?? undefined) : note.screenshot);
   const afterUrl = useObjectUrl(note.afterScreenshot);
   const [retesting, setRetesting] = useState(false);
+  // v0.7.8: the follow-up round, edited separately from the original note so
+  // that writing "here is what it did instead" never overwrites what was
+  // originally asked for.
+  const [editingFollowUp, setEditingFollowUp] = useState(false);
+  const [followUpDraft, setFollowUpDraft] = useState(note.followUp ?? '');
   // In compact mode a note starts as a single line and opens on demand.
   const [open, setOpen] = useState(false);
 
@@ -512,6 +517,90 @@ function NoteItem({
                 className="qa-w-full qa-rounded-lg qa-border"
                 style={{ borderColor: 'var(--qa-success)' }}
               />
+            </div>
+          )}
+
+          {/* Round two (v0.7.8). The picture shows what the screen does now;
+              this is the sentence that says why that is still not it. Offered
+              on anything in the re-test queue, and kept visible afterwards so
+              a note that has since been verified still carries the round it
+              went through. */}
+          {(status === 'fixed' || note.followUp) && (
+            <div
+              className="qa-mt-2 qa-rounded-lg qa-border qa-border-subtle qa-bg-2 qa-p-2"
+              data-qa-followup="true"
+            >
+              {editingFollowUp ? (
+                <>
+                  <label className="qa-text-10 qa-text-lo" htmlFor={`qa-fu-${note.id}`}>
+                    {t('followup_label')}
+                  </label>
+                  <textarea
+                    id={`qa-fu-${note.id}`}
+                    value={followUpDraft}
+                    onChange={(e) => setFollowUpDraft(e.target.value)}
+                    placeholder={t('followup_placeholder')}
+                    rows={3}
+                    className="qa-mt-1 qa-w-full qa-rounded-lg qa-border qa-border-subtle qa-bg-1 qa-p-2 qa-text-xs qa-text-hi"
+                    style={{ outline: 'none', resize: 'vertical' }}
+                  />
+                  <p className="qa-mt-1 qa-text-10 qa-text-lo">{t('followup_hint')}</p>
+                  <div className="qa-mt-1.5 qa-flex qa-gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void updateNote(note.id, { followUp: followUpDraft });
+                        setEditingFollowUp(false);
+                      }}
+                      className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-lg qa-bg-accent qa-px-2 qa-py-1 qa-text-11 qa-font-semibold"
+                      style={{ border: 'none', cursor: 'pointer' }}
+                    >
+                      <Icon name="Check" size={12} />
+                      {t('save')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFollowUpDraft(note.followUp ?? '');
+                        setEditingFollowUp(false);
+                      }}
+                      className="qa-tap qa-rounded-lg qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-11 qa-text-mid"
+                      style={{ background: 'transparent', cursor: 'pointer' }}
+                    >
+                      {t('cancel')}
+                    </button>
+                  </div>
+                </>
+              ) : note.followUp ? (
+                <>
+                  <div className="qa-flex qa-items-center qa-gap-1">
+                    <Icon name="RotateCcw" size={11} className="qa-shrink-0 qa-text-warn" />
+                    <span className="qa-text-10 qa-text-warn">{t('followup_label')}</span>
+                    <button
+                      type="button"
+                      onClick={() => { setFollowUpDraft(note.followUp ?? ''); setEditingFollowUp(true); }}
+                      aria-label={t('edit')}
+                      className="qa-tap-icon qa-ms-auto qa-text-lo"
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+                    >
+                      <Icon name="Pencil" size={11} />
+                    </button>
+                  </div>
+                  <p className="qa-mt-1 qa-whitespace-pre-wrap qa-break-words qa-text-xs qa-text-hi">
+                    {note.followUp}
+                  </p>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setFollowUpDraft(''); setEditingFollowUp(true); }}
+                  className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-text-11 qa-font-medium qa-text-accent"
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+                >
+                  <Icon name="Plus" size={12} />
+                  {t('followup_add')}
+                </button>
+              )}
             </div>
           )}
         </>

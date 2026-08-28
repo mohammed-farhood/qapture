@@ -70,6 +70,19 @@ const notes = [{
       { t: Date.parse('2026-06-29T09:59:58Z'), kind: 'click', label: 'Place order' },
     ],
   },
+}, {
+  // v0.7.8: a point that came back. The original ask and the re-test must
+  // BOTH survive into the export — merging them, or letting the follow-up
+  // replace the description, would destroy the record of what was originally
+  // wanted, which is the one thing the second round needs in order to explain
+  // how the first attempt missed.
+  id: '2', url: 'http://localhost/cart', route: '/cart',
+  timestamp: '2026-06-29T09:40:00Z',
+  description: 'Totals should include VAT.',
+  severity: 'bug',
+  status: 'fixed',
+  followUp: 'VAT is shown now but it is added twice on the summary line.',
+  followUpAt: '2026-06-29T09:55:00Z',
 }];
 
 await buildAndDownloadZip(notes, '2026-06-29T10:00:00Z', 'demo-export', config, guideChecked);
@@ -112,6 +125,27 @@ if (typedLines.length !== 1) {
   throw new Error(`FAIL: expected one collapsed typing step, got ${typedLines.length}`);
 }
 console.log('ASSERT v0.5 steps: rendered, collapsed, and value-free ✅');
+
+// --- v0.7.8 second round: the follow-up must arrive as its own block, the
+// original ask must still be there, and the reader must be told which of the
+// two is the current one.
+const roundTwo = [
+  'This one came back — round 2.',
+  'What happened this time',
+  'VAT is shown now but it is added twice on the summary line.',
+  'Totals should include VAT.',            // the original ask, not overwritten
+  'back for a second round',               // session summary counts it
+  'A point with a "round 2" on it',        // the instruction that reads it
+];
+const missingRound = roundTwo.filter((s) => !md.includes(s));
+if (missingRound.length) {
+  throw new Error('FAIL: second round missing from notes.md: ' + missingRound.join(', '));
+}
+// The follow-up belongs UNDER the original, not in place of it.
+if (md.indexOf('Totals should include VAT.') > md.indexOf('added twice on the summary line')) {
+  throw new Error('FAIL: the follow-up rendered above the original ask');
+}
+console.log('ASSERT v0.7.8 second round: original kept, follow-up added under it ✅');
 
 // --- Bug #14: mdTable() must replace embedded \r\n/\r/\n in cell values with
 // a space, not leave them intact, or a config field with a literal newline

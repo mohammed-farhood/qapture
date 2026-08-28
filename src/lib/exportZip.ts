@@ -101,7 +101,7 @@ function fmtPct(n: number, d: number): string {
  */
 function summariseSession(notes: QaNote[], stamp: string): string {
   if (!notes.length) return 'No points captured.';
-  let bugs = 0, enhancements = 0, designs = 0, verified = 0, awaiting = 0;
+  let bugs = 0, enhancements = 0, designs = 0, verified = 0, awaiting = 0, secondRound = 0;
   const pages = new Set<string>();
   let earliest = Number.POSITIVE_INFINITY;
   let latest = 0;
@@ -114,6 +114,7 @@ function summariseSession(notes: QaNote[], stamp: string): string {
     const status = n.status ?? 'open';
     if (status === 'verified') verified++;
     else if (status === 'fixed') awaiting++;
+    if (n.followUp && n.followUp.trim()) secondRound++;
     pages.add((n.route || '/').split('?')[0]);
     const t = Date.parse(n.timestamp);
     if (Number.isFinite(t)) {
@@ -130,6 +131,8 @@ function summariseSession(notes: QaNote[], stamp: string): string {
   if (designs) parts.push(`${designs} design`);
   if (verified) parts.push(`${verified} verified`);
   if (awaiting) parts.push(`${awaiting} awaiting re-test`);
+  // Worth saying up front: a second round means an earlier attempt missed.
+  if (secondRound) parts.push(`${secondRound} back for a second round`);
   parts.push(`${pages.size} page${pages.size === 1 ? '' : 's'}`);
 
   if (Number.isFinite(earliest) && latest > earliest) {
@@ -235,6 +238,18 @@ function buildPreamble(
     `Push back only when you have a real reason: it would break something, or ` +
     `it conflicts with an invariant below. Then say so plainly and propose the ` +
     `alternative you would build instead.\n\n` +
+
+    `### A point with a "round 2" on it\n\n` +
+    `Some points carry a **round 2** block: the same finding, already worked ` +
+    `on once, re-tested, and still not right. Two things follow from that.\n\n` +
+    `First, **the round-2 text is the current ask** and the paragraph above it ` +
+    `is history — read the history to understand what was wanted, act on the ` +
+    `round 2.\n\n` +
+    `Second, **the previous attempt is evidence.** Something about the first ` +
+    `reading was wrong, so do not simply do it again more carefully. Work out ` +
+    `what was misunderstood the first time and say so in one sentence, then ` +
+    `fix that. If a "Before"/"After" screenshot pair is attached, the After is ` +
+    `what the tester was looking at when they wrote the round 2.\n\n` +
 
     `### When the tag and the words disagree\n\n` +
     `The tag sets your starting posture; **the words win.** A point tagged ` +

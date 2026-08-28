@@ -179,6 +179,23 @@ export type QaNote = {
    */
   afterScreenshot?: Blob;
   afterAt?: string;
+  /**
+   * v0.7.8 — the WORDS that go with the re-test.
+   *
+   * `afterScreenshot` proves what the screen looks like now; it cannot say
+   * why that is still wrong. On a real campaign the interesting notes are the
+   * handful that came back not-quite-right, and the whole value of sending
+   * them round again is the sentence "this is what happened, and this is how
+   * it differs from what I asked for" — which, before this field, the tester
+   * had to either overwrite the original description with (destroying the
+   * evidence of what was originally asked) or file as a brand-new note (which
+   * loses the link to the attempt that missed).
+   *
+   * So it is kept separate and exported separately: the original ask stays
+   * untouched, and the follow-up sits under it as the second round.
+   */
+  followUp?: string;
+  followUpAt?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -355,6 +372,8 @@ export type QaContextValue = {
   /**
    * Patch a note. `screenshot: null` removes the screenshot (sets to undefined).
    * `screenshot: Blob` replaces it. `screenshot: undefined` (or omitted) leaves it unchanged.
+   * `followUp: ''` clears the follow-up round; any other string sets it and
+   * stamps `followUpAt`.
    */
   updateNote: (
     id: string,
@@ -363,6 +382,7 @@ export type QaContextValue = {
       screenshot?: Blob | null;
       severity?: 'bug' | 'design' | 'enhance';
       status?: 'open' | 'fixed' | 'verified';
+      followUp?: string;
     },
   ) => Promise<void>;
   /** Soft-delete: removed from state now, IDB write committed 5s later unless undone. */
@@ -1230,6 +1250,7 @@ export function QaProvider({
         screenshot?: Blob | null;
         severity?: 'bug' | 'design' | 'enhance';
         status?: 'open' | 'fixed' | 'verified';
+        followUp?: string;
       },
     ): Promise<void> => {
       // Build the patched note from the ref (see applyNotes' doc comment) so
@@ -1249,6 +1270,12 @@ export function QaProvider({
       }
       if (patch.severity !== undefined) updated.severity = patch.severity;
       if (patch.status !== undefined) updated.status = patch.status;
+      if (patch.followUp !== undefined) {
+        const text = patch.followUp.trim();
+        // Empty means "take it back", not "store a blank round".
+        updated.followUp = text || undefined;
+        updated.followUpAt = text ? nowIso() : undefined;
+      }
 
       applyNotes((prev) => prev.map((n) => (n.id === id ? updated : n)));
 

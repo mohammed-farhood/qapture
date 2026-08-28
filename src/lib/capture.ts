@@ -461,11 +461,37 @@ function viewportSize(): { vw: number; vh: number } {
  * Measured at 23.3% content / 312px wide before, 100% / 1040px after.
  *
  * So we walk the ancestors and intersect with every box that clips: any
- * `overflow` other than `visible`, on either axis, up to and including
- * `<html>` (a fixed-layout app really does clip at the root). The viewport is
- * deliberately NOT a clipper here — the DOM engine re-renders in document
- * space and can legitimately draw below the fold, which is what makes a long
- * form on an ordinary scrolling page capture in full.
+ * `overflow` other than `visible`, on either axis.
+ *
+ * THE ROOT IS NOT AN ORDINARY BOX (the 0.7.3→0.7.8 correction)
+ * -----------------------------------------------------------
+ * 0.7.3 walked that loop all the way through `<html>`, on the reasoning that
+ * a fixed-layout app really does clip at the root. `<html>` is the one
+ * element where that arithmetic cannot work, because its two halves describe
+ * two different rectangles:
+ *   • `getBoundingClientRect()` describes the whole DOCUMENT — on a page
+ *     scrolled to 1000, its `top` is -1000;
+ *   • `clientHeight` reports the VIEWPORT — 900, not the document height.
+ * Mixing them builds a clip band that is pinned, in document space, to the
+ * first screenful of the page. Every element crossing the bottom of that band
+ * was silently cut to it, at any scroll position, because the band moves with
+ * the document rather than with the reader.
+ *
+ * It only fired when the root's computed overflow was not `visible` — and a
+ * bare `html { overflow-x: hidden }` is enough, because CSS promotes the
+ * OTHER axis from `visible` to `auto` as soon as one axis is not `visible`.
+ * That single rule is in the base stylesheet of more or less every Tailwind /
+ * Next app and in none of these fixtures, which is exactly why the suite was
+ * green while the field reported "it only captured part of the part I
+ * picked". Measured on a 1280x900 viewport: a 1800px hero at the top of the
+ * page came back 900px (50%), a 700px card came back 400px (57%).
+ *
+ * So the root is handled separately, where its overflow actually lands: on
+ * the VIEWPORT, whose box in viewport coordinates is simply 0,0,vw,vh — no
+ * document-space arithmetic to get wrong. And only `hidden`/`clip` clips
+ * there. `auto`/`scroll` means the page SCROLLS, and the DOM engine
+ * re-renders in document space, so it can legitimately draw what is below the
+ * fold — which is what makes a long form capture in full.
  *
  * Returns `rect` unchanged if clipping leaves nothing usable, so a degenerate
  * measurement can never turn into a blank capture.
@@ -476,16 +502,26 @@ export function clipToPaintedArea(el: Element, rect: QaRect): QaRect {
   let right = rect.left + rect.width;
   let bottom = rect.top + rect.height;
 
+  const doc = el.ownerDocument;
+  const root = doc ? doc.documentElement : null;
+  const body = doc ? doc.body : null;
+  const rootStyle = root ? safeComputedStyle(root) : null;
+  const bodyStyle = body ? safeComputedStyle(body) : null;
+
   let node: Element | null = el.parentElement;
-  while (node) {
-    let style: CSSStyleDeclaration;
-    try {
-      style = getComputedStyle(node);
-    } catch {
-      break;
-    }
-    const clipsX = style.overflowX !== 'visible';
-    const clipsY = style.overflowY !== 'visible';
+  while (node && node !== root) {
+    const style = safeComputedStyle(node);
+    if (!style) break;
+
+    // `<body>`'s overflow is handed UP to the viewport whenever the root's own
+    // is `visible` (CSS overflow propagation), and body then uses `visible`
+    // itself. Only when the root kept its own overflow does body clip as a box
+    // in its own right.
+    const propagatedX = node === body && rootStyle?.overflowX === 'visible';
+    const propagatedY = node === body && rootStyle?.overflowY === 'visible';
+
+    const clipsX = !propagatedX && style.overflowX !== 'visible';
+    const clipsY = !propagatedY && style.overflowY !== 'visible';
     if (clipsX || clipsY) {
       // Clipping happens at the PADDING box, which is the border box inset by
       // the border — clientLeft/clientTop and clientWidth/clientHeight.
@@ -504,8 +540,41 @@ export function clipToPaintedArea(el: Element, rect: QaRect): QaRect {
     node = node.parentElement;
   }
 
+  // The root's overflow, applied where it actually lands: the viewport.
+  const vpX = usedViewportOverflow(rootStyle?.overflowX, bodyStyle?.overflowX);
+  const vpY = usedViewportOverflow(rootStyle?.overflowY, bodyStyle?.overflowY);
+  if (vpX === 'hidden' || vpX === 'clip' || vpY === 'hidden' || vpY === 'clip') {
+    const { vw, vh } = viewportSize();
+    if (vpX === 'hidden' || vpX === 'clip') {
+      left = Math.max(left, 0);
+      right = Math.min(right, vw);
+    }
+    if (vpY === 'hidden' || vpY === 'clip') {
+      top = Math.max(top, 0);
+      bottom = Math.min(bottom, vh);
+    }
+  }
+
   if (right - left < 2 || bottom - top < 2) return rect;
   return { left, top, width: right - left, height: bottom - top };
+}
+
+/** getComputedStyle, but a detached or cross-document node returns null. */
+function safeComputedStyle(node: Element): CSSStyleDeclaration | null {
+  try {
+    return getComputedStyle(node);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Which overflow value the VIEWPORT ends up using on one axis. The root's own
+ * wins; only when the root is `visible` does `<body>`'s value propagate up.
+ */
+function usedViewportOverflow(rootValue?: string, bodyValue?: string): string {
+  if (rootValue && rootValue !== 'visible') return rootValue;
+  return bodyValue || 'visible';
 }
 
 /**

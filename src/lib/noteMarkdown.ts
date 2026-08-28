@@ -116,6 +116,26 @@ export function noteToMarkdown(
   lines.push('');
   lines.push(oneLine(note.description) ? note.description.trim() : '_(no description)_');
 
+  // — round two (v0.7.8) —
+  // Placed immediately under the original, and never merged into it: the
+  // point above is what was asked for the first time, and this is what came
+  // back. An agent reading only the first paragraph would re-do work that has
+  // already been attempted, so this says outright that an attempt was made
+  // and missed, and that the sentence below is the correction.
+  if (note.followUp && oneLine(note.followUp)) {
+    lines.push('');
+    lines.push(
+      '> **This one came back — round 2.** ' +
+      'The point above was already worked on once and it is still not right. ' +
+      'What follows is the tester re-testing it, so treat it as the current ask ' +
+      'and the point above as the history of what was originally wanted.',
+    );
+    lines.push('');
+    lines.push(`**What happened this time**${note.followUpAt ? ` (${oneLine(note.followUpAt)})` : ''}`);
+    lines.push('');
+    lines.push(note.followUp.trim());
+  }
+
   // — steps to reproduce, recorded automatically (v0.5) —
   // Placed directly under the description, ABOVE the runtime-context
   // <details>, because this is the part a human reads first: it is the

@@ -174,6 +174,14 @@ try {
     document.body.style.margin = '0';
     document.documentElement.style.scrollBehavior = 'auto';
     document.body.style.scrollBehavior = 'auto';
+    // Every fixture below runs under the single most common real-app rule:
+    // `html { overflow-x: hidden }`. It is in the base stylesheet of more or
+    // less every Tailwind/Next app, and it is not cosmetic here — CSS
+    // promotes the OTHER axis from `visible` to `auto` when one axis is not
+    // `visible`, so this one line makes the root element look like a scroll
+    // container to any ancestor walk. Without it the suite tested a page
+    // shape that real apps do not have, and passed while the field failed.
+    document.documentElement.style.overflowX = 'hidden';
 
     const box = (id, css) => {
       const el = document.createElement('div');
@@ -312,8 +320,46 @@ try {
     ok(!lastRedrawOffer?.offered, 'no pixel-exact offer where the browser cannot do it');
   }
 
-  // ── CASE 3: element wider than the viewport ────────────────────────────
+  // ── CASE 5: too wide, on a root that FORBIDS horizontal overflow ───────
+  // Still under the page-wide `html { overflow-x: hidden }`. Here the right
+  // 720px of the 2000px element is not merely off screen — it is unreachable,
+  // because there is no horizontal scroll to reach it with. The painted area
+  // really is the viewport width, so clipping to it is the correct answer and
+  // not a truncation. This is the assertion that stops the fix for CASE 3
+  // below from being "just delete the viewport clip".
   await page.evaluate(() => window.scrollTo(0, 5000));
+  await sleep(500);
+  await captureElement(page, 640, 100, 'wide element, root clips x');
+  const clampedWide = report('too wide, root clips x', await measure(page, 'wide element, root clips x'));
+  if (clampedWide) {
+    const clipOk = aspectOk(clampedWide, env.vw / 200, 0.1);
+    ok(
+      clipOk,
+      clipOk
+        ? `too wide, root clips x: clipped to the ${env.vw}px the browser can actually paint`
+        : `too wide, root clips x: captured past the root's own clip (aspect ${(clampedWide.width / clampedWide.height).toFixed(2)})`,
+    );
+    // The element is red for its first 1000px and green after, so the visible
+    // 1280px must read as 1000 red + 280 green = 78.1% / 21.9%. Anything else
+    // means the crop landed somewhere other than the element's own left edge.
+    const framed = Math.abs(clampedWide.redFraction - 1000 / env.vw) < 0.05;
+    ok(
+      framed,
+      framed
+        ? 'too wide, root clips x: the crop starts at the element, not somewhere else on the page'
+        : `too wide, root clips x: expected ${((1000 / env.vw) * 100).toFixed(1)}% red, got ${(clampedWide.redFraction * 100).toFixed(1)}%`,
+    );
+  }
+
+  // ── CASE 3: element wider than the viewport, on a page that scrolls ────
+  // Same element, with the root's horizontal clip lifted so the page can
+  // scroll sideways. Now the far side genuinely exists and must be captured:
+  // the DOM engine re-renders in document space and is not limited to the
+  // fold on either axis.
+  await page.evaluate(() => {
+    document.documentElement.style.overflowX = 'visible';
+    window.scrollTo(0, 5000);
+  });
   await sleep(500);
   await captureElement(page, 640, 100, 'wide element fixture');
   const wide = report('wider than viewport', await measure(page, 'wide element fixture'));

@@ -67,9 +67,23 @@ try {
   await page.goto(BASE, { waitUntil: 'networkidle2' });
   await sleep(1400);
 
-  // ── 1. A Guide step starts the walk ────────────────────────────────────
+  // ── 1-4. The Guide tab's own entry points ──────────────────────────────
+  // Hidden since 0.7.8 (src/lib/features.ts). The walkthrough itself still
+  // ships and is still exercised by sections 5-6 below, which reach it the
+  // ways that remain: "Walk these" on the notes list, and the ?qa=walk deep
+  // link. These four are skipped rather than deleted so they come back with
+  // the tab — checked against the rendered tab bar, not the flag, because
+  // what matters is whether a tester can get there.
   await page.evaluate(() => { window.__qaOpenPanel(); });
   await sleep(600);
+  const guideUi = await page.evaluate(() =>
+    [...window.__qaSR().querySelectorAll('button')].some((x) => /^guide$/i.test((x.textContent || '').trim())));
+  if (!guideUi) {
+    console.log('  skip   1-4. the Guide tab is not offered in this build — its entry points cannot be driven');
+  }
+
+  if (guideUi) {
+  // ── 1. A Guide step starts the walk ────────────────────────────────────
   await page.evaluate(() => {
     const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /guide/i.test(x.textContent || ''));
     if (b) b.click();
@@ -146,6 +160,7 @@ try {
     return checked.length === 0 && failed.length === 0;
   });
   ok(naNotPass, '4. "doesn\'t apply" is neither a pass nor a fail');
+  } // end: Guide tab entry points
 
   // ── 5. Walking the notes ───────────────────────────────────────────────
   await page.evaluate(() => {

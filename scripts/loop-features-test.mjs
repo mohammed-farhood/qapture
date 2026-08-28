@@ -26,6 +26,13 @@
 //  12. PANEL DOCKING      — the panel can move to the other edge and collapse
 //      to its header, so it stops covering the app under test.
 //  13. WHOLE-SCREEN SHOT  — capture everything visible without dragging.
+//  14. TWO TABS           — the Guide tab is built but not offered; the panel
+//      is capture and the log. See src/lib/features.ts.
+//  15. KEEP ONLY THESE    — from the re-test list, delete everything that is
+//      not waiting to be re-tested, so a second round is sent round on its
+//      own instead of dragging fifteen finished findings with it.
+// Plus 8b. FOLLOW-UP      — the sentence that goes with a re-test, stored
+//      beside the original rather than over it.
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -462,6 +469,65 @@ try {
   });
   ok(showsBoth, '8. the note shows the before and after images together');
 
+  // ── 8b. The words that go with the re-test (v0.7.8) ────────────────────
+  // The after image proves what the screen does now; it cannot say why that
+  // is still wrong. The follow-up is that sentence, and the point of keeping
+  // it in its own field is that the ORIGINAL ask survives it.
+  const offersFollowUp = await page.evaluate(() => {
+    const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes('retest fixture'));
+    return li ? [...li.querySelectorAll('button')].some((b) => /say what happened/i.test(b.textContent || '')) : false;
+  });
+  ok(offersFollowUp, '8b. a note in the re-test queue offers a follow-up');
+
+  await page.evaluate(() => {
+    const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes('retest fixture'));
+    const b = li && [...li.querySelectorAll('button')].find((x) => /say what happened/i.test(x.textContent || ''));
+    if (b) b.click();
+  });
+  await sleep(400);
+  const fuBox = (await page.evaluateHandle(() => {
+    const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes('retest fixture'));
+    return li?.querySelector('[data-qa-followup] textarea') ?? null;
+  })).asElement();
+  ok(!!fuBox, '8b. the follow-up opens its own box, separate from the note');
+  if (fuBox) {
+    await fuBox.click();
+    await fuBox.type('still off by one on the second row');
+    await page.evaluate(() => {
+      const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes('retest fixture'));
+      const box = li?.querySelector('[data-qa-followup]');
+      const b = box && [...box.querySelectorAll('button')].find((x) => /^save$/i.test((x.textContent || '').trim()));
+      if (b) b.click();
+    });
+    await sleep(900);
+
+    const stored = await page.evaluate(() => new Promise((resolve) => {
+      const req = indexedDB.open('playground-db');
+      req.onerror = () => resolve(null);
+      req.onsuccess = () => {
+        const all = req.result.transaction('notes', 'readonly').objectStore('notes').getAll();
+        all.onerror = () => resolve(null);
+        all.onsuccess = () => {
+          const n = all.result.find((x) => x.description === 'retest fixture');
+          resolve(n ? { followUp: n.followUp, followUpAt: n.followUpAt, description: n.description } : null);
+        };
+      };
+    }));
+    ok(stored?.followUp === 'still off by one on the second row',
+      '8b. the follow-up is saved on the note');
+    ok(!!stored?.followUpAt, '8b. the follow-up is stamped with when it was written');
+    // The whole reason it is a separate field.
+    ok(stored?.description === 'retest fixture',
+      '8b. writing the follow-up left the original note exactly as it was');
+
+    const rendersFollowUp = await page.evaluate(() => {
+      const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes('retest fixture'));
+      const text = li?.textContent || '';
+      return /What happened this time/i.test(text) && /still off by one on the second row/.test(text);
+    });
+    ok(rendersFollowUp, '8b. the note shows the follow-up under the original');
+  }
+
   // ── 9. Share ───────────────────────────────────────────────────────────
   await page.evaluate(() => {
     const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /^Export$/i.test((x.textContent || '').trim()));
@@ -668,6 +734,137 @@ try {
     ok(!!shot && Math.abs(shot.ratio - viewportRatio) / viewportRatio < 0.05,
       `13. the saved shot is the whole viewport (${shot?.w}x${shot?.h}, ratio ${shot?.ratio?.toFixed(2)} vs ${viewportRatio.toFixed(2)})`);
   }
+  // ── 14. The panel is capture + the log, nothing else (v0.7.8) ──────────
+  // The Guide tab is built and still compiled, just not offered — see
+  // lib/features.ts. Asserted on the tab bar rather than on the flag, because
+  // the thing that matters is what the tester is shown.
+  await page.evaluate(() => {
+    const sr = window.__qaSR();
+    if (!sr.querySelector('li')) sr.querySelector('button')?.click();
+  });
+  await sleep(600);
+  const tabs = await page.evaluate(() => {
+    const sr = window.__qaSR();
+    const bar = [...sr.querySelectorAll('button')].filter((b) => /^(Notes|Logins|Guide)$/i.test((b.textContent || '').trim()));
+    return bar.map((b) => (b.textContent || '').trim());
+  });
+  console.log(`  info   tabs on offer: ${tabs.join(', ') || '(none found)'}`);
+  ok(tabs.length === 2, `14. the panel offers two tabs, not three (${tabs.length})`);
+  ok(!tabs.some((x) => /guide/i.test(x)), '14. the Guide tab is not shown');
+
+  // ── 15. Keep only the ones that came back (v0.7.8) ─────────────────────
+  // Destructive, so it runs last. The workflow it serves: twenty notes, five
+  // came back wrong, send those five round again and nothing else.
+  // Setup. Section 10's bulk action marked every note verified and section 11
+  // left the list compact, so restore the state this button actually exists
+  // for: full cards, and two notes back in the re-test queue.
+  // The toggle is labelled by what it will DO, so the way back out of compact
+  // mode reads "Full cards", not "Compact list".
+  await page.evaluate(() => {
+    const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /full cards/i.test(x.textContent || ''));
+    if (b) b.click();
+  });
+  await sleep(600);
+  const toQueue = (await readNotes()).slice(0, 2).map((n) => n.description);
+  for (const desc of toQueue) {
+    // The pill cycles open → fixed → verified, so from wherever it is now it
+    // is at most three taps back to the re-test queue.
+    for (let i = 0; i < 3; i++) {
+      const now = (await readNotes()).find((n) => n.description === desc)?.status;
+      if (now === 'fixed') break;
+      await page.evaluate((d) => {
+        const li = [...window.__qaSR().querySelectorAll('li')].find((el) => (el.textContent || '').includes(d));
+        const pill = li && [...li.querySelectorAll('button')].find((b) => /Open|Re-test|Verified/.test(b.textContent || ''));
+        if (pill) pill.click();
+      }, desc);
+      await sleep(450);
+    }
+  }
+  const listedBeforePrune = await page.evaluate(() => window.__qaSR().querySelectorAll("li").length);
+  console.log(`  info   ${listedBeforePrune} notes in the list before pruning`);
+
+  // Filter to the re-test list — the button is only offered there, where
+  // "these" has an unambiguous referent.
+  await page.evaluate(() => {
+    const sr = window.__qaSR();
+    const chip = [...sr.querySelectorAll('button')].find((b) => /^Re-test\s*\d*$/i.test((b.textContent || '').trim()));
+    if (chip) chip.click();
+  });
+  await sleep(600);
+  const pruneOffered = await page.evaluate(() =>
+    !!window.__qaSR().querySelector('[data-qa-prune]'));
+  ok(pruneOffered, '15. filtering to the re-test list offers "Keep only these"');
+
+  if (pruneOffered) {
+    const counts = await page.evaluate(() => new Promise((resolve) => {
+      const req = indexedDB.open('playground-db');
+      req.onerror = () => resolve(null);
+      req.onsuccess = () => {
+        const all = req.result.transaction('notes', 'readonly').objectStore('notes').getAll();
+        all.onerror = () => resolve(null);
+        all.onsuccess = () => {
+          const fixed = all.result.filter((n) => (n.status ?? 'open') === 'fixed');
+          resolve({ all: all.result.length, fixed: fixed.length });
+        };
+      };
+    }));
+    console.log(`  info   ${counts?.fixed} of ${counts?.all} notes are waiting to be re-tested`);
+
+    // Two clicks: the button, then the confirmation. A single-click bulk
+    // delete of most of a session is not a button anyone should have.
+    await page.evaluate(() => {
+      const box = window.__qaSR().querySelector('[data-qa-prune]');
+      box?.querySelector('button')?.click();
+    });
+    await sleep(300);
+    const asksFirst = await page.evaluate(() => {
+      const box = window.__qaSR().querySelector('[data-qa-prune]');
+      return /delete the other/i.test(box?.textContent || '');
+    });
+    ok(asksFirst, '15. it asks before deleting anything');
+
+    await page.evaluate(() => {
+      const box = window.__qaSR().querySelector('[data-qa-prune]');
+      const yes = box && [...box.querySelectorAll('button')].find((b) => /^yes$/i.test((b.textContent || '').trim()));
+      if (yes) yes.click();
+    });
+    await sleep(1200);
+
+    // Drop the filter so the list is showing EVERYTHING that is left — the
+    // count under a "re-test only" filter would be the same either way and
+    // would prove nothing.
+    await page.evaluate(() => {
+      const sr = window.__qaSR();
+      const chip = [...sr.querySelectorAll('button')].find((b) => /^All\s*\d*$/i.test((b.textContent || '').trim()));
+      if (chip) chip.click();
+    });
+    await sleep(500);
+    const leftInList = await page.evaluate(() => window.__qaSR().querySelectorAll('li').length);
+    console.log(`  info   after pruning: ${leftInList} notes left in the list`);
+    ok(leftInList === counts?.fixed,
+      `15. only the re-test notes are left (${leftInList}, expected ${counts?.fixed})`);
+
+    // deleteNotes is a SOFT delete — state first, IndexedDB committed once the
+    // undo window closes. Wait it out and confirm the removal really landed,
+    // or a reload would bring all fifteen back.
+    await sleep(6500);
+    const after = await page.evaluate(() => new Promise((resolve) => {
+      const req = indexedDB.open('playground-db');
+      req.onerror = () => resolve(null);
+      req.onsuccess = () => {
+        const all = req.result.transaction('notes', 'readonly').objectStore('notes').getAll();
+        all.onerror = () => resolve(null);
+        all.onsuccess = () => {
+          const fixed = all.result.filter((n) => (n.status ?? 'open') === 'fixed');
+          resolve({ all: all.result.length, fixed: fixed.length });
+        };
+      };
+    }));
+    console.log(`  info   once the undo window closed: ${after?.all} stored, ${after?.fixed} of them re-test`);
+    ok(after?.fixed === counts?.fixed, '15. every re-test note survived');
+    ok(after?.all === counts?.fixed,
+      `15. and the deletion actually committed (${after?.all} stored, expected ${counts?.fixed})`);
+  }
 } finally {
   await browser.close();
   server.kill('SIGTERM');
@@ -677,4 +874,4 @@ if (failures > 0) {
   console.error(`\nLOOP FEATURES: ${failures} assertion(s) FAILED`);
   process.exit(1);
 }
-console.log('\nLOOP FEATURES PASS ✅  shortcut + steps + re-test queue + auto-backup + drawing + welcome + error catcher + re-test evidence + share + bulk + compact + docking + whole-screen');
+console.log('\nLOOP FEATURES PASS ✅  shortcut + steps + re-test queue + auto-backup + drawing + welcome + error catcher + re-test evidence + follow-up round + share + bulk + compact + docking + whole-screen + two tabs + keep-only-retest');

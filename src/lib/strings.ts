@@ -187,6 +187,14 @@ type LangMap = {
   retest_not_found: string;
   before_label: string;
   after_label: string;
+  // — v0.7.8: the second round —
+  followup_label: string;
+  followup_add: string;
+  followup_placeholder: string;
+  followup_hint: string;
+  keep_only_retest: string;
+  keep_only_retest_q: string;
+  keep_only_retest_hint: string;
   welcome_title: string;
   welcome_capture: string;
   welcome_say: string;
@@ -391,6 +399,13 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     retest_not_found:      "Can't find that spot on this page — open the right page first",
     before_label:          'Before',
     after_label:           'After',
+    followup_label:        'What happened this time',
+    followup_add:          'Say what happened',
+    followup_placeholder:  'What did it do this time, and how is that different from what you asked for?',
+    followup_hint:         'The first note stays as it is. This is added under it as round two.',
+    keep_only_retest:      'Keep only these {n}',
+    keep_only_retest_q:    'Delete the other {n}?',
+    keep_only_retest_hint: 'Delete every note that is not waiting to be re-tested',
     welcome_title:         'Testing {brand}',
     welcome_capture:       'Click "Capture from page", then click whatever looks wrong.',
     welcome_say:           'Say what you expected in your own words. A screenshot is taken for you.',
@@ -589,6 +604,13 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     retest_not_found:      'تعذّر إيجاد ذلك الموضع في هذه الصفحة — افتح الصفحة الصحيحة أولًا',
     before_label:          'قبل',
     after_label:           'بعد',
+    followup_label:        'ماذا حدث هذه المرة',
+    followup_add:          'اكتب ماذا حدث',
+    followup_placeholder:  'ماذا فعل هذه المرة، وكيف يختلف ذلك عمّا طلبته؟',
+    followup_hint:         'الملاحظة الأولى تبقى كما هي. هذه تُضاف تحتها كجولة ثانية.',
+    keep_only_retest:      'أبقِ هذه الـ {n} فقط',
+    keep_only_retest_q:    'حذف الـ {n} الأخرى؟',
+    keep_only_retest_hint: 'حذف كل ملاحظة ليست بانتظار إعادة الاختبار',
     welcome_title:         'اختبار {brand}',
     welcome_capture:       'اضغط «التقاط من الصفحة» ثم اضغط على ما يبدو خاطئًا.',
     welcome_say:           'اكتب ما كنت تتوقعه بكلماتك. تُلتقط الصورة تلقائيًا.',
