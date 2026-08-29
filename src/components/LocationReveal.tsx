@@ -21,13 +21,36 @@ import type { QaTarget } from '../context/QaContext';
 import { Icon } from '../icons/Icon';
 import { flashLocate } from '../lib/highlight';
 
-export default function LocationReveal({ target }: { target?: QaTarget | null }) {
-  const { t } = useQa();
+/**
+ * v0.7.9: `route` is where the note was FILED.
+ *
+ * Without it "Locate on page" ran the stored selector against whatever page
+ * the tester happened to be on. A selector like `button.btn-primary` exists on
+ * half the pages of an app, so the flash landed on a real element that was
+ * simply the wrong one — reported as "it just selects something on the same
+ * page, even though the note says Settings". Silently pointing at the wrong
+ * thing is worse than pointing at nothing, so when the note belongs to another
+ * page the control stops hunting and offers to go there instead.
+ *
+ * Omitted by CaptureMode, which shows this for a selection made a second ago:
+ * there is no other page to be on.
+ */
+export default function LocationReveal({
+  target,
+  route,
+}: {
+  target?: QaTarget | null;
+  route?: string;
+}) {
+  const { t, walkNavigate } = useQa();
   const [open, setOpen] = useState(false);
 
   if (!target) return null;
 
   const r = target.rect;
+  const notePath = (route || '').split('?')[0].split('#')[0];
+  const here = typeof window === 'undefined' ? '' : window.location.pathname;
+  const elsewhere = !!notePath && notePath !== here;
 
   return (
     <div className="qa-rounded-lg qa-border qa-border-subtle qa-bg-2">
@@ -89,15 +112,31 @@ export default function LocationReveal({ target }: { target?: QaTarget | null })
               {Math.round(r.height)}
             </div>
           )}
-          <button
-            onClick={() => flashLocate(target)}
-            className="qa-mt-1 qa-inline-flex qa-items-center qa-gap-1 qa-rounded-md qa-px-2 qa-py-1 qa-font-medium qa-tap qa-bg-accent"
-            style={{ border: 'none', cursor: 'pointer' }}
-          >
-            <Icon name="Crosshair" size={12} />
-            <Icon name="MapPinned" size={12} />
-            {t('loc_locate')}
-          </button>
+          {elsewhere ? (
+            <>
+              <p className="qa-mt-1 qa-mb-1 qa-m-0 qa-text-lo">
+                {t('loc_other_page', { path: notePath })}
+              </p>
+              <button
+                onClick={() => walkNavigate(notePath)}
+                className="qa-inline-flex qa-items-center qa-gap-1 qa-rounded-md qa-px-2 qa-py-1 qa-font-medium qa-tap qa-bg-accent"
+                style={{ border: 'none', cursor: 'pointer' }}
+              >
+                <Icon name="MapPinned" size={12} />
+                {t('loc_go_there', { path: notePath })}
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => flashLocate(target)}
+              className="qa-mt-1 qa-inline-flex qa-items-center qa-gap-1 qa-rounded-md qa-px-2 qa-py-1 qa-font-medium qa-tap qa-bg-accent"
+              style={{ border: 'none', cursor: 'pointer' }}
+            >
+              <Icon name="Crosshair" size={12} />
+              <Icon name="MapPinned" size={12} />
+              {t('loc_locate')}
+            </button>
+          )}
         </div>
       )}
     </div>

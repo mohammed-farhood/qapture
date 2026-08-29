@@ -3,6 +3,67 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.9] "Take Me There" — 2026-08-29
+
+### Fixed
+
+- **"Take me there" did not take you there.** `walkNavigate()` was
+  `history.pushState({}, '', target)` followed by a hand-dispatched
+  `popstate`, on the assumption that every SPA router listens for popstate.
+  They do not listen for *that* one:
+    - Next's App Router renders from the route tree it keeps in
+      `history.state` — and `pushState({}, …)` had just erased it, so the best
+      case was Next re-rendering the page you were already on;
+    - React Router's history keeps its position index in `history.state` too,
+      and a wiped index is ignored rather than followed.
+
+  So the address bar moved and the app stood still. Reported from a real app
+  as *"I said take me there and it didn't, it just selected something on the
+  same page, even though the note is in Settings."*
+
+  The soft navigation is still tried first — it is genuinely nicer when it
+  works, with no reload and no lost scroll — but it now has to **prove** it
+  happened: the existing `history.state` is preserved rather than wiped, and
+  700ms later, if the page is showing exactly what it was showing before, the
+  navigation that always works runs instead. An app that redirects you
+  somewhere of its own accord is left alone.
+
+- **The button hid its own escape hatch.** It only rendered when
+  `stop.path !== window.location.pathname`, and after a failed soft navigation
+  those are equal — so the control vanished at the exact moment it had failed,
+  taking the manual reload button beside it. The current path is now tracked
+  as it changes rather than read once per render, and the button shows
+  "Taking you there…" while the navigation is being decided, so a press is
+  never silent.
+
+- **A notes walk ended itself on arrival.** The HUD exits the walk when it has
+  no stops, which is right for an emptied list — but a notes walk builds its
+  stops from IndexedDB, and on a cold page load the answer has not come back
+  yet. "No stops" meant "not yet", not "nothing left". This never showed
+  before because "Take me there" never actually reloaded anything; the moment
+  it did, every cross-page step landed the tester on the right page with the
+  walkthrough gone.
+
+- **"Locate on page" pointed at the wrong page.** It ran the note's stored
+  selector against whatever page the tester was on, never checking where the
+  note was filed. A selector like `button.btn-primary` exists on half the
+  pages of an app, so the flash landed on a real element that was simply the
+  wrong one — which is worse than finding nothing, because it looks like it
+  worked. A note belonging to another page now says so and offers to go there
+  instead.
+
+### Added
+
+- `npm run walk-navigation-test` — and it does not trust the URL. The old
+  assertion for this lived in walk-test, said "the page moved (/ → /checkout)"
+  and only ever read `window.location.pathname`, which `pushState` changes on
+  its own; it passed against a feature that had never worked. The new test
+  plants a value on `window` before pressing the button, because only a real
+  page load destroys it. Three cases: an app that ignores the synthetic
+  popstate must still arrive for real; an app whose router does respond must
+  **not** be reloaded on top of its own navigation; and a note from another
+  page must refuse to hunt for its selector here.
+
 ## [0.7.8] "Round Two" — 2026-08-28
 
 ### Fixed

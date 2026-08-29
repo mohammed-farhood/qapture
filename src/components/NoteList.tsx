@@ -454,7 +454,7 @@ function NoteItem({
                 {note.route}
               </span>
             </div>
-            {note.target && <LocationReveal target={note.target} />}
+            {note.target && <LocationReveal target={note.target} route={note.route} />}
             {contextEventCount > 0 && (
               <div>{t('context_attached', { n: contextEventCount })}</div>
             )}

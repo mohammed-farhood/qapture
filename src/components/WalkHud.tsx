@@ -27,7 +27,7 @@
  * restored state says. Without that the feature would die at its first stop.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useQa } from '../context/QaContext';
 import { Icon, type IconName } from '../icons/Icon';
 import { flashLocate } from '../lib/highlight';
@@ -39,17 +39,45 @@ const RISK_COLOR: Record<string, string> = {
   green: 'var(--qa-success)',
 };
 
+/**
+ * The path the tester is actually on, kept current as they move.
+ *
+ * Read once at render time this was simply wrong: nothing re-renders the HUD
+ * when the app routes somewhere, so "am I already on this page?" was answered
+ * from whatever the path happened to be when the component last drew.
+ */
+function useCurrentPath(): string {
+  const [path, setPath] = useState(() =>
+    typeof window === 'undefined' ? '' : window.location.pathname);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const sync = () => setPath(window.location.pathname);
+    window.addEventListener('popstate', sync);
+    window.addEventListener('hashchange', sync);
+    return () => {
+      window.removeEventListener('popstate', sync);
+      window.removeEventListener('hashchange', sync);
+    };
+  }, []);
+  return path;
+}
+
 export default function WalkHud() {
   const {
     dir, t, pick,
     walk, walkStops, walkGoto, walkNext, walkPrev, walkNavigate, exitWalk,
     gradeStep, guideChecked, guideFailed, guideSkipped,
     startCapture, updateNote, retestNote,
-    notes,
+    notes, notesLoading,
   } = useQa();
 
   const index = Math.min(walk.index, Math.max(0, walkStops.length - 1));
   const stop = walkStops[index];
+  const currentPath = useCurrentPath();
+  // Set while walkNavigate is deciding whether the app moved on its own. The
+  // tester needs to see that their press did something during that window, or
+  // it reads as a dead button — which is exactly how the broken version felt.
+  const [going, setGoing] = useState(false);
 
   // Chevrons point the way they NAVIGATE, not a fixed left/right — in RTL,
   // "back" moves visually rightward, so the glyphs swap while the buttons'
@@ -76,9 +104,17 @@ export default function WalkHud() {
 
   // An emptied list (every note deleted, or a filter that now matches
   // nothing) would otherwise leave the HUD stranded with nothing to show.
+  //
+  // But NOT while the notes are still loading. A notes walk builds its stops
+  // from the note list, and on a cold page load IndexedDB has not answered
+  // yet — so "no stops" means "not yet", not "nothing left". Before 0.7.9
+  // that distinction did not matter, because "Take me there" never actually
+  // reloaded the page; once it did, every cross-page step ended the walk on
+  // arrival. The tester landed on the right page with the walkthrough gone.
   useEffect(() => {
+    if (notesLoading) return;
     if (walk.active && walkStops.length === 0) exitWalk();
-  }, [walk.active, walkStops.length, exitWalk]);
+  }, [walk.active, walkStops.length, exitWalk, notesLoading]);
 
   if (!walk.active || !stop) return null;
 
@@ -220,9 +256,7 @@ export default function WalkHud() {
 
   // '*' means "wherever you are" (generic plan steps), so there is nowhere to
   // take the tester — offering to navigate to a literal "*" would 404 them.
-  const onThisPage =
-    stop.path === ANY_PAGE ||
-    (typeof window !== 'undefined' && stop.path === window.location.pathname);
+  const onThisPage = stop.path === ANY_PAGE || stop.path === currentPath;
 
   return (
     <div
@@ -264,12 +298,23 @@ export default function WalkHud() {
         <div className="qa-flex qa-items-center qa-gap-1">
           <button
             type="button"
-            onClick={() => walkNavigate(stop.path)}
+            disabled={going}
+            onClick={() => {
+              setGoing(true);
+              walkNavigate(stop.path);
+              // If the app routed on its own there is no reload to clear this,
+              // so release it once walkNavigate has finished deciding.
+              window.setTimeout(() => setGoing(false), 900);
+            }}
             className="qa-tap qa-inline-flex qa-flex-1 qa-items-center qa-justify-center qa-gap-1.5 qa-rounded-lg qa-bg-accent qa-px-2 qa-py-1.5 qa-text-11 qa-font-semibold"
-            style={{ border: 'none', cursor: 'pointer' }}
+            style={{ border: 'none', cursor: going ? 'default' : 'pointer' }}
           >
-            <Icon name="MapPinned" size={13} />
-            {t('walk_take_me', { path: stop.path })}
+            <Icon
+              name={going ? 'Loader2' : 'MapPinned'}
+              size={13}
+              className={going ? 'qa-animate-spin' : undefined}
+            />
+            {going ? t('walk_taking_you') : t('walk_take_me', { path: stop.path })}
           </button>
           <button
             type="button"

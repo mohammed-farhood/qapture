@@ -589,6 +589,27 @@ const PANEL_OPEN_KEY    = 'panelOpen';
 const ACTIVE_TAB_KEY    = 'activeTab';
 // v0.7 — the walk must survive the navigations it performs.
 const WALK_KEY          = 'walk';
+
+/**
+ * How long an app's own router gets to respond to a soft navigation before
+ * walkNavigate() stops believing it and does a real one. Long enough for a
+ * client-side route change plus a render, short enough that a tester who is
+ * going nowhere finds out quickly.
+ */
+const SOFT_NAV_PROOF_MS = 700;
+
+/**
+ * A cheap signature of what the page is showing right now — enough to tell
+ * "the app re-rendered" from "nothing happened at all", and nothing more.
+ * Deliberately `textContent` rather than `innerText`: no layout is forced.
+ * The widget lives in a shadow root, so none of its own markup is counted.
+ */
+function pageSignature(): string {
+  if (typeof document === 'undefined' || !document.body) return '';
+  const body = document.body;
+  const text = body.textContent || '';
+  return [document.title, body.childElementCount, text.length, text.slice(0, 200)].join(' ');
+}
 const GUIDE_SKIPPED_KEY = 'guideSkipped';
 
 // Notice queue rules (contract §5).
@@ -2154,16 +2175,63 @@ export function QaProvider({
    * the HUD always shows a reload button beside it rather than hiding the
    * fallback behind a failure the tester would have to diagnose.
    */
+  /**
+   * Take the tester to a page — and make sure they actually arrive.
+   *
+   * WHY THIS IS NOT JUST pushState (the 0.7.9 fix)
+   * ----------------------------------------------
+   * It used to be `history.pushState({}, '', target)` followed by a
+   * hand-dispatched `popstate`, on the theory that every SPA router listens
+   * for popstate. They do not listen for *that*:
+   *   • Next's App Router renders from the route tree it keeps in
+   *     `history.state` — and `pushState({}, …)` had just erased it, so the
+   *     best case was that Next re-rendered the page you were already on;
+   *   • React Router's history keeps its position index in `history.state`
+   *     too, and a wiped index is ignored rather than followed.
+   * The result was the URL bar moving while the app stood still: reported
+   * from a real app as "I said take me there and it didn't, it just selected
+   * something on the same page". The old code even hid its own way out — the
+   * button is only shown when the path differs from `location.pathname`, and
+   * after a failed soft navigation those are equal.
+   *
+   * So: try the soft route (it is genuinely nicer when it works — no reload,
+   * no lost scroll), then PROVE it happened, and fall back to the navigation
+   * that always works when it did not. The walk is persisted to storage
+   * precisely so a full page load is survivable, so the fallback costs the
+   * tester nothing but a moment.
+   */
   const walkNavigate = useCallback((path: string, hard = false) => {
     if (typeof window === 'undefined' || !path) return;
     const target = path.startsWith('/') ? path : `/${path}`;
-    if (hard) { window.location.assign(target); return; }
+    if (hard || target === window.location.pathname) {
+      window.location.assign(target);
+      return;
+    }
+
+    const before = pageSignature();
     try {
-      window.history.pushState({}, '', target);
-      window.dispatchEvent(new PopStateEvent('popstate'));
+      // Keep the existing history state instead of replacing it with `{}` —
+      // that object is the router's, not ours, and wiping it is what turned
+      // the synthetic popstate into a no-op.
+      window.history.pushState(window.history.state, '', target);
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
     } catch {
       window.location.assign(target);
+      return;
     }
+
+    window.setTimeout(() => {
+      // The app sent us somewhere else of its own accord (a redirect, a login
+      // wall). That is the app's decision, and forcing our target over it
+      // would fight the thing we are supposed to be testing.
+      if (window.location.pathname !== target) return;
+      // Something re-rendered, so the router did move. Note the honest limit:
+      // a page that mutates on its own (a live clock, a ticker) can look like
+      // a re-render. That case ends up exactly where the old code always did,
+      // and no worse.
+      if (pageSignature() !== before) return;
+      window.location.assign(target);
+    }, SOFT_NAV_PROOF_MS);
   }, []);
 
   /**

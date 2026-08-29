@@ -55,6 +55,8 @@ type LangMap = {
   loc_show: string;
   loc_hide: string;
   loc_locate: string;
+  loc_other_page: string;
+  loc_go_there: string;
   journey_title: string;
   journey_generic: string;
   export_name_title: string;
@@ -217,6 +219,7 @@ type LangMap = {
   // — v0.7 "Walk" —
   walk_title: string;
   walk_take_me: string;
+  walk_taking_you: string;
   walk_reload_hint: string;
   walk_note_title: string;
   walk_still_broken: string;
@@ -271,6 +274,8 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     loc_show:              'Show captured location',
     loc_hide:              'Hide location',
     loc_locate:            'Locate on page',
+    loc_other_page:        'This one was filed on {path}, not the page you are on.',
+    loc_go_there:          'Go to {path}',
     journey_title:         'Testing journey',
     journey_generic:       'No test plan was set up for this project, so this is a general one that fits any app. Work through it, or ask whoever set up Qapture to add the real journey to qa.config.',
     export_name_title:     'Name your export',
@@ -426,6 +431,7 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     capture_screen:        'Whole screen',
     walk_title:            'Walkthrough',
     walk_take_me:          'Take me to {path}',
+    walk_taking_you:       'Taking you there…',
     walk_reload_hint:      "Reload the page instead (use this if the app didn't move)",
     walk_note_title:       'Point {n}',
     walk_still_broken:     'Still broken',
@@ -476,6 +482,8 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     loc_show:              'إظهار الموقع المُلتقَط',
     loc_hide:              'إخفاء الموقع',
     loc_locate:            'إظهار على الصفحة',
+    loc_other_page:        'سُجّلت هذه في {path}، وليست الصفحة التي أنت فيها.',
+    loc_go_there:          'اذهب إلى {path}',
     journey_title:         'رحلة الاختبار',
     journey_generic:       'لم يتم إعداد خطة اختبار لهذا المشروع، لذلك هذه خطة عامة تصلح لأي تطبيق. اعمل بها، أو اطلب ممن ثبّت Qapture أن يضيف رحلة المشروع في qa.config.',
     export_name_title:     'سمِّ ملف التصدير',
@@ -631,6 +639,7 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     capture_screen:        'الشاشة كاملة',
     walk_title:            'الجولة',
     walk_take_me:          'خذني إلى {path}',
+    walk_taking_you:       'جارٍ نقلك…',
     walk_reload_hint:      'أعد تحميل الصفحة بدلًا من ذلك (استخدمه إذا لم ينتقل التطبيق)',
     walk_note_title:       'النقطة {n}',
     walk_still_broken:     'ما زال معطلًا',
