@@ -1,15 +1,23 @@
 /**
  * capture.ts — turn a selected viewport rect into a screenshot Blob.
  *
- * TWO ENGINES (v0.4)
- * ------------------
- *  1. 'exact'  — screenCapture.ts photographs this tab's real composited
- *                pixels and we crop the rect out arithmetically. What the
- *                tester framed is exactly what lands in the note. Needs a
- *                one-time "share this tab" grant, Chromium only.
+ * TWO ENGINES (v0.4, reordered in v0.8)
+ * -------------------------------------
+ *  1. 'exact'  — screenCapture.ts photographs the viewport's real composited
+ *                pixels ONCE, when capture mode opens, and we crop the rect out
+ *                of that still arithmetically. What the tester framed is
+ *                exactly what lands in the note. Needs a "share this" grant.
  *  2. 'dom'    — html2canvas re-renders a clone of the DOM. Always available,
  *                no permission, but it is a *reconstruction*: anything the
  *                clone lays out differently shows up as a mis-framed shot.
+ *
+ * Which one runs is decided BEFORE the tester frames anything — a still is
+ * either held or it isn't. Until 0.7.9 the exact engine grabbed its frame at
+ * the end, from a session-long stream that could quietly have died in the
+ * meantime, so the same click could photograph one moment and redraw the next
+ * with nothing said. That silent swap is what read as "screenshots are broken
+ * sometimes"; the fix was to settle the question up front, not to keep
+ * improving the redraw.
  *
  * The DOM engine is still the fallback everywhere, so v0.4 fixes what it was
  * actually getting wrong. These were established by measurement, not
@@ -83,7 +91,7 @@
  */
 
 import type { QaRect } from '../context/QaContext';
-import { getExactCaptureStatus, grabExactRegion } from './screenCapture';
+import { cropFrozenRegion, getFrozenFrame } from './screenCapture';
 import { neutralizeDocumentColors, safeBackgroundColor } from './cssColors';
 
 const HTML2CANVAS_TIMEOUT_MS = 10000;
@@ -293,31 +301,10 @@ export function shotExtension(blob: Blob | undefined | null): string {
   return 'png';
 }
 
-// ---------------------------------------------------------------------------
-// Overlay hiding (exact engine only — the DOM engine uses ignoreElements)
-// ---------------------------------------------------------------------------
-
-/**
- * Hide every top-level piece of QA UI, run `fn`, then restore.
- *
- * The exact engine photographs the real screen, so unlike html2canvas it has
- * no notion of "ignore this element" — the scrim, the selection outline and
- * the annotation card would all end up baked into the tester's screenshot.
- * Hiding is done with `visibility`, not `display`, so nothing in the host page
- * reflows while we do it.
- */
-async function withOverlayHidden<T>(fn: () => Promise<T>): Promise<T> {
-  const hosts = Array.from(
-    document.querySelectorAll<HTMLElement>('body > [data-qa-overlay]'),
-  );
-  const previous = hosts.map((el) => el.style.visibility);
-  for (const el of hosts) el.style.visibility = 'hidden';
-  try {
-    return await fn();
-  } finally {
-    hosts.forEach((el, i) => { el.style.visibility = previous[i]; });
-  }
-}
+// Overlay hiding used to live here, for the exact engine only. It moved into
+// screenCapture.ts with the photograph itself: the still is now taken before
+// any of our UI is on screen to begin with, and the DOM engine has always used
+// html2canvas's own ignoreElements.
 
 // ---------------------------------------------------------------------------
 // DOM engine
@@ -718,8 +705,8 @@ async function captureViaDom(
  *   photographs whatever is on screen); passing an explicit snapshot keeps the
  *   crop correct even if momentum scrolling shifts the page while the
  *   html2canvas chunk is being dynamically imported.
- * @param prefer - engine preference; 'auto' uses exact whenever a live
- *   current-tab stream already exists, otherwise the DOM engine.
+ * @param prefer - engine preference; 'auto' crops the still whenever capture
+ *   mode managed to photograph one, otherwise the DOM engine.
  */
 export async function captureRegion(
   rect: QaRect,
@@ -738,26 +725,30 @@ export async function captureRegion(
   const sy = scroll?.y ?? window.scrollY;
 
   // ── Exact engine ────────────────────────────────────────────────────────
-  if (prefer !== 'dom' && getExactCaptureStatus() === 'live') {
-    // It photographs the composited tab, so pixels outside the viewport do not
-    // exist for it at any price. Trim the selection to what is on screen: a
-    // correctly framed fragment beats grabExactRegion()'s origin clamp, which
-    // would slide a partly-off-screen rect across the page and hand back the
-    // wrong content at the right size. (The DOM engine has no such limit — it
-    // re-renders, so planRender() gets it the whole element.)
+  // The still was photographed when capture mode opened (screenCapture.ts,
+  // freezeViewport). If we hold one, cropping it is arithmetic against a dead
+  // bitmap: there is no stream to have died, no mapping to have gone stale, and
+  // no frame to drop. Whether this capture is a photograph or a redraw was
+  // therefore settled before the tester framed anything — which is what stops
+  // two consecutive captures of the same thing coming out differently.
+  if (prefer !== 'dom' && getFrozenFrame()) {
+    // The still is of the viewport, so pixels outside it do not exist at any
+    // price. Trim the selection to what was on screen: a correctly framed
+    // fragment beats cropFrozenRegion()'s clamp, which would slide a
+    // partly-off-screen rect across the page and hand back the wrong content at
+    // the right size. (The DOM engine has no such limit — it re-renders, so
+    // planRender() gets it the whole element.)
     const visible = intersectViewport(rect);
     if (!visible) return { status: 'empty' };
     try {
-      const canvas = await withOverlayHidden(() => grabExactRegion(visible));
+      const canvas = cropFrozenRegion(visible);
       if (canvas) {
         const blob = await encodeShot(canvas);
         if (blob) return { status: 'ok', blob, engine: 'exact' };
       }
-      // Fall through to the DOM engine rather than failing outright: a
-      // dropped frame shouldn't cost the tester their screenshot.
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.warn('[QA] exact capture failed, falling back to DOM render:', err);
+      console.warn('[QA] cropping the still failed, falling back to DOM render:', err);
     }
     if (prefer === 'exact') return { status: 'failed' };
   }

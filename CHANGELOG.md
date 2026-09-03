@@ -3,6 +3,87 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] "Freeze First" — 2026-09-04
+
+The screenshot is taken **when you open capture mode**, not when you finish
+dragging. One frame, then the screen is handed straight back.
+
+### Fixed
+
+- **Safari kept recording the whole session.** The exact engine held its
+  `getDisplayMedia` stream open for as long as the tab was open — one prompt
+  per session instead of one per note, which seemed like a kindness. Safari
+  and Firefox cannot share a single tab, only a window or a whole screen, so
+  what that bought was the OS screen-sharing indicator lit permanently and the
+  capture pipeline running at 10fps behind every page. Reported as *"it keeps
+  on screen recording and drains the battery."*
+
+  `freezeViewport()` now acquires the stream, takes one frame, and stops the
+  track before it returns — about a third of a second. Nothing is left
+  running between captures. The cost is a share prompt per capture rather
+  than per session; there is no browser API that photographs the screen
+  without asking, so that trade is the honest one.
+
+- **The same click gave a photograph one time and a redraw the next.** This is
+  the one that mattered, and it was never a single bug — it was the design.
+  Two engines of very different fidelity ('exact' photographs real pixels,
+  'dom' re-renders a clone with html2canvas and cannot reproduce a `<canvas>`,
+  WebGL, video, or a cross-origin iframe at all), swapped **silently**,
+  per capture, on conditions the tester could not see: the stream had died
+  because they pressed "Stop sharing", the window had moved and the Safari
+  calibration had gone stale, an aspect check had failed, a frame had dropped.
+  Every previous release fixed the *redraw* — sticky headers, scrollbar width,
+  off-screen elements, oklch colours. Each of those was a real fix, and none
+  of them could ever stop the swap, because a reconstruction is not a
+  photograph and no amount of work on it makes it one.
+
+  Taking the picture up front settles the question before the tester frames
+  anything: a still is either held or it is not. `scripts/freeze-capture-test.mjs`
+  asserts the structure — one grant per capture, zero live tracks while
+  framing, and a crop that stays the colour the page *was* after the live page
+  is repainted underneath it.
+
+- **What you drag over is now what you get.** The still is displayed under the
+  capture scrim while you frame, so a page that animates can no longer move
+  between the moment you point at something and the moment it is cropped.
+  A hover state, an open dropdown or a tooltip also survives being framed —
+  previously, moving the mouse to start a drag dismissed the very thing being
+  reported.
+
+- **A resize mid-capture is refused rather than guessed.** The still belongs to
+  the viewport it was taken in; if the window changes size before the crop, the
+  rect and the photograph are no longer in the same coordinate system, so the
+  capture falls back to a redraw instead of returning a confidently wrong image.
+
+- **`QaContext.tsx` was invisible to `grep`.** `pageSignature()` used a literal
+  NUL byte as its field separator, which makes every tool that sniffs for
+  binary skip the entire 2,400-line file *without saying so* — including a
+  search for the very functions this release rewrote. Same separator, built
+  with `String.fromCharCode(0)` instead of typed into the source.
+
+### Changed
+
+- Turning on pixel-exact shots in Settings no longer prompts. Arming is free;
+  the first capture asks. Flipping a toggle should not put a share prompt (and,
+  in Safari, a calibration flash) on screen before you have asked to capture
+  anything.
+- The "that's a redraw — photograph it instead" offer under a preview now takes
+  the photograph immediately and re-shoots the same selection, rather than only
+  arming the next capture.
+- `exact_unsupported` no longer claims Chromium is required. Safari and Firefox
+  have worked since 0.7.6; the real limit is desktop versus phone.
+
+### Removed
+
+- `startExactCapture` / `stopExactCapture` / `grabExactRegion`, and with them
+  the environment signature and mid-session re-calibration. All of it existed
+  to keep a long-lived stream honest, and there is no longer a long-lived
+  stream. Replaced by `freezeViewport` / `cropFrozenRegion` /
+  `releaseFrozenFrame`.
+- Re-testing a stored note now always redraws. It used to use the exact engine
+  if a stream happened to be live, which made two runs of the same comparison
+  incomparable.
+
 ## [0.7.9] "Take Me There" — 2026-08-29
 
 ### Fixed

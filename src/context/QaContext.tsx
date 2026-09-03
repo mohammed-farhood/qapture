@@ -67,11 +67,13 @@ import { buildAndDownloadZip, buildZipBlob, exportFileName } from '../lib/export
 import { canShareFiles, shareZipFile, type ShareOutcome } from '../lib/shareZip';
 import { captureRegion } from '../lib/capture';
 import {
+  armExactCapture,
+  disarmExactCapture,
+  freezeViewport,
   getExactCaptureStatus,
   isExactCaptureSupported,
+  releaseFrozenFrame,
   resetExactCaptureDecline,
-  startExactCapture,
-  stopExactCapture,
   type ExactCaptureStatus,
 } from '../lib/screenCapture';
 import {
@@ -412,10 +414,27 @@ export type QaContextValue = {
 
   // ── v0.4: screenshot engine ──────────────────────────────────────────────
   /** Whether pixel-exact (real screen) capture is possible + its live state. */
-  exactShots: { supported: boolean; status: ExactCaptureStatus };
-  /** Ask for the one-time "share this tab" grant. MUST be called from a click. */
+  exactShots: {
+    supported: boolean;
+    status: ExactCaptureStatus;
+    /**
+     * When the still for the capture in progress was photographed, or null when
+     * this capture has no still and will therefore be a redraw.
+     *
+     * This is the answer to "is this one a photo?" available BEFORE the tester
+     * frames anything, which is the whole point of taking the picture first.
+     */
+    frozenAt: number | null;
+  };
+  /** Switch real photographs on for future captures. Does not prompt. */
   enableExactShots: () => Promise<boolean>;
-  /** Release the stream and go back to DOM rendering. */
+  /**
+   * Switch them on AND photograph the viewport right now, for the capture
+   * already in progress. MUST be called from a click — that is the transient
+   * activation getDisplayMedia requires. Resolves true when a still was taken.
+   */
+  photographNow: () => Promise<boolean>;
+  /** Go back to DOM rendering and drop any still we hold. */
   disableExactShots: () => void;
 
   // ── v0.4: live folder sync ───────────────────────────────────────────────
@@ -599,6 +618,15 @@ const WALK_KEY          = 'walk';
 const SOFT_NAV_PROOF_MS = 700;
 
 /**
+ * Field separator for pageSignature(): a NUL, so no page content can forge a
+ * boundary. Built rather than typed, because a raw 0x00 byte in the source
+ * makes every tool that sniffs for binary — grep included — skip this entire
+ * 2,400-line file WITHOUT SAYING SO. That is a very effective way to convince
+ * a reader that code in here does not exist; it convinced me once.
+ */
+const SIGNATURE_SEP = String.fromCharCode(0);
+
+/**
  * A cheap signature of what the page is showing right now — enough to tell
  * "the app re-rendered" from "nothing happened at all", and nothing more.
  * Deliberately `textContent` rather than `innerText`: no layout is forced.
@@ -608,7 +636,7 @@ function pageSignature(): string {
   if (typeof document === 'undefined' || !document.body) return '';
   const body = document.body;
   const text = body.textContent || '';
-  return [document.title, body.childElementCount, text.length, text.slice(0, 200)].join(' ');
+  return [document.title, body.childElementCount, text.length, text.slice(0, 200)].join(SIGNATURE_SEP);
 }
 const GUIDE_SKIPPED_KEY = 'guideSkipped';
 
@@ -738,8 +766,22 @@ export function QaProvider({
   // ── v0.4: screenshot engine ──────────────────────────────────────────────
   // `exactStatus` is a mirror of screenCapture.ts's module state, bumped
   // whenever we touch it so React re-renders the toggle.
-  const [exactStatus, setExactStatus] = useState<ExactCaptureStatus>(() => getExactCaptureStatus());
+  //
+  // The preference is what survives a reload; the module flag does not. So it
+  // is restored here rather than inferred later — otherwise the settings toggle
+  // would read "off" on every fresh page while startCapture happily went on
+  // photographing, which is exactly the sort of disagreement between what the
+  // UI says and what the code does that this release exists to remove.
+  const [exactStatus, setExactStatus] = useState<ExactCaptureStatus>(() => {
+    if (storage.getItem(EXACT_SHOTS_KEY) === '1') armExactCapture();
+    return getExactCaptureStatus();
+  });
   const exactSupported = isExactCaptureSupported();
+  // Non-null while a still is held for the capture in progress. Doubles as the
+  // re-render signal: `exactStatus` does not change when a freeze succeeds
+  // (armed before, armed after), so without this the overlay would never learn
+  // that the photograph had landed.
+  const [frozenAt, setFrozenAt] = useState<number | null>(null);
 
   // ── v0.4: folder sync ────────────────────────────────────────────────────
   const [syncState, setSyncState] = useState<FsSyncState>(() => getFsSyncState());
@@ -1484,9 +1526,10 @@ export function QaProvider({
       // timers so they never fire a setState after unmount.
       for (const timer of noticeTimers.current.values()) clearTimeout(timer);
       noticeTimers.current.clear();
-      // Release the tab-capture stream so the browser's "sharing" indicator
-      // doesn't outlive the widget.
-      stopExactCapture();
+      // No stream can outlive the widget any more — freezeViewport() gives the
+      // screen back before it returns — but a still might, and it is a
+      // viewport-sized bitmap.
+      releaseFrozenFrame();
     };
   }, [flushPendingDeletes]);
 
@@ -1496,22 +1539,38 @@ export function QaProvider({
     setIsOpen(false);
     setCapturePrefill(prefill ?? '');
     setCaptureActive(true);
-    // Re-acquire the tab stream for a tester who already opted into exact
-    // screenshots. This runs inside the click that started capture, which is
-    // the transient activation getDisplayMedia requires — asking later, when
-    // the selection is made, would be rejected.
-    if (
-      storage.getItem(EXACT_SHOTS_KEY) === '1' &&
-      isExactCaptureSupported() &&
-      getExactCaptureStatus() !== 'live'
-    ) {
+    // Photograph the viewport NOW, for a tester who opted into real
+    // screenshots. Two reasons this is the right moment and not the moment the
+    // selection is finished:
+    //
+    //  • it runs inside the click (or hotkey keydown) that started capture,
+    //    which is the transient activation getDisplayMedia requires — asking
+    //    later would simply be rejected;
+    //  • what the tester saw when they reached for the shortcut is what gets
+    //    photographed. They then crop a frozen still, so the page cannot move
+    //    under them and an open menu or hover state survives being framed.
+    //
+    // freezeViewport() gives the screen back as soon as it has its frame, so
+    // the sharing indicator blinks and goes rather than staying lit for the
+    // session. Failure is not fatal: no still means this capture is a redraw,
+    // and the preview says so.
+    setFrozenAt(null);
+    if (storage.getItem(EXACT_SHOTS_KEY) === '1' && isExactCaptureSupported()) {
       resetExactCaptureDecline();
-      void startExactCapture().then(() => setExactStatus(getExactCaptureStatus()));
+      void freezeViewport().then((frame) => {
+        setFrozenAt(frame?.takenAt ?? null);
+        setExactStatus(getExactCaptureStatus());
+      });
     }
   }, [storage]);
 
   const endCapture = useCallback((reopen = true) => {
     setCaptureActive(false);
+    // The still is a viewport-sized bitmap — tens of megabytes on a retina
+    // display — so it goes the moment the tester is done with it, not whenever
+    // the next capture happens to overwrite it.
+    releaseFrozenFrame();
+    setFrozenAt(null);
     if (reopen) setIsOpen(true);
   }, []);
 
@@ -1567,18 +1626,50 @@ export function QaProvider({
 
   // ── v0.4: screenshot engine actions ──────────────────────────────────────
 
+  /**
+   * Switch real photographs on.
+   *
+   * This used to open a screen-share there and then, because the grant had to
+   * last the whole session. It doesn't any more — each capture takes its own
+   * one-frame grant — so flipping the toggle no longer puts a share prompt (and
+   * in Safari a calibration flash) on screen before the tester has asked to
+   * capture anything. It simply arms; the first capture asks.
+   */
   const enableExactShots = useCallback(async (): Promise<boolean> => {
-    resetExactCaptureDecline();
-    const ok = await startExactCapture();
+    const ok = armExactCapture();
     setExactStatus(getExactCaptureStatus());
     storage.setItem(EXACT_SHOTS_KEY, ok ? '1' : '0');
     notify(ok ? t('exact_on') : t('exact_declined'), { tone: ok ? 'success' : 'info', id: 'exact-shots' });
     return ok;
   }, [storage, notify, t]);
 
+  /**
+   * Arm real photographs and take one immediately, for the capture already on
+   * screen. This is what the "that's a redraw — photograph it instead" offer
+   * calls: arming alone would only help the NEXT capture, and the tester is
+   * looking at this one.
+   */
+  const photographNow = useCallback(async (): Promise<boolean> => {
+    if (!armExactCapture()) {
+      setExactStatus(getExactCaptureStatus());
+      notify(t('exact_declined'), { tone: 'info', id: 'exact-shots' });
+      return false;
+    }
+    storage.setItem(EXACT_SHOTS_KEY, '1');
+    const frame = await freezeViewport();
+    setFrozenAt(frame?.takenAt ?? null);
+    setExactStatus(getExactCaptureStatus());
+    notify(frame ? t('exact_on') : t('exact_declined'), {
+      tone: frame ? 'success' : 'info',
+      id: 'exact-shots',
+    });
+    return !!frame;
+  }, [storage, notify, t]);
+
   const disableExactShots = useCallback(() => {
-    stopExactCapture();
+    disarmExactCapture();
     storage.setItem(EXACT_SHOTS_KEY, '0');
+    setFrozenAt(null);
     setExactStatus(getExactCaptureStatus());
   }, [storage]);
 
@@ -2347,8 +2438,9 @@ export function QaProvider({
     evidenceByStep,
 
     // v0.4 — screenshots
-    exactShots: { supported: exactSupported, status: exactStatus },
+    exactShots: { supported: exactSupported, status: exactStatus, frozenAt },
     enableExactShots,
+    photographNow,
     disableExactShots,
 
     // v0.4 — folder sync. syncTick is read here purely so this object is

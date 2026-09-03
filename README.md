@@ -92,7 +92,7 @@ working, and each new feature is off until someone turns it on.
 | | |
 |---|---|
 | **Screenshots frame the right thing** | Capture mode's own scroll lock used `overflow:hidden`, which **unstuck every `position: sticky` header** just before the screenshot was rendered — measured at 20px of wrongness in a 40px capture, now 0.0px. See [Screenshots: two engines](#screenshots-two-engines). |
-| **Pixel-exact capture (opt-in)** | A real photograph of the tab rather than a redraw — so canvas/WebGL, video, cross-origin iframes and exotic CSS all come out right. One prompt per session, Chromium desktop. |
+| **Pixel-exact capture (opt-in)** | A real photograph rather than a redraw — so canvas/WebGL, video, cross-origin iframes and exotic CSS all come out right. Taken the instant capture opens, then the screen is handed straight back: one frame per capture, nothing recording in between. Desktop browsers. |
 | **Save straight to a folder** | Pick a QA folder once; every note is written to disk as it's saved, organised `Project / Campaign / notes + screenshots + REPORT.md`. See [Saving to a folder](#saving-to-a-folder). |
 | **Storage that explains itself** | A real usage meter, WebP screenshots (~10× smaller), a request to stop the browser evicting your data, and a "drop screenshots, keep findings" recovery valve. |
 | **A usable notes list** | Severity/status filter chips with counts, text search, and a "this page" toggle. |
@@ -372,23 +372,55 @@ canvas as a blank box, every time, in any tool built this way.
 
 ### `exact` — opt-in, pixel-for-pixel
 
-Uses the Screen Capture API to photograph **this tab's real composited
+Uses the Screen Capture API to photograph **the viewport's real composited
 pixels**, then crops your rectangle out arithmetically. Nothing is
 re-rendered, so it cannot mis-frame, and everything above renders correctly
 because it was never re-drawn in the first place.
 
+**The photograph is taken when you open capture mode, not when you finish
+dragging.** That ordering is the whole design, and it decides three things at
+once:
+
+- **Nothing keeps recording.** The stream is acquired, one frame is taken, and
+  the track is stopped — about a third of a second — so the browser's sharing
+  indicator blinks and goes. Before 0.8 the stream was held for the entire
+  session so it would only prompt once, which on Safari (where the only option
+  is sharing a window or a whole screen) meant the indicator stayed lit and the
+  capture pipeline kept running behind every page. One prompt per capture is
+  the price of not recording you between them.
+- **You crop what you can see.** The still is shown under the capture scrim
+  while you frame, so a page that animates cannot move between the moment you
+  point at something and the moment it is cropped — and a hover state, an open
+  dropdown or a tooltip survives being framed instead of being dismissed by the
+  mouse moving to start the drag.
+- **Whether this shot is a photograph or a redraw is settled before you
+  start.** A still is either held or it is not. Previously the exact engine
+  reached for a frame at the end, from a stream that could quietly have died,
+  and fell through to `dom` without saying so — which is why the same click
+  could photograph one time and redraw the next.
+
+Everything else:
+
 - **Turn it on** from the capture hint bar ("Pixel-exact shots") or Settings.
-- The browser asks once per session to share this tab. Nothing leaves the
-  device — the frames are cropped locally and never uploaded.
+  Turning it on does not prompt; the first capture does.
+- Nothing leaves the device — the frame is cropped locally and never uploaded.
 - The QA overlay is hidden for the captured frame, so the scrim, the selection
   outline and the annotation card never appear in the image.
-- **Chromium desktop only** (Chrome, Edge, Brave, Opera), because it depends
-  on `preferCurrentTab`. Elsewhere the picker would let a tester share a
-  screen or another window, whose pixels have nothing to do with our
-  coordinate space — so the option isn't offered, and if a shared surface
-  somehow isn't this tab (wrong `displaySurface`, or a frame whose aspect
-  ratio doesn't match the viewport), Qapture falls back to `dom` rather than
-  returning a confidently wrong image.
+- **Chromium** shares this tab directly (`preferCurrentTab`), so the frame *is*
+  the viewport — measured at 0.0px error.
+- **Safari and Firefox** have no tab capture, only a window or a screen. That
+  frame does contain the page, and Qapture finds it by *measuring*: it covers
+  the page with an opaque card carrying four known colours at four known
+  corners, photographs that, and solves for scale and origin from where the
+  colours landed. Toolbar height, pixel ratio and monitor layout all cancel
+  out. You see a dark flash for a fifth of a second. Two corners solve and the
+  other two verify — and a calibration that cannot be verified is **refused**,
+  falling back to `dom` rather than returning a confidently wrong image.
+- The still belongs to the viewport it was taken in. Resize the window
+  mid-capture and the crop is refused for the same reason.
+- Off-screen pixels do not exist in a photograph at any price, so a selection
+  that runs past the fold is trimmed to what was visible. The `dom` engine
+  re-renders and has no such limit.
 
 ---
 
@@ -828,7 +860,7 @@ The **capture hotkey** (default: `Shift+Alt+C`, i.e. `Option+Shift+C` on macOS) 
 |---|---|---|---|
 | Capture, notes, export | ✅ | ✅ | ✅ |
 | `dom` screenshots (default) | ✅ | ✅ | ✅ |
-| Pixel-exact screenshots | ✅ opt-in | — | — |
+| Pixel-exact screenshots | ✅ opt-in (shares this tab) | ✅ opt-in (shares a window, located by measurement) | — |
 | Save to a folder, live | ✅ opt-in | — | — |
 | Save to a folder, as a zip | ✅ | ✅ | ✅ |
 | Storage meter | ✅ | ✅ (Safari reports coarse numbers) | ✅ |

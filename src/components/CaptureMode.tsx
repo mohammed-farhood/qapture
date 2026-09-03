@@ -80,6 +80,7 @@ import { useQa } from '../context/QaContext';
 import type { QaTarget, QaRect } from '../context/QaContext';
 import { Icon, type IconName } from '../icons/Icon';
 import { captureRegion, clipToPaintedArea, type CaptureEngine } from '../lib/capture';
+import { getFrozenFrame } from '../lib/screenCapture';
 import { getStableSelector } from '../lib/selector';
 import { useCoarsePointer } from '../lib/coarse';
 import { lockPageScroll, unlockPageScroll } from '../lib/scrollLock';
@@ -179,7 +180,7 @@ export default function CaptureMode() {
   const {
     addNote, endCapture, t, dir,
     compactCapture, setCompactCapture,
-    exactShots, enableExactShots,
+    exactShots, photographNow,
     capturePrefill,
   } = useQa();
   const coarse = useCoarsePointer();
@@ -194,6 +195,8 @@ export default function CaptureMode() {
   const [candidate, setCandidate] = useState<Selection | null>(null); // pending selection awaiting touch confirm
   const [regionMode, setRegionMode] = useState(false); // touch draw-region toggle
   const [shot, setShot] = useState<Blob | null>(null);
+  /** Where the frozen still is mounted while the tester frames a selection. */
+  const stillRef = useRef<HTMLDivElement | null>(null);
   /** Which engine produced the current preview — drives the "redraw" offer. */
   const [shotEngine, setShotEngine] = useState<CaptureEngine | null>(null);
   const [shotUrl, setShotUrl] = useState<string | null>(null);
@@ -549,6 +552,27 @@ export default function CaptureMode() {
   // outlives us. unlockPageScroll() is idempotent.
   useEffect(() => () => { unlockPageScroll(); }, []);
 
+  // Put the photograph on screen, under the scrim, for as long as the tester is
+  // framing against it.
+  //
+  // The canvas itself is mounted rather than a copy of it: encoding a retina
+  // viewport to a data URL costs tens of megabytes and a visible pause, and
+  // this bitmap is already in memory. CSS scaling does not touch a canvas's
+  // intrinsic pixels, so cropFrozenRegion() still reads the full-resolution
+  // original out of the very element being displayed.
+  useEffect(() => {
+    const host = stillRef.current;
+    const frame = getFrozenFrame();
+    if (!host || !frame) return;
+    const canvas = frame.canvas;
+    canvas.style.cssText = 'display:block;width:100%;height:100%;';
+    host.appendChild(canvas);
+    return () => {
+      if (canvas.parentNode === host) host.removeChild(canvas);
+      canvas.removeAttribute('style');
+    };
+  }, [exactShots.frozenAt]);
+
   // ── Save ─────────────────────────────────────────────────────────────────
   const save = async () => {
     if (!selection || !description.trim()) return;
@@ -642,6 +666,28 @@ export default function CaptureMode() {
 
   return (
     <div data-qa-overlay="true" data-qa-capture-root="true" ref={overlayRootRef}>
+      {/* ── The still ─────────────────────────────────────────────────────
+          Laid over the page, under the scrim, whenever we hold a photograph.
+
+          Without it the tester drags across the LIVE page while the crop is
+          taken from a picture of a moment ago, so on anything that animates —
+          a spinner, a carousel, a toast sliding out — the shot would not match
+          what they framed. Showing the still closes that gap by construction:
+          what is on screen while you frame IS the thing being cropped.
+
+          pointer-events:none so the interceptor above still receives every
+          move and click, and element picking keeps working against the real
+          DOM underneath. */}
+      {exactShots.frozenAt !== null && (
+        <div
+          ref={stillRef}
+          aria-hidden="true"
+          data-qa-capture-still="true"
+          className="qa-fixed qa-inset-0 qa-z-10089"
+          style={{ pointerEvents: 'none', overflow: 'hidden' }}
+        />
+      )}
+
       {/* ── Dimmed interceptor ───────────────────────────────────────────── */}
       <div
         ref={layerRef}
@@ -698,7 +744,7 @@ export default function CaptureMode() {
               </span>
             ) : (
               <button
-                onClick={() => void enableExactShots()}
+                onClick={() => void photographNow()}
                 title={t('exact_hint')}
                 className="qa-tap qa-flex qa-items-center qa-gap-1 qa-rounded-full qa-border qa-border-white-40 qa-px-2 qa-py-0.5 qa-text-11 qa-text-hi qa-hover-bg-white-15"
                 style={{ background: 'transparent', cursor: 'pointer' }}
@@ -1123,8 +1169,12 @@ export default function CaptureMode() {
                     <button
                       type="button"
                       onClick={() => void (async () => {
-                        const granted = await enableExactShots();
-                        if (granted && selection) void runCapture(selection.rect);
+                        // photographNow, not enableExactShots: arming alone
+                        // would only help the NEXT capture, and the tester is
+                        // looking at this one. This click is the gesture the
+                        // one-frame grant needs.
+                        const shot = await photographNow();
+                        if (shot && selection) void runCapture(selection.rect);
                       })()}
                       title={t('exact_hint')}
                       className="qa-tap qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-border qa-border-subtle qa-px-1.5 qa-py-0.5 qa-text-10 qa-text-hi qa-focus-ring"

@@ -272,6 +272,7 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
   /* Z-index scale */
   --qa-z-fab: 9990;
   --qa-z-panel: 9995;
+  --qa-z-capture-still: 10089;
   --qa-z-capture-dim: 10090;
   --qa-z-capture-highlight: 10092;
   --qa-z-capture-region-move: 10093;
@@ -321,6 +322,8 @@ ul, ol { list-style: none; margin: 0; padding: 0; }
 .qa-z-1     { z-index: 1; }
 .qa-z-50    { z-index: 50; }
 .qa-z-100   { z-index: 100; }
+/* the frozen still, directly beneath the dim so the scrim tints it too */
+.qa-z-10089 { z-index: var(--qa-z-capture-still); }
 .qa-z-10090 { z-index: var(--qa-z-capture-dim); }
 .qa-z-10092 { z-index: var(--qa-z-capture-highlight); }
 /* region-handle layering */
