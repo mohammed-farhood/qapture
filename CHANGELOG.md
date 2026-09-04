@@ -3,6 +3,67 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.2] "Nothing To Photograph With" — 2026-09-04
+
+### Fixed
+
+- **Screenshots failed outright on any page holding a cross-origin image.** The
+  redraw engine was configured with `allowTaint: true`, which tells html2canvas
+  to draw images it could not fetch with CORS. Drawing them *works* — and taints
+  the canvas, so the encode that follows throws `SecurityError` and the whole
+  screenshot is lost. One map tile, news thumbnail, avatar, ad or CDN logo was
+  enough. That is why it failed every time for one tester and never for another:
+  it was not flaky, it was a property of the page. `allowTaint` is now off, so
+  html2canvas skips what it cannot read — those images come out blank and
+  everything else comes out right. A screenshot with two grey rectangles in it
+  is worth having; a `SecurityError` is not.
+- **The redraw engine is now refused on a page big enough to lock the tab.**
+  html2canvas clones the whole document and parses it synchronously, in one long
+  task, so the 10-second timeout that has guarded it since 0.3 could never fire —
+  a `setTimeout` cannot run while that task is running, and neither can React.
+  Past 6000 elements the capture is declined *before it starts*, with the one
+  control that solves it: photograph the page instead. On exactly those pages the
+  redraw was never going to be right anyway — maps, WebGL views and `<canvas>`
+  charts all come out blank — so this is not a consolation prize.
+- The `import('html2canvas')` now sits inside the timeout budget. A chunk that
+  never arrived (a strict `script-src`, a CDN that does not answer) used to be a
+  spinner that never stopped.
+- `canvas.toBlob` on a tainted canvas can no longer escape as a rejection.
+
+### Changed
+
+- **Real photographs are on by default.** This is a reversal. A new tester used
+  to get the redraw engine, and the redraw engine is the one that fails: slow on
+  a big page, blank where the page is a map or a chart, dead on arrival next to a
+  cross-origin image. Every "the screenshot didn't work" report came from someone
+  who had never opened Settings — which is everyone, the first time. The
+  photograph engine has none of those failure modes; its only cost is that the
+  browser asks to share the tab once per capture. A question answered in a click
+  beats a screenshot that does not arrive. Declining still falls back to the
+  redraw, and anyone who had already turned it off stays off.
+
+### Added
+
+- **Exporting puts your points on test.** Hitting Export no longer just hands
+  over a file — it marks those points as sent, and writes the archive as an
+  agreement about what finished looks like:
+  - `verify.md`, a new file in the ZIP: one unticked box per point, with what to
+    check and where. Short on purpose, so it can be handed back and diffed.
+  - **"You Are Being Graded On This"** near the top of the preamble, and a
+    **"Check N — how this will be graded"** block under every point, phrasing the
+    question in the same words the tester will be asked.
+  - The agent is told to tick a box only when the check holds on a fresh load,
+    and to leave it unticked *with a reason* otherwise — an unticked box with a
+    reason is a good answer; a ticked box that does not hold up is the only bad
+    one, because it costs the tester the trip to find out.
+- **"Check the N fixes"** in the notes panel, with a **Sent** filter chip beside
+  it. It walks you back through exactly what the last export sent, one spot at a
+  time, and asks about each. Anything you say is still wrong becomes round two,
+  with your new words attached. A point you pass is settled and does not come
+  back on the next export.
+- `?qa=walk:verify` starts that walk from a link, so an agent can hand back the
+  work and the way to check it in the same message.
+
 ## [0.8.1] "One Prompt, Many Notes" — 2026-09-04
 
 ### Added

@@ -177,4 +177,44 @@ if (!md.includes('Admin Role')) {
   throw new Error('FAIL: expected mdTable() to replace embedded newline in "Admin\\nRole" with a space ("Admin Role")');
 }
 
+// ── v0.8.2: the export is an acceptance test, not a wish list ──────────────
+// Every point must arrive with the question it will be graded on, and the ZIP
+// must carry the checklist that question lives in. Without these the agent
+// reads the archive as a set of suggestions, does part of it, and stops.
+if (!files.includes('verify.md')) {
+  throw new Error('FAIL: verify.md missing from the ZIP (files: ' + files.join(', ') + ')');
+}
+const verify = await zip.file('verify.md').async('string');
+
+const boxes = (verify.match(/^- \[ \] \*\*check-\d+\*\*/gm) || []).length;
+console.log('\nASSERT verify.md holds one unticked box per point:',
+  `${boxes} box(es) for ${notes.length} point(s)` + (boxes === notes.length ? ' OK ✅' : ' FAIL'));
+if (boxes !== notes.length) {
+  throw new Error(`FAIL: verify.md has ${boxes} check box(es) for ${notes.length} point(s)`);
+}
+
+const verifyMust = [
+  'checks to satisfy',
+  'Tick a box here only when the check is true',
+  '?qa=walk:verify',
+];
+const verifyMissing = verifyMust.filter((m) => !verify.includes(m));
+console.log('ASSERT verify.md explains what is owed:',
+  verifyMissing.length ? 'FAIL ' + JSON.stringify(verifyMissing) : 'all present OK ✅');
+if (verifyMissing.length) {
+  throw new Error('FAIL: verify.md missing: ' + verifyMissing.join(', '));
+}
+
+const gradedMust = [
+  '## You Are Being Graded On This',
+  'Check 1 — how this will be graded',
+  'is this now what I asked for?',
+];
+const gradedMissing = gradedMust.filter((m) => !md.includes(m));
+console.log('ASSERT notes.md states the grading contract:',
+  gradedMissing.length ? 'FAIL ' + JSON.stringify(gradedMissing) : 'all present OK ✅');
+if (gradedMissing.length) {
+  throw new Error('FAIL: notes.md missing: ' + gradedMissing.join(', '));
+}
+
 console.log('EXPORT SMOKE PASS ✅');

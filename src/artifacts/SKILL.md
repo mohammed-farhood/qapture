@@ -94,6 +94,7 @@ mechanism for quietly rewriting a payment flow nobody asked you to touch.
 ```
 qa-notes-<timestamp>.zip
 ├── notes.md          ← ALWAYS read this first (see Step 1)
+├── verify.md         ← the checklist you must fill in and hand back (Step 4)
 └── screenshots/
     ├── point-1.webp
     ├── point-2.webp
@@ -283,6 +284,24 @@ in the screenshot instead of the actual defect.
 ---
 
 ## Step 4 — Verify the Fix
+
+**`verify.md` is the deliverable, not a formality.** It holds one unticked box
+per point, and the tester will be walked back through those same checks on the
+real page — in that order, one stop at a time — and asked about each: *is this
+now what I asked for?* Whatever they say is still wrong comes back to you as
+round two with their new words attached.
+
+So when you are done:
+
+- Tick a box only when the check is true on a **fresh load** of the page named
+  beside it, with the tester doing nothing extra.
+- Where you could not do something, or you think it is the wrong thing to do,
+  **leave the box unticked and write one line under it saying why.** An
+  unticked box with a reason is a good answer. A ticked box that does not hold
+  up is the only bad one — it costs the tester a wasted trip to find out.
+- Hand `verify.md` back with the work.
+
+Before ticking anything:
 
 1. Run the app using the **Run Commands** from the preamble.
 2. Log in as the relevant role using **Login Context** credentials.

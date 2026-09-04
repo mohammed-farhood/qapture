@@ -59,7 +59,7 @@ function FilterChip({ chip }: { chip: Chip }) {
 }
 
 export default function NoteFilterBar() {
-  const { filter, setFilter, noteCounts, notes, deleteNotes, t } = useQa();
+  const { filter, setFilter, noteCounts, notes, deleteNotes, startWalk, t } = useQa();
   const [confirmPrune, setConfirmPrune] = useState(false);
 
   // Nothing to sort through yet — don't spend panel height on chrome.
@@ -115,6 +115,18 @@ export default function NoteFilterBar() {
       tone: 'accent',
       onClick: sev('design'),
     },
+    // Only ever shown once something has actually been sent. A chip reading
+    // "Sent 0" on a first run is noise; the same chip reading "Sent 6" the
+    // morning after an export is the one thing the tester came back for.
+    ...(noteCounts.sent > 0 ? [{
+      key: 'sent',
+      label: t('status_sent'),
+      count: noteCounts.sent,
+      active: filter.status === 'sent',
+      icon: 'Camera' as const,
+      tone: 'accent' as const,
+      onClick: () => setFilter({ status: 'sent', severity: 'all', thisPageOnly: false }),
+    }] : []),
     {
       key: 'open',
       label: t('status_open'),
@@ -183,6 +195,28 @@ export default function NoteFilterBar() {
           <FilterChip key={chip.key} chip={chip} />
         ))}
       </div>
+
+      {/* The return trip. Exporting put these points on test; this is the
+          button that collects the answers -- it filters to exactly what was
+          sent and starts the walk, which takes the tester to each spot in
+          turn and asks whether it is now what they wanted. Without it the
+          checklist in the export has no counterpart on this side. */}
+      {noteCounts.sent > 0 && (
+        <button
+          type="button"
+          data-qa-verify-walk="true"
+          onClick={() => {
+            setFilter({ status: 'sent', severity: 'all', thisPageOnly: false });
+            startWalk('notes', 0);
+          }}
+          title={t('check_fixes_hint')}
+          className="qa-tap qa-inline-flex qa-items-center qa-justify-center qa-gap-1.5 qa-rounded-md qa-border qa-border-subtle qa-px-2 qa-py-1.5 qa-text-xs qa-text-hi qa-focus-ring"
+          style={{ background: 'transparent', cursor: 'pointer' }}
+        >
+          <Icon name="Check" size={13} />
+          {t('check_fixes', { n: noteCounts.sent })}
+        </button>
+      )}
 
       {showPrune && (
         <div className="qa-text-11" data-qa-prune="true">

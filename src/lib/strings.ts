@@ -43,6 +43,7 @@ type LangMap = {
   sel_region: string;
   sel_element: string;
   capturing: string;
+  too_heavy: string;
   no_shot: string;
   annotate_placeholder: string;
   save_point: string;
@@ -87,6 +88,9 @@ type LangMap = {
   sev_design: string;
   sev_enhance: string;
   status_open: string;
+  status_sent: string;
+  check_fixes: string;
+  check_fixes_hint: string;
   status_verified: string;
   context_attached: string;
   start_walkthrough: string;
@@ -265,6 +269,7 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     sel_region:            'Region selected',
     sel_element:           'Element selected',
     capturing:             'capturing screenshot…',
+    too_heavy:             'This page is too big to redraw — the tab would freeze. Photograph it instead: one frame, and maps and charts come out right.',
     no_shot:               'no screenshot (location saved)',
     annotate_placeholder:  'What do you want to do here? (add / remove / change…)',
     save_point:            'Save point',
@@ -308,6 +313,9 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     sev_design:            'Design',
     sev_enhance:           'Enhance',
     status_open:           'Open',
+    status_sent:           'Sent',
+    check_fixes:           'Check the {n} fixes',
+    check_fixes_hint:      'Walk back through everything the last export sent, one spot at a time, and say whether each is now what you asked for.',
     status_verified:       'Verified',
     context_attached:      '{n} runtime events attached',
     start_walkthrough:     'Start walkthrough',
@@ -476,6 +484,7 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     sel_region:            'تم تحديد منطقة',
     sel_element:           'تم تحديد عنصر',
     capturing:             'يتم التقاط الصورة…',
+    too_heavy:             'هذه الصفحة أكبر من أن يُعاد رسمها — سيتجمّد التبويب. صوّرها بدل ذلك: إطار واحد، وتظهر الخرائط والرسوم كما هي.',
     no_shot:               'بدون صورة (تم حفظ الموقع)',
     annotate_placeholder:  'ماذا تريد أن تفعل هنا؟ (إضافة / حذف / تغيير…)',
     save_point:            'حفظ النقطة',
@@ -519,6 +528,9 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     sev_design:            'Design',
     sev_enhance:           'Enhance',
     status_open:           'مفتوح',
+    status_sent:           'مُرسَل',
+    check_fixes:           'تحقّق من {n} تعديلات',
+    check_fixes_hint:      'مرّ على كل ما أرسله التصدير الأخير، نقطة نقطة، وقل هل صار كما طلبت أم لا.',
     status_verified:       'تم التحقق',
     context_attached:      '{n} من أحداث التشغيل مرفقة',
     start_walkthrough:     'ابدأ الجولة',

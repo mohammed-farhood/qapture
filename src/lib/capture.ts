@@ -96,6 +96,9 @@ import { neutralizeDocumentColors, safeBackgroundColor } from './cssColors';
 
 const HTML2CANVAS_TIMEOUT_MS = 10000;
 
+/** Cap on fetching the html2canvas chunk itself (see captureViaDom). */
+const CHUNK_TIMEOUT_MS = 8000;
+
 /** Background used when the page declares no opaque background of its own. */
 const FALLBACK_PAGE_BACKGROUND = '#ffffff';
 
@@ -141,6 +144,46 @@ const MAX_CAPTURE_EDGE = 4000;
  */
 const MAX_RENDER_DEVICE_PIXELS = 16e6;
 
+/**
+ * How many elements a page may hold before we refuse to redraw it.
+ *
+ * WHY A REFUSAL AND NOT A TIMEOUT (the 0.8.2 correction)
+ * ------------------------------------------------------
+ * There has been a 10s timeout around html2canvas since 0.3, and it does not
+ * work, because it cannot. html2canvas clones the WHOLE document into an
+ * offscreen iframe and parses every node SYNCHRONOUSLY -- it is one long task
+ * on the main thread. A `setTimeout` scheduled before it cannot run until that
+ * task ends, and neither can React, so the tab sits on "capturing screenshot..."
+ * for as long as the clone takes and there is no code anywhere that can
+ * interrupt it. On a dashboard of a few thousand nodes on an ordinary laptop
+ * that is tens of seconds; the first thing a new tester ever saw was a frozen
+ * spinner.
+ *
+ * The cost is in the size of the CLONE, not the size of the crop, so framing
+ * a small rect does not help. The only lever that works is not starting.
+ *
+ * 6000 was chosen from the two sides: an ordinary marketing page or CRUD
+ * screen is 800-2500 elements and renders in well under a second, while the
+ * dashboards this actually bit on (map + charts + live feeds) were 7000+.
+ * Sitting the line between them refuses the pages that would hang and leaves
+ * every normal page alone.
+ *
+ * And on exactly those pages the redraw was never going to be right anyway:
+ * a map, a WebGL view and a <canvas> chart all come out blank. So the answer
+ * offered -- photograph it instead -- is not a consolation prize, it is the
+ * only engine that was ever going to work there.
+ */
+const TOO_HEAVY_NODES = 6000;
+
+/** Element count of the live document, or 0 off-browser. */
+function documentWeight(): number {
+  try {
+    return document.getElementsByTagName('*').length;
+  } catch {
+    return 0;
+  }
+}
+
 export type CaptureEngine = 'exact' | 'dom';
 
 /**
@@ -148,14 +191,20 @@ export type CaptureEngine = 'exact' | 'dom';
  *  - 'ok'     → a PNG/WebP blob was produced (`engine` says how)
  *  - 'empty'  → nothing was attempted (SSR, or a degenerate sub-2px rect)
  *  - 'failed' → the render broke, timed out, or encoding yielded null
+ *  - 'too-heavy' → the page is too big for the redraw engine to clone without
+ *    locking the tab, and we hold no photograph to crop instead. Refused
+ *    UP FRONT rather than attempted, because there is no way back out of it
+ *    once started — see TOO_HEAVY_NODES.
  *
  * 'empty' and 'failed' are deliberately distinct: only 'failed' is worth
  * offering the tester a Retry for — 'empty' would fail again identically.
+ * 'too-heavy' is worth offering the PHOTOGRAPH for; retrying is pointless.
  */
 export type CaptureOutcome =
   | { status: 'ok'; blob: Blob; engine: CaptureEngine }
   | { status: 'empty' }
-  | { status: 'failed' };
+  | { status: 'failed' }
+  | { status: 'too-heavy'; nodes: number };
 
 /** Which engine a capture call may use. 'auto' prefers exact when it's live. */
 export type CapturePreference = 'auto' | 'exact' | 'dom';
@@ -261,8 +310,18 @@ function fitToBudget(canvas: HTMLCanvasElement): HTMLCanvasElement {
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob | null> {
   return new Promise((resolve) => {
     if (canvas.toBlob) {
-      canvas.toBlob((b) => resolve(b), type, quality);
-      return;
+      // A tainted canvas throws SecurityError synchronously from here. Inside
+      // a Promise executor that becomes a rejection, which used to travel all
+      // the way up and lose the capture; resolving null instead lets the
+      // caller report a clean failure. (allowTaint is false now, so this
+      // should not fire -- it is the belt to that braces.)
+      try {
+        canvas.toBlob((b) => resolve(b), type, quality);
+        return;
+      } catch {
+        resolve(null);
+        return;
+      }
     }
     // Safari fallback (very old builds): toDataURL always exists.
     try {
@@ -634,7 +693,13 @@ async function captureViaDom(
   sy: number,
   aggressiveColors = false,
 ): Promise<HTMLCanvasElement | null> {
-  const { default: html2canvas } = await import('html2canvas');
+  // Inside the budget on purpose: on a locked-down page (a strict
+  // `script-src`, a CDN that never answers) this import can hang for as long
+  // as the network lets it, and it used to sit OUTSIDE the timeout below --
+  // so a chunk that never arrived was a spinner that never stopped.
+  const mod = await withTimeout(import('html2canvas'), CHUNK_TIMEOUT_MS);
+  if (!mod) return null;
+  const { default: html2canvas } = mod;
   const { vw, vh } = viewportSize();
   const plan = planRender(rect, sx, sy, vw, vh);
 
@@ -658,7 +723,22 @@ async function captureViaDom(
         height: plan.render.height,
         scale,
         useCORS: true,
-        allowTaint: true,
+        // MUST stay false. `allowTaint: true` tells html2canvas to draw
+        // cross-origin images it could not fetch with CORS -- which succeeds,
+        // and TAINTS the canvas. A tainted canvas throws SecurityError from
+        // toBlob/toDataURL, so the render finishes and then the encode dies,
+        // and the tester gets "couldn't capture" with nothing to look at.
+        //
+        // That is one image away on any real page: a map tile, a news
+        // thumbnail, an avatar, an ad, a CDN logo. It made image-heavy pages
+        // fail 100% of the time while a plain page worked, which is exactly
+        // the "it works for you and not for me" this kept producing.
+        //
+        // False is strictly better: html2canvas SKIPS the images it cannot
+        // read, so those come out blank and everything else comes out right.
+        // A screenshot with two grey rectangles in it is worth having. A
+        // SecurityError is not.
+        allowTaint: false,
         // The page's own background, never null — see resolvePageBackground().
         // Passed straight to html2canvas's parser, so it gets the same
         // CSS Color 4 treatment the document walk applies.
@@ -754,6 +834,15 @@ export async function captureRegion(
   }
 
   // ── DOM engine ──────────────────────────────────────────────────────────
+  // Refuse before starting on a page big enough to lock the tab. See
+  // TOO_HEAVY_NODES: once html2canvas begins there is no timeout, no Escape
+  // and no repaint until it finishes, so this is the last moment anything
+  // can be done about it.
+  const weight = documentWeight();
+  if (weight > TOO_HEAVY_NODES) {
+    return { status: 'too-heavy', nodes: weight };
+  }
+
   try {
     const canvas = await captureViaDom(rect, sx, sy);
     if (!canvas) return { status: 'failed' };

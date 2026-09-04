@@ -28,7 +28,7 @@
 import type { QaJourneyLane, QaTheme, QaCredential, QaPreamble } from '../config/schema';
 import type { QaNote } from '../context/QaContext';
 import { computeCoverage } from './coverage';
-import { noteToMarkdown } from './noteMarkdown';
+import { noteToMarkdown, noteCheckLine } from './noteMarkdown';
 import { shotExtension } from './capture';
 
 // ---------------------------------------------------------------------------
@@ -260,6 +260,31 @@ function buildPreamble(
     `— do not change code on a maybe.**`,
   );
 
+  // ── 2b. The contract ──────────────────────────────────────────────────────
+  // Placed before the project details on purpose: an agent that reads only
+  // the top of this file must still come away knowing it is being graded, and
+  // on what. This is the section that turns an export from a wish list into
+  // a piece of work with an agreed definition of done.
+  sections.push(
+    `## You Are Being Graded On This\n\n` +
+    `This archive is not a list of suggestions. Every point in \`notes.md\` is ` +
+    `an acceptance test, and \`verify.md\` is the checklist those tests live ` +
+    `in — one unticked box per point.\n\n` +
+    `**What happens next.** The tester will be walked back through these same ` +
+    `checks on the real page, in this order, one stop at a time, and asked ` +
+    `about each: *is this now what I asked for?* Anything they say is still ` +
+    `wrong comes back to you as round two with their new words attached, so ` +
+    `nothing quietly disappears.\n\n` +
+    `**What to do.** Do the work, then fill in \`verify.md\`: tick a box only ` +
+    `when the check is true on a fresh load of the page named beside it, with ` +
+    `the tester doing nothing extra. Where you could not do something, or you ` +
+    `think it is the wrong thing to do, leave the box unticked and write one ` +
+    `line saying why. An unticked box with a reason is a good answer. A ticked ` +
+    `box that does not hold up is the only bad one — it costs the tester the ` +
+    `trip to find out.\n\n` +
+    `Hand \`verify.md\` back with the work.`,
+  );
+
   // ── 3. Project table ──────────────────────────────────────────────────────
   const stack = typeof p.stack === 'string' && p.stack.trim()
     ? p.stack.trim()
@@ -477,6 +502,57 @@ export async function buildZipBlob(
     notesBody;
 
   zip.file('notes.md', notesMd);
+
+  // ── verify.md ─────────────────────────────────────────────────────────────
+  // The same points, as a checklist somebody owes an answer on.
+  //
+  // WHY A SECOND FILE AND NOT A SECTION
+  // -----------------------------------
+  // notes.md is long -- context, forensics, network events -- and an agent
+  // reading it produces work and then stops, because nothing in it says what
+  // finished looks like or asks to be filled in. A short file that is nothing
+  // but unticked boxes is a different instrument: it can be handed back, it
+  // can be diffed, and every unticked line is visibly outstanding.
+  //
+  // It also matches what happens on the tester's side. Exporting now marks
+  // these points as sent, and when the tester returns the widget walks them
+  // through this list one stop at a time and asks for a verdict on each. So
+  // the boxes here and the questions there are the same boxes and the same
+  // questions -- which is the whole point: the agent knows in advance exactly
+  // what it will be graded on.
+  zip.file('verify.md', [
+    `# ${brandLabel} — checks to satisfy`,
+    '',
+    `Exported: ${stamp}`,
+    `Checks: ${notes.length}`,
+    '',
+    'Each line below is one thing the tester asked for. The full ask, the',
+    'screenshot, the page and the element are in `notes.md` under the matching',
+    '"Point" heading.',
+    '',
+    '**What is expected of you**',
+    '',
+    '1. Do the work in `notes.md`.',
+    '2. Tick a box here only when the check is true on a fresh load of the page',
+    '   named beside it, with the tester doing nothing extra.',
+    '3. Leave a box unticked and write one line under it saying why, if you',
+    '   could not do it or disagree with it. An unticked box with a reason is a',
+    '   good answer; a ticked box that is not true is the only bad one.',
+    '4. Hand this file back with the work.',
+    '',
+    'The tester will then be walked back through these same checks on the real',
+    'page, in this order, and asked about each one. Anything they say is still',
+    'wrong comes back to you as round two, with their new words attached.',
+    '',
+    '---',
+    '',
+    ...notes.map((n, i) => noteCheckLine(n, i + 1)),
+    '',
+    '---',
+    '',
+    'Re-open the walkthrough on the tester\'s machine with `?qa=walk:verify`.',
+    '',
+  ].join('\n'));
 
   // ── Screenshots ───────────────────────────────────────────────────────────
   notes.forEach((n, i) => {

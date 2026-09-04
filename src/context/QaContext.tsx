@@ -170,6 +170,16 @@ export type QaNote = {
    * `fixed` IS the re-test queue.
    */
   status?: 'open' | 'fixed' | 'verified';
+  /**
+   * When this note was last handed to an agent by an export (ISO stamp).
+   *
+   * Exporting is not a passive dump any more -- it is the moment a point
+   * stops being a note and becomes an acceptance test somebody now owes an
+   * answer on. Stamping it here is what lets the tester come back later and
+   * be walked through exactly the points that were sent, rather than through
+   * everything they ever wrote. Cleared to `verified` by passing the walk.
+   */
+  handedOffAt?: string;
   journeyRef?: QaJourneyRef;
   context?: QaNoteContext;
   /**
@@ -241,7 +251,7 @@ export type QaTestAlongStep = {
 // ---------------------------------------------------------------------------
 
 export type QaSeverityFilter = 'all' | 'bug' | 'design' | 'enhance';
-export type QaStatusFilter = 'all' | 'open' | 'fixed' | 'verified';
+export type QaStatusFilter = 'all' | 'open' | 'sent' | 'fixed' | 'verified';
 
 export type QaNoteFilter = {
   severity: QaSeverityFilter;
@@ -258,6 +268,8 @@ export type QaNoteCounts = {
   enhance: number;
   design: number;
   open: number;
+  /** Handed to an agent by an export and not yet passed. The re-test queue. */
+  sent: number;
   /** Marked fixed, awaiting a re-test. */
   fixed: number;
   verified: number;
@@ -590,7 +602,31 @@ const LOGIN_KEY         = 'logins';
 // tab closes — see the "Soft-delete" note in the file header comment above.
 const PENDING_DELETE_KEY = 'pendingDeleteIds';
 // v0.4 keys
-const EXACT_SHOTS_KEY   = 'exactShots';      // '1' once the tester opted in
+const EXACT_SHOTS_KEY   = 'exactShots';      // '0' once the tester opted OUT
+
+/**
+ * Are real photographs on for this tester?
+ *
+ * ON BY DEFAULT since 0.8.2, which is a reversal. Until now a new tester got
+ * the redraw engine, and the redraw engine is the one that fails: it clones
+ * and re-renders the whole document, so it is slow on a big page, blank where
+ * the page is a map or a chart or any <canvas>, and dead on arrival the moment
+ * a cross-origin image is involved. Every "the screenshot didn't work" report
+ * has come from someone who had never opened Settings -- which is everyone,
+ * the first time.
+ *
+ * The photograph engine has none of those failure modes: one frame, cropped by
+ * arithmetic. Its only cost is that the browser asks to share the tab once per
+ * capture -- a question, answered in a click, versus a screenshot that does not
+ * arrive. So the question is now the default, and declining it still falls back
+ * to the redraw exactly as before.
+ *
+ * Anything other than a stored '0' means on, so a tester who has already
+ * turned it on keeps it, and a tester who turned it OFF keeps that too.
+ */
+function exactShotsWanted(store: { getItem(k: string): string | null }): boolean {
+  return store.getItem(EXACT_SHOTS_KEY) !== '0';
+}
 const SIMPLE_MODE_KEY   = 'simpleMode';
 const COMPACT_KEY       = 'compactCapture';
 const LAST_CAMPAIGN_KEY = 'lastCampaign';    // {project, campaign, tester}
@@ -773,7 +809,7 @@ export function QaProvider({
   // photographing, which is exactly the sort of disagreement between what the
   // UI says and what the code does that this release exists to remove.
   const [exactStatus, setExactStatus] = useState<ExactCaptureStatus>(() => {
-    if (storage.getItem(EXACT_SHOTS_KEY) === '1') armExactCapture();
+    if (exactShotsWanted(storage)) armExactCapture();
     return getExactCaptureStatus();
   });
   const exactSupported = isExactCaptureSupported();
@@ -1555,7 +1591,7 @@ export function QaProvider({
     // session. Failure is not fatal: no still means this capture is a redraw,
     // and the preview says so.
     setFrozenAt(null);
-    if (storage.getItem(EXACT_SHOTS_KEY) === '1' && isExactCaptureSupported()) {
+    if (exactShotsWanted(storage) && isExactCaptureSupported()) {
       resetExactCaptureDecline();
       void freezeViewport().then((frame) => {
         setFrozenAt(frame?.takenAt ?? null);
@@ -1601,6 +1637,33 @@ export function QaProvider({
     });
   }, [storage]);
 
+  /**
+   * Record that these points have just been handed to an agent.
+   *
+   * Runs after a successful export, and quietly: the export already tells the
+   * tester what happened, and eight toasts for eight points would be noise.
+   * What it buys is the return trip -- "Check the fixes" walks exactly these,
+   * in the order they were sent, however long the tester was away.
+   */
+  const stampHandedOff = useCallback(async (ids: string[], at: string): Promise<void> => {
+    if (!ids.length) return;
+    const idSet = new Set(ids);
+    const touched: QaNote[] = [];
+    applyNotes((prev) =>
+      prev.map((n) => {
+        if (!idSet.has(n.id)) return n;
+        // A point already passed stays passed: re-exporting the whole file
+        // for one new finding must not drag the settled ones back into the
+        // queue.
+        if ((n.status ?? 'open') === 'verified') return n;
+        const next: QaNote = { ...n, handedOffAt: at };
+        touched.push(next);
+        return next;
+      }),
+    );
+    for (const note of touched) await idb.put(note);
+  }, [applyNotes, idb]);
+
   const exportZipFn = useCallback(
     async (filename?: string): Promise<void> => {
       if (!notes.length || isExporting) return;
@@ -1608,7 +1671,9 @@ export function QaProvider({
       try {
         // Pass the resolved config + current guideChecked so the export preamble
         // can render credentials, journey coverage, and preamble fields.
-        await buildAndDownloadZip(notes, nowIso(), filename, config, guideChecked, guideSkipped);
+        const stamp = nowIso();
+        await buildAndDownloadZip(notes, stamp, filename, config, guideChecked, guideSkipped);
+        await stampHandedOff(notes.map((n) => n.id), stamp);
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error('[QA] export failed', err);
@@ -1616,7 +1681,7 @@ export function QaProvider({
         setIsExporting(false);
       }
     },
-    [notes, isExporting, config, guideChecked, guideSkipped],
+    [notes, isExporting, config, guideChecked, guideSkipped, stampHandedOff],
   );
 
   // Late-bound so addNote's "storage full → Export" toast can call the export
@@ -1889,7 +1954,7 @@ export function QaProvider({
 
   const noteCounts = useMemo<QaNoteCounts>(() => {
     const counts: QaNoteCounts = {
-      all: notes.length, bug: 0, design: 0, enhance: 0, open: 0, fixed: 0, verified: 0, thisPage: 0,
+      all: notes.length, bug: 0, design: 0, enhance: 0, open: 0, sent: 0, fixed: 0, verified: 0, thisPage: 0,
     };
     for (const n of notes) {
       const sev = n.severity ?? 'bug';
@@ -1900,6 +1965,9 @@ export function QaProvider({
       if (status === 'verified') counts.verified++;
       else if (status === 'fixed') counts.fixed++;
       else counts.open++;
+      // Independent of status on purpose: a point that was sent is owed an
+      // answer whether or not anyone has claimed it fixed yet.
+      if (n.handedOffAt && status !== 'verified') counts.sent++;
       if (n.route.split('?')[0] === currentRoute) counts.thisPage++;
     }
     return counts;
@@ -1909,7 +1977,9 @@ export function QaProvider({
     const q = filter.query.trim().toLowerCase();
     return notes.filter((n) => {
       if (filter.severity !== 'all' && (n.severity ?? 'bug') !== filter.severity) return false;
-      if (filter.status !== 'all' && (n.status ?? 'open') !== filter.status) return false;
+      if (filter.status === 'sent') {
+        if (!n.handedOffAt || (n.status ?? 'open') === 'verified') return false;
+      } else if (filter.status !== 'all' && (n.status ?? 'open') !== filter.status) return false;
       if (filter.thisPageOnly && n.route.split('?')[0] !== currentRoute) return false;
       if (!q) return true;
       const haystack = `${n.description} ${n.route} ${n.target?.selector ?? ''} ${n.target?.text ?? ''}`;
@@ -1980,6 +2050,7 @@ export function QaProvider({
       const blob = await buildZipBlob(notes, stamp, config, guideChecked, guideSkipped);
       if (!blob) return { status: 'unsupported' };
       const outcome = await shareZipFile(blob, name, config.brand.label);
+      await stampHandedOff(notes.map((n) => n.id), stamp);
       if (outcome.status === 'needs-gesture') {
         // Keep the built archive so one more tap can send it — see shareZip.ts.
         setPendingShare({ blob, filename: name });
@@ -1993,7 +2064,7 @@ export function QaProvider({
     } finally {
       setIsExporting(false);
     }
-  }, [notes, config, guideChecked, guideSkipped]);
+  }, [notes, config, guideChecked, guideSkipped, stampHandedOff]);
 
   const sharePending = useCallback(async (): Promise<ShareOutcome> => {
     const pending = pendingShare;
@@ -2326,7 +2397,7 @@ export function QaProvider({
   }, []);
 
   /**
-   * Deep link: `?qa=walk`, `?qa=walk:plan`, `?qa=walk:retest`.
+   * Deep link: `?qa=walk`, `?qa=walk:plan`, `?qa=walk:retest`, `?qa=walk:verify`.
    *
    * The owner sends testers a link anyway — this lets that link carry the
    * instruction. "Re-check these" stops being a paragraph of explanation and
@@ -2353,7 +2424,12 @@ export function QaProvider({
       window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
     } catch { /* a locked-down history is not worth failing over */ }
 
-    if (which === 'retest') {
+    if (which === 'verify') {
+      // What an agent hands back: "open this link and walk the checks I was
+      // given". Filters to exactly the points the last export sent.
+      setFilterState((prev) => ({ ...prev, status: 'sent', severity: 'all', thisPageOnly: false }));
+      startWalk('notes', 0);
+    } else if (which === 'retest') {
       setFilterState((prev) => ({ ...prev, status: 'fixed', severity: 'all', thisPageOnly: false }));
       startWalk('notes', 0);
     } else if (which === 'notes') {

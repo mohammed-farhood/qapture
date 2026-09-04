@@ -55,6 +55,19 @@ function formatEvent(ev: QaContextEvent, t0: number): string {
 }
 
 /**
+ * The one-line acceptance check for a note, as it appears in `verify.md` and
+ * as the question the walkthrough puts to the tester. Kept here, beside the
+ * note renderer, so the two can never drift apart and describe different
+ * tests for the same point.
+ */
+export function noteCheckLine(note: QaNote, index: number): string {
+  const where = oneLine(note.route) || '/';
+  const what = oneLine(note.description) || '(no description)';
+  const trimmed = what.length > 160 ? `${what.slice(0, 157)}...` : what;
+  return `- [ ] **check-${index}** (\`${where}\`) — ${trimmed}`;
+}
+
+/**
  * Render a note.
  * @param opts.index - 1-based point number, used for the heading and the
  *   screenshot filename reference. Omit for a standalone copy-to-clipboard.
@@ -149,6 +162,25 @@ export function noteToMarkdown(
     recordedSteps.forEach((step, i) => {
       lines.push(`${i + 1}. ${formatStep(step, t0)}`);
     });
+  }
+
+  // — the check this point will be graded against (v0.8.2) —
+  // Every point is now an acceptance test, not a suggestion. The tester will
+  // be walked back to this exact spot and asked one question, so the agent is
+  // told the question in advance, in the same words it will be asked in.
+  // Without this the export read as a wish list and came back half-done; with
+  // it, "what does finished look like" is on the page next to the ask.
+  if (idx != null) {
+    lines.push('');
+    lines.push(`**Check ${idx} — how this will be graded**`);
+    lines.push('');
+    lines.push(`The tester will be taken back to \`${oneLine(note.route) || '/'}\`` +
+      (target?.selector ? `, shown \`${oneLine(target.selector)}\`` : ', shown this region') +
+      ', and asked: *is this now what I asked for?*');
+    lines.push('');
+    lines.push('Treat it as done only when the paragraph above is true on that page, ' +
+      'on a fresh load, without the tester doing anything extra. ' +
+      `Record the outcome against \`check-${idx}\` in \`verify.md\`.`);
   }
 
   // — runtime context —

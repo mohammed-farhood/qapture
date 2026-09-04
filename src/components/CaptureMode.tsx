@@ -207,6 +207,10 @@ export default function CaptureMode() {
   // Retry) from a degenerate selection that never attempted one (shows the
   // plain no_shot copy, since retrying would fail identically).
   const [captureError, setCaptureError] = useState(false);
+  // Distinct from captureError: the redraw engine was REFUSED, not attempted,
+  // because this page is big enough to lock the tab. Retry is meaningless
+  // here; photographing it is the whole answer.
+  const [tooHeavy, setTooHeavy] = useState(false);
   // Seeded from context so the error catcher can open capture with the error
   // already written in. This component only exists while capture is active,
   // so the initial value applies exactly once per capture session.
@@ -262,6 +266,7 @@ export default function CaptureMode() {
   const runCapture = useCallback(async (rect: QaRect) => {
     setCapturing(true);
     setCaptureError(false);
+    setTooHeavy(false);
     lockPageScroll();
     try {
       const outcome = await captureRegion(rect, scrollSnap.current);
@@ -283,6 +288,7 @@ export default function CaptureMode() {
       }
 
       setCaptureError(outcome.status === 'failed');
+      setTooHeavy(outcome.status === 'too-heavy');
       setShotEngine(outcome.status === 'ok' ? outcome.engine : null);
       setShot(blob);
       setShotUrl((old) => {
@@ -1179,6 +1185,29 @@ export default function CaptureMode() {
                     {t('draw_label')}
                   </span>
                 </button>
+              ) : tooHeavy ? (
+                // Not a failure to report — a refusal to explain, with the one
+                // control that actually solves it.
+                <span className="qa-flex qa-flex-col qa-items-center qa-gap-2 qa-py-3 qa-px-3 qa-text-center">
+                  <span className="qa-text-xs qa-text-mid">{t('too_heavy')}</span>
+                  {exactShots.supported ? (
+                    <button
+                      type="button"
+                      onClick={() => void (async () => {
+                        const shot = await photographNow();
+                        if (shot && selection) void runCapture(selection.rect);
+                      })()}
+                      title={t('exact_hint')}
+                      className="qa-tap qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-md qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-xs qa-text-hi qa-focus-ring"
+                      style={{ background: 'transparent', cursor: 'pointer' }}
+                    >
+                      <Icon name="Camera" size={13} />
+                      {t('redraw_action')}
+                    </button>
+                  ) : (
+                    <span className="qa-text-10 qa-text-mid">{t('redraw_no_engine')}</span>
+                  )}
+                </span>
               ) : captureError ? (
                 // The render broke rather than being skipped — offer a retry
                 // against the same selection instead of a dead-end message.
