@@ -12,3 +12,6 @@ playground/dist/
 
 # graphify knowledge graph — regenerated locally by git hook
 /graphify-out/
+
+# Claude Code worktrees and session state — never part of the package.
+.claude/
