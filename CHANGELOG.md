@@ -3,6 +3,35 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.1] "One Prompt, Many Notes" — 2026-09-04
+
+### Added
+
+- **"Save + next"** on the annotation card (⌘/Ctrl + **Shift** + Enter). Files
+  the note and returns you to framing **the same photograph**, instead of
+  closing capture mode.
+
+  This exists because of a dead end worth writing down: Safari's per-site
+  **Screen Sharing** setting offers only *Ask* and *Deny* — there is no
+  *Allow*, for any site. So a page cannot be pre-authorised to photograph the
+  screen, and 0.8.0's one-frame grant means Safari asks on **every** capture.
+  The prompt cannot be removed. It can only be needed less often.
+
+  One screen usually has more than one thing wrong with it, and one grant
+  already buys a full-viewport still — so filing three bugs about one screen
+  now costs one prompt instead of three, with nothing recording in between.
+  (Camera and microphone grants *do* persist for 30 days in Safari; screen
+  sharing deliberately does not. Don't go looking for that setting again.)
+
+- The hint bar says **"N saved from this screenshot"** while you are reusing
+  one, so it is clear why you weren't asked for permission again — and that
+  you are still marking up the screen as it was, not as it is now.
+
+### Fixed
+
+- "Reselect" left the previous note's engine badge and error state behind; both
+  paths now share one reset.
+
 ## [0.8.0] "Freeze First" — 2026-09-04
 
 The screenshot is taken **when you open capture mode**, not when you finish

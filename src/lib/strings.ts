@@ -47,6 +47,9 @@ type LangMap = {
   annotate_placeholder: string;
   save_point: string;
   reselect: string;
+  save_next: string;
+  save_next_hint: string;
+  shot_reused: string;
   save_hint: string;
   login_with: string;
   used_count: string;
@@ -265,8 +268,11 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     no_shot:               'no screenshot (location saved)',
     annotate_placeholder:  'What do you want to do here? (add / remove / change…)',
     save_point:            'Save point',
+    save_next:             'Save + next',
+    save_next_hint:        'Save this one and mark up another part of the same screenshot — no second permission prompt.',
+    shot_reused:           '{n} saved from this screenshot',
     reselect:              'Reselect',
-    save_hint:             '⌘/Ctrl + Enter to save',
+    save_hint:             '⌘/Ctrl + Enter to save · add Shift to keep the same screenshot',
     login_with:            'Log in with {field} + password.',
     used_count:            '{n}/{m} used',
     used:                  'used',
@@ -473,8 +479,11 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     no_shot:               'بدون صورة (تم حفظ الموقع)',
     annotate_placeholder:  'ماذا تريد أن تفعل هنا؟ (إضافة / حذف / تغيير…)',
     save_point:            'حفظ النقطة',
+    save_next:             'حفظ + التالي',
+    save_next_hint:        'احفظ هذه وحدّد جزءًا آخر من نفس اللقطة — بدون طلب إذن جديد.',
+    shot_reused:           'حُفظت {n} من هذه اللقطة',
     reselect:              'إعادة التحديد',
-    save_hint:             '⌘/Ctrl + Enter للحفظ',
+    save_hint:             '⌘/Ctrl + Enter للحفظ · أضف Shift للبقاء على نفس اللقطة',
     login_with:            'سجّل الدخول بـ {field} + كلمة المرور.',
     used_count:            '{n}/{m} مُستخدَم',
     used:                  'مُستخدَم',

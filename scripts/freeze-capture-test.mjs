@@ -245,6 +245,62 @@ try {
   ok(liveAfter === 0, `still nothing recording after the shot (${liveAfter} live tracks)`);
   ok(grantsAfter === 1, `no extra grant was taken to produce the crop (${grantsAfter} total)`);
 
+  // ── ONE PROMPT, SEVERAL NOTES ───────────────────────────────────────────
+  // Safari's per-site Screen Sharing setting offers only Ask and Deny — there
+  // is no Allow — so a capture prompt cannot be removed, only asked for less
+  // often. "Save + next" files this note and returns to framing against the
+  // SAME photograph, so three bugs on one screen cost one grant.
+  const ta = (await page.evaluateHandle(() => window.__qaSR().querySelector('textarea'))).asElement();
+  if (!ta) {
+    ok(false, 'annotation card never appeared');
+  } else {
+    await ta.click();
+    await ta.type('first bug on this screen');
+    const clicked = await page.evaluate(() => {
+      const b = window.__qaSR().querySelector('[data-qa-save-next]');
+      if (!b) return false;
+      b.click();
+      return true;
+    });
+    ok(clicked, 'the "Save + next" action is offered');
+    await sleep(900);
+
+    const kept = await page.evaluate(() => ({
+      stillUp: !!window.__qaSR().querySelector('[data-qa-capture-still] canvas'),
+      inCapture: !!window.__qaSR().querySelector('[data-qa-capture-root]'),
+      reusedBadge: !!window.__qaSR().querySelector('[data-qa-shot-reused]'),
+      grants: window.__grants.length,
+      live: window.__liveTracks(),
+    }));
+    ok(kept.inCapture, 'saving with "next" stays in capture mode');
+    ok(kept.stillUp, 'the same photograph is still up for the next note');
+    ok(kept.reusedBadge, 'the hint bar says the screenshot is being reused');
+    ok(kept.grants === 1, `a second note cost NO extra prompt (${kept.grants} grant total)`);
+    ok(kept.live === 0, `and nothing started recording again (${kept.live} live tracks)`);
+
+    // File the second note from the same still, to prove it really works and
+    // not just that the UI survived.
+    await page.mouse.move(520, 220);
+    await page.mouse.down();
+    await page.mouse.move(540, 240, { steps: 3 });
+    await page.mouse.move(700, 360, { steps: 8 });
+    await page.mouse.up();
+    await sleep(2600);
+    const ta2 = (await page.evaluateHandle(() => window.__qaSR().querySelector('textarea'))).asElement();
+    if (!ta2) ok(false, 'could not annotate the second note');
+    else {
+      await ta2.click();
+      await ta2.type('second bug on the same screen');
+      await page.evaluate(() => {
+        const b = [...window.__qaSR().querySelectorAll('button')].find((x) => /save point/i.test(x.textContent || ''));
+        if (b) b.click();
+      });
+      await sleep(1200);
+      const finalGrants = await page.evaluate(() => window.__grants.length);
+      ok(finalGrants === 1, `two notes filed off one screen-share prompt (${finalGrants} grant total)`);
+    }
+  }
+
   // ── Leaving capture mode releases the still ─────────────────────────────
   await page.keyboard.press('Escape');
   await sleep(600);

@@ -197,6 +197,8 @@ export default function CaptureMode() {
   const [shot, setShot] = useState<Blob | null>(null);
   /** Where the frozen still is mounted while the tester frames a selection. */
   const stillRef = useRef<HTMLDivElement | null>(null);
+  /** How many notes have already been filed against the current photograph. */
+  const [notesFromThisShot, setNotesFromThisShot] = useState(0);
   /** Which engine produced the current preview — drives the "redraw" offer. */
   const [shotEngine, setShotEngine] = useState<CaptureEngine | null>(null);
   const [shotUrl, setShotUrl] = useState<string | null>(null);
@@ -574,7 +576,36 @@ export default function CaptureMode() {
   }, [exactShots.frozenAt]);
 
   // ── Save ─────────────────────────────────────────────────────────────────
-  const save = async () => {
+  /**
+   * Clear everything belonging to ONE note, without leaving capture mode.
+   *
+   * Deliberately does not touch the frozen still: it belongs to the capture
+   * session, not to the note, and reusing it is the whole point of both
+   * "Reselect" and "Save and keep going".
+   */
+  const resetForNextNote = useCallback(() => {
+    setPhase('selecting');
+    setSelection(null);
+    setShot(null);
+    setShotEngine(null);
+    setDescription('');
+    setSeverity('bug');
+    setTargetForensics(undefined);
+    setCaptureError(false);
+  }, []);
+
+  /**
+   * @param keepGoing - stay in capture mode and mark up another region of the
+   *   SAME photograph instead of closing.
+   *
+   *   This exists because Safari will not let a site pre-authorise screen
+   *   capture — its per-site Screen Sharing setting offers only Ask and Deny,
+   *   so every `getDisplayMedia` call prompts, forever. The prompt cannot be
+   *   removed, so the answer is to need fewer of them: one grant already buys
+   *   a full-viewport still, and filing three bugs about one screen should
+   *   cost one prompt rather than three.
+   */
+  const save = async (keepGoing = false) => {
     if (!selection || !description.trim()) return;
     const target: QaTarget = {
       kind: selection.kind,
@@ -596,6 +627,11 @@ export default function CaptureMode() {
       severity,
       forensics: selection.kind === 'element' ? targetForensics : undefined,
     });
+    if (keepGoing) {
+      setNotesFromThisShot((n) => n + 1);
+      resetForNextNote();
+      return;
+    }
     endCapture();
   };
 
@@ -708,6 +744,22 @@ export default function CaptureMode() {
         <div
           className="qa-fixed qa-left-half qa-top-4 qa-z-10095 qa-translate-x-neg-half qa-flex qa-items-center qa-gap-3 qa-rounded-full qa-border qa-border-subtle qa-bg-2 qa-px-4 qa-py-2 qa-text-sm qa-text-hi qa-elev-2"
         >
+          {/* Say out loud that the photograph is being reused, so the tester
+              understands why they weren't asked for permission again — and can
+              tell that they are still marking up the screen as it was. */}
+          {notesFromThisShot > 0 && (
+            <>
+              <span
+                data-qa-shot-reused="true"
+                className="qa-flex qa-items-center qa-gap-1.5"
+                style={{ color: 'var(--qa-success)' }}
+              >
+                <Icon name="Camera" size={16} />
+                {t('shot_reused', { n: String(notesFromThisShot) })}
+              </span>
+              <span className="qa-opacity-50">·</span>
+            </>
+          )}
           <span className="qa-flex qa-items-center qa-gap-1.5">
             <Icon name="MousePointerClick" size={16} />
             {t('cap_click')}
@@ -1240,7 +1292,9 @@ export default function CaptureMode() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void save();
+                // Shift keeps you in the same photograph for the next one, so
+                // a run of bugs on one screen never leaves the keyboard.
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void save(e.shiftKey);
                 // 1/2/3 set severity without leaving the keyboard — but only
                 // with a modifier, since bare digits are text the tester is
                 // trying to type ("2 items in cart").
@@ -1264,15 +1318,24 @@ export default function CaptureMode() {
                 <Icon name="Check" size={16} />
                 {t('save_point')}
               </button>
+              {/* Save without leaving. One screen usually has more than one
+                  thing wrong with it, and in Safari every capture costs a
+                  screen-share prompt that no setting can remove — so filing the
+                  second bug should reuse the photograph already taken rather
+                  than asking again. */}
               <button
-                onClick={() => {
-                  setPhase('selecting');
-                  setSelection(null);
-                  setShot(null);
-                  setDescription('');
-                  setSeverity('bug');
-                  setTargetForensics(undefined);
-                }}
+                data-qa-save-next="true"
+                onClick={() => void save(true)}
+                disabled={!description.trim()}
+                title={t('save_next_hint')}
+                className="qa-tap qa-flex qa-items-center qa-justify-center qa-gap-1.5 qa-rounded-lg qa-border qa-border-subtle qa-px-3 qa-py-2 qa-text-sm qa-text-hi"
+                style={{ background: 'transparent', cursor: 'pointer' }}
+              >
+                <Icon name="Plus" size={16} />
+                {t('save_next')}
+              </button>
+              <button
+                onClick={resetForNextNote}
                 className="qa-tap qa-rounded-lg qa-border qa-border-subtle qa-px-3 qa-py-2 qa-text-sm qa-text-mid"
                 style={{ background: 'transparent', cursor: 'pointer' }}
               >

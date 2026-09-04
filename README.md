@@ -403,6 +403,12 @@ Everything else:
 
 - **Turn it on** from the capture hint bar ("Pixel-exact shots") or Settings.
   Turning it on does not prompt; the first capture does.
+- **One prompt can cover several notes.** "Save + next" on the annotation card
+  (⌘/Ctrl + Shift + Enter) files the note and puts you back to framing the same
+  photograph. Worth knowing in **Safari**, where the per-site Screen Sharing
+  setting offers only *Ask* and *Deny* — there is no *Allow*, so every capture
+  prompts and the only lever is needing fewer captures. Three bugs on one
+  screen, one prompt.
 - Nothing leaves the device — the frame is cropped locally and never uploaded.
 - The QA overlay is hidden for the captured frame, so the scrim, the selection
   outline and the annotation card never appear in the image.
