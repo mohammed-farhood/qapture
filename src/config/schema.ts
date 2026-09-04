@@ -119,6 +119,18 @@ export type QaConfig = {
   /** If true, default language initializes to 'ar' (RTL). */
   rtl?: boolean;
   /**
+   * Show a small "beta" mark on the button.
+   *
+   * For shipping this into a client's live site during a review period. It
+   * sets an expectation before anything goes wrong -- a client who knows a
+   * tool is new forgives a rough edge and tells you about it, and a client who
+   * thought it was finished quietly stops using it instead.
+   *
+   * Deliberately a mark on the button and nothing else: no banner, no modal,
+   * no interruption. It is a label, not an announcement.
+   */
+  beta?: boolean;
+  /**
    * Whether the panel is visible.
    * - true / false: always show / always hide
    * - undefined (default): ShadowMount treats as "dev-only" (show only when
@@ -161,6 +173,7 @@ export type ResolvedConfig = {
   journey: QaJourneyLane[];
   preamble: QaPreamble | null;
   rtl: boolean;
+  beta: boolean;
   /**
    * Visibility sentinel.
    * - true: always show
@@ -185,6 +198,7 @@ const DEFAULTS = {
   brandLabel:    'Qapture',
   loginField:    { en: 'Username', ar: 'اسم المستخدم' } as { en: string; ar?: string },
   rtl:           false,
+  beta:          false,
   visible:       undefined as boolean | undefined,
   alwaysVisible: false,
   hotkey:        'shift+alt+q',
@@ -419,6 +433,7 @@ export function validateConfig(
         journey:      [],
         preamble:     null,
         rtl:          DEFAULTS.rtl,
+        beta:         DEFAULTS.beta,
         visible:      DEFAULTS.visible,
         alwaysVisible: DEFAULTS.alwaysVisible,
         hotkey:       DEFAULTS.hotkey,
@@ -440,6 +455,7 @@ export function validateConfig(
         journey:      [],
         preamble:     null,
         rtl:          DEFAULTS.rtl,
+        beta:         DEFAULTS.beta,
         visible:      DEFAULTS.visible,
         alwaysVisible: DEFAULTS.alwaysVisible,
         hotkey:       DEFAULTS.hotkey,
@@ -500,6 +516,7 @@ export function validateConfig(
 
   // scalar booleans / strings
   const rtl = typeof raw['rtl'] === 'boolean' ? raw['rtl'] : DEFAULTS.rtl;
+  const beta = typeof raw['beta'] === 'boolean' ? raw['beta'] : DEFAULTS.beta;
   const alwaysVisible = typeof raw['alwaysVisible'] === 'boolean'
     ? raw['alwaysVisible']
     : DEFAULTS.alwaysVisible;
@@ -534,6 +551,7 @@ export function validateConfig(
       journey,
       preamble,
       rtl,
+      beta,
       visible,
       alwaysVisible,
       hotkey,

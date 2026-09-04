@@ -143,7 +143,7 @@ type DragState = {
 };
 
 export default function QaFab() {
-  const { isOpen, setIsOpen, notes, captureActive, namespace, t } = useQa();
+  const { isOpen, setIsOpen, notes, captureActive, namespace, beta, t } = useQa();
 
   // Persisted drag position (touch-only). Loaded once on mount; null means
   // "use the default fixed spot" (byte-identical to the pre-drag CSS).
@@ -287,6 +287,20 @@ export default function QaFab() {
 
       {/* icon toggles between X (close) and ClipboardList (open) */}
       <Icon name={isOpen ? 'X' : 'ClipboardList'} size={24} />
+
+      {/* A label, not an announcement. Shipping this into a live client site
+          during a review period works far better when the client knows it is
+          new: they forgive a rough edge and tell you about it, instead of
+          quietly deciding the tool is bad and never opening it again. */}
+      {beta && !isOpen && (
+        <span
+          className="qa-absolute qa-rounded-full qa-text-10 qa-font-bold qa-bg-1 qa-text-mid qa-border qa-border-subtle"
+          style={{ bottom: '-6px', left: '50%', transform: 'translateX(-50%)', padding: '0 5px', lineHeight: '1.3' }}
+          aria-hidden="true"
+        >
+          beta
+        </span>
+      )}
 
       {/* note-count badge */}
       {!isOpen && notes.length > 0 && (

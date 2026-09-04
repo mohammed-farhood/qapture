@@ -1,4 +1,10 @@
 import { defineConfig } from 'tsup';
+import pkg from './package.json';
+
+// The widget needs to know its own version to tell anyone it is out of date.
+// Injected at build time so there is one source of truth (package.json) and no
+// second number to forget to bump.
+const define = { __QA_VERSION__: JSON.stringify(pkg.version) };
 
 const externalReact = ['react', 'react-dom', 'react/jsx-runtime'];
 
@@ -23,6 +29,7 @@ export default defineConfig([
     treeshake: true,
     minify: false,
     external: externalReact,
+    define,
   },
   {
     entry: { 'bin/init': 'src/bin/init.ts' },

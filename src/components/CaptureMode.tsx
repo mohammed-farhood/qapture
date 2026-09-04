@@ -75,7 +75,7 @@
  *   host itself carries data-qa-overlay, so if it is returned we discard it.
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useQa } from '../context/QaContext';
 import type { QaTarget, QaRect } from '../context/QaContext';
 import { Icon, type IconName } from '../icons/Icon';
@@ -86,6 +86,7 @@ import { useCoarsePointer } from '../lib/coarse';
 import { lockPageScroll, unlockPageScroll } from '../lib/scrollLock';
 import { collectTargetForensics, type QaTargetForensics } from '../lib/contextBuffer';
 import { resolveOrigin, type QaOrigin } from '../lib/origin';
+import { findDuplicate } from '../lib/duplicate';
 import VoiceButton from './VoiceButton';
 import LocationReveal from './LocationReveal';
 import ShotAnnotator from './ShotAnnotator';
@@ -182,7 +183,7 @@ export default function CaptureMode() {
   const {
     addNote, endCapture, t, dir,
     compactCapture, setCompactCapture,
-    exactShots, photographNow, developerMode,
+    exactShots, photographNow, developerMode, notes,
     capturePrefill,
   } = useQa();
   const coarse = useCoarsePointer();
@@ -227,6 +228,14 @@ export default function CaptureMode() {
   // already written in. This component only exists while capture is active,
   // so the initial value applies exactly once per capture session.
   const [description, setDescription] = useState(capturePrefill);
+  /** An already-filed note this one seems to repeat. Advisory only. */
+  const twin = useMemo(
+    () => (description.trim().length > 8
+      ? findDuplicate(description, selection?.selector, notes)
+      : null),
+    [description, selection, notes],
+  );
+
   const [severity, setSeverity] = useState<Severity>('bug');
   // Forensics for the DOM element behind the CURRENT selection/candidate —
   // collected the moment an 'element' (not 'region') target is picked, and
@@ -1360,6 +1369,16 @@ export default function CaptureMode() {
                 saw" and "what I wanted" get confused, and the fix lands on the
                 invented version. The labels survive into the export intact,
                 for exactly the same reason. */}
+            {/* Flagged, never blocked. Being wrong here would mean silently
+                eating somebody's bug report, so it says what it noticed and
+                leaves the decision where it belongs. */}
+            {twin && (
+              <p className="qa-text-10 qa-text-warn" data-qa-duplicate="true">
+                {t('dup_notice', { when: new Date(twin.timestamp).toLocaleTimeString() })}
+                {' “'}{twin.description.slice(0, 70)}{twin.description.length > 70 ? '…' : ''}{'”'}
+              </p>
+            )}
+
             <label className="qa-flex qa-flex-col qa-gap-1">
               <span className="qa-flex qa-items-center qa-justify-between qa-gap-2">
                 <span className="qa-text-11 qa-font-semibold qa-text-hi">{t('q_observed')}</span>

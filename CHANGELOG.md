@@ -3,6 +3,93 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] "Client Mode" — 2026-09-05
+
+The default user of this widget is a client, not an engineer. This release is
+mostly the consequences of taking that seriously.
+
+Several decisions below are settled by measurement rather than taste — see
+*What Makes a Good Bug Report for an AI Agent?* (arXiv 2607.07593), which tests
+repair agents against reports with pieces removed.
+
+### Added
+
+- **Client mode, and it is the default.** Severity chips, the CSS selector, the
+  journey step and the suggested-fix box are gone from the capture card unless
+  developer mode is switched on in Settings. None of it stops being *captured* —
+  only the *asking* stops. Asking a client to grade their own complaint is a
+  question they cannot answer and should not have to; being shown a selector is
+  how a feedback tool starts feeling like something you need training for.
+- **Two labelled questions instead of one box**: *What happened?* and *What
+  should have happened?*, with an optional *Why does it matter?*. Kept apart on
+  purpose. An agent handed a report with no stated expectation does not stop and
+  ask the way a person would — it picks a reading and commits to it. Removing
+  expected behaviour made agents commit to wrong interpretations outright.
+- The headings survive into `notes.md` as `### Observed` / `### Expected`.
+  Deleting just the section headers, keeping every word, costs 10–30 points of
+  solve rate — agents stop being able to tell the symptom from the goal.
+- **Expected is written even when empty**, saying outright that it was not
+  given, rather than leaving a hole an agent will quietly fill in.
+- **The checklist now asserts the expectation, not the complaint.** "The total
+  is wrong" cannot be ticked by anybody. "The total should include delivery"
+  can.
+- **Voice input on every field.** The most valuable field is the one people
+  leave empty, and they leave it empty because typing is work — more so in
+  Arabic than English. Browser dictation, nothing uploaded by us, `ar-IQ` for
+  Arabic testers, and rendered not at all where unsupported rather than as a
+  dead button.
+- **Source localisation.** The component and file that rendered the element are
+  read off React's own fibre and printed in the report. Naming the file is one
+  of the largest single wins available; without it agents apply correct fixes to
+  the wrong file. Omitted rather than guessed when the build will not say.
+- **`repro/check-N.spec.ts`** — a Playwright *draft* per point, carrying the
+  URL, a selector verified against the live DOM, and the observed and expected
+  behaviour quoted in place. Executable reproductions help; prose steps measure
+  as no help at all. They are drafts because most points do not want one: the
+  agent is told to finish the behavioural ones and delete the cosmetic ones.
+  That judgement is not the tester's and they were not asked for it.
+- **Diagnostics, in Settings.** One button that checks the things that have
+  actually broken: which engine will take the next shot, whether this page can
+  encode a screenshot at all, how many cross-origin images will come out blank,
+  page weight against the freeze threshold, whether the screenshot library can
+  even be fetched, storage, dictation, and https. Every probe is a post-mortem
+  of something that has already cost an afternoon.
+- **A visible fault log**, also in Settings, with copy and clear. Failures used
+  to go only to `console.warn` — so "the screenshot didn't work" was all that
+  ever reached anybody, while the browser had said
+  `SecurityError: Tainted canvases may not be exported`.
+- **An update check.** Three apps sat on 0.7.x for months while every screenshot
+  on an image-heavy page failed and the fix was already published. `^0.7.2` will
+  never reach 0.8 on its own, and `npm update` reports success while changing
+  nothing, so the exact command is spelled out. Settings only — once a day,
+  cached, silent on failure. A client cannot upgrade an npm package and has no
+  business being interrupted about one.
+- **Duplicate detection.** A real export contained six notes reading "delete
+  this". Same words on the same element is flagged as a repeat; same words on a
+  *different* element is not, because those are two real requests. Flagged,
+  never blocked — being wrong here would mean silently eating a bug report.
+- **`beta: true`** puts a small mark on the button, for shipping into a live
+  client site during a review period. A client who knows a tool is new forgives
+  a rough edge and tells you; one who thought it was finished quietly stops
+  using it. A label, not a banner.
+
+### Changed
+
+- **Arabic follows the page.** `dir="rtl"` or `lang="ar"` on the document, or
+  failing that the reader's own browser, now selects Arabic without anyone
+  setting `rtl` in config. An English page is never flipped under an Arabic
+  speaker who expects to read it in English.
+- **`notes.md` got much shorter.** Recorded steps, console, network,
+  environment and element forensics moved to `context/point-N.md`, pointed at
+  rather than pasted in. Report length correlates *negatively* with the right
+  thing being fixed (odds ratio 0.49): the two sentences that matter were being
+  buried under a wall of evidence. Nothing was discarded.
+- **A re-drawn screenshot now says so in the export.** An agent that does not
+  know it is looking at a re-drawing reads a blank chart as the bug.
+- A suggested fix, where a developer writes one, is labelled a suggestion all
+  the way through and comes with a note to weigh it rather than follow it. It is
+  the most powerful field in a report and the most dangerous.
+
 ## [0.8.3] "One Prompt Per Screenful" — 2026-09-04
 
 ### Changed

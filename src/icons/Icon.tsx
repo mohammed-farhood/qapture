@@ -24,6 +24,7 @@ export type IconName =
   | 'MousePointerClick'
   | 'Square'
   | 'Mic'
+  | 'Info'
   | 'ImagePlus'
   | 'CheckCircle2'
   | 'Crosshair'
@@ -132,6 +133,12 @@ const ICONS: Record<IconName, SvgDescriptor[]> = {
 
   Square: [
     ['rect', { width: '18', height: '18', x: '3', y: '3', rx: '2' }],
+  ],
+
+  Info: [
+    ['circle', { cx: '12', cy: '12', r: '10' }],
+    ['path', { d: 'M12 16v-4' }],
+    ['path', { d: 'M12 8h.01' }],
   ],
 
   Mic: [

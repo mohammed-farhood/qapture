@@ -93,6 +93,7 @@
 import type { QaRect } from '../context/QaContext';
 import { cropFrozenRegion, getFrozenFrame } from './screenCapture';
 import { neutralizeDocumentColors, safeBackgroundColor } from './cssColors';
+import { recordFault } from './faultLog';
 
 const HTML2CANVAS_TIMEOUT_MS = 10000;
 
@@ -827,8 +828,7 @@ export async function captureRegion(
         if (blob) return { status: 'ok', blob, engine: 'exact' };
       }
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[QA] cropping the still failed, falling back to DOM render:', err);
+      recordFault('screenshot/crop', err);
     }
     if (prefer === 'exact') return { status: 'failed' };
   }
@@ -840,6 +840,7 @@ export async function captureRegion(
   // can be done about it.
   const weight = documentWeight();
   if (weight > TOO_HEAVY_NODES) {
+    recordFault('screenshot/too-heavy', `page has ${weight} elements; the redraw engine was refused`);
     return { status: 'too-heavy', nodes: weight };
   }
 
@@ -849,8 +850,7 @@ export async function captureRegion(
     const blob = await encodeShot(canvas);
     return blob ? { status: 'ok', blob, engine: 'dom' } : { status: 'failed' };
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('[QA] region capture failed, retrying without gradients/shadows:', err);
+    recordFault('screenshot/render', err);
     // Second attempt: strip the decoration html2canvas may still be choking
     // on. A flatter screenshot still shows the tester what they selected —
     // which is the entire point — where a failure shows them nothing.
@@ -860,8 +860,7 @@ export async function captureRegion(
       const blob = await encodeShot(canvas);
       return blob ? { status: 'ok', blob, engine: 'dom' } : { status: 'failed' };
     } catch (retryErr) {
-      // eslint-disable-next-line no-console
-      console.warn('[QA] region capture failed after retry:', retryErr);
+      recordFault('screenshot/render-retry', retryErr);
       return { status: 'failed' };
     }
   }

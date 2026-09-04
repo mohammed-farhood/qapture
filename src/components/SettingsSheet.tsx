@@ -24,13 +24,17 @@ import { useEffect, useState } from 'react';
 import { useQa } from '../context/QaContext';
 import { Icon } from '../icons/Icon';
 import { formatBytes } from '../lib/storageHealth';
+import { runDoctor, type Check } from '../lib/doctor';
+import { readFaults, clearFaults, faultsAsText } from '../lib/faultLog';
+import { latestVersion, isNewer, upgradeHint } from '../lib/versionCheck';
+import { QA_VERSION } from '../version';
 
 function Section({
   icon,
   title,
   children,
 }: {
-  icon: 'Folder' | 'HardDrive' | 'Camera' | 'Settings';
+  icon: 'Folder' | 'HardDrive' | 'Camera' | 'Settings' | 'Info';
   title: string;
   children: React.ReactNode;
 }) {
@@ -81,8 +85,25 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
     errorCatcher, setErrorCatcher,
     exactShots, enableExactShots, disableExactShots,
     simpleMode, setSimpleMode, compactCapture, setCompactCapture,
+    developerMode, setDeveloperMode,
     notes,
   } = useQa();
+
+  // ── Diagnostics state ────────────────────────────────────────────────────
+  const [checks, setChecks] = useState<Check[]>([]);
+  const [running, setRunning] = useState(false);
+  const [faults, setFaults] = useState(() => readFaults());
+  const [latest, setLatest] = useState<string | null>(null);
+
+  // The update check runs when Settings opens, never on page load: it is a
+  // network request the tester did not ask for, and nobody can act on the
+  // answer anywhere else. Cached for a day inside latestVersion().
+  useEffect(() => {
+    let alive = true;
+    void latestVersion().then((v) => { if (alive) setLatest(v); });
+    setFaults(readFaults());
+    return () => { alive = false; };
+  }, []);
 
   const [project, setProject] = useState(lastCampaign.project);
   const [campaign, setCampaign] = useState(lastCampaign.campaign || suggestCampaignName());
@@ -385,6 +406,21 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
 
         {/* ── 4. View ─────────────────────────────────────────────────────── */}
         <Section icon="Settings" title={t('settings')}>
+          {/* The one switch that changes who this tool is for.
+              Off by default and reachable only from here — a client should
+              never meet a severity chip or a CSS selector, and a developer
+              should never have to do without them. */}
+          <label className="qa-flex qa-items-start qa-gap-2 qa-text-xs qa-text-hi" style={{ cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={developerMode}
+              onChange={(e) => setDeveloperMode(e.target.checked)}
+            />
+            <span>
+              {t('dev_mode_label')}
+              <span className="qa-block qa-text-10 qa-text-mid">{t('dev_mode_hint')}</span>
+            </span>
+          </label>
           <label className="qa-flex qa-items-center qa-gap-2 qa-text-xs qa-text-hi" style={{ cursor: 'pointer' }}>
             <input
               type="checkbox"
@@ -401,6 +437,103 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
             />
             {t('compact_mode')}
           </label>
+        </Section>
+
+        {/* ── 5. Diagnostics ──────────────────────────────────────────────────
+            Everything that used to be invisible, in the one place somebody
+            looks when they think the tool is broken. Deliberately NOT on the
+            page, in a toast, or behind a warning dot: a client cannot act on
+            any of it, and showing it to them just teaches them not to trust
+            the thing. It runs when asked, which is when it is worth anything. */}
+        <Section icon="Info" title={t('diag_title')}>
+          <p className="qa-text-10 qa-text-mid">{t('diag_hint')}</p>
+
+          <div className="qa-flex qa-items-center qa-gap-2 qa-flex-wrap">
+            <button
+              type="button"
+              onClick={() => void (async () => {
+                setRunning(true);
+                try { setChecks(await runDoctor()); } finally { setRunning(false); }
+              })()}
+              disabled={running}
+              data-qa-doctor="true"
+              className="qa-tap qa-inline-flex qa-items-center qa-gap-1.5 qa-rounded-md qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-xs qa-text-hi qa-focus-ring"
+              style={{ background: 'transparent', cursor: 'pointer' }}
+            >
+              <Icon name="Check" size={13} />
+              {running ? t('diag_running') : t('diag_run')}
+            </button>
+
+            <span className="qa-text-10 qa-text-mid">
+              {t('diag_version', { v: QA_VERSION })}
+              {latest && isNewer(latest, QA_VERSION) ? (
+                <>
+                  {' · '}
+                  <span className="qa-text-warn">{t('diag_outdated', { v: latest })}</span>
+                  <code className="qa-ms-1">{upgradeHint(latest)}</code>
+                </>
+              ) : latest ? ` · ${t('diag_current')}` : ''}
+            </span>
+          </div>
+
+          {checks.length > 0 && (
+            <ul className="qa-space-y-1" data-qa-doctor-results="true">
+              {checks.map((c) => (
+                <li key={c.label} className="qa-text-11 qa-text-hi">
+                  <span
+                    aria-hidden
+                    className={
+                      c.verdict === 'ok' ? 'qa-text-success'
+                        : c.verdict === 'bad' ? 'qa-text-danger'
+                          : c.verdict === 'warn' ? 'qa-text-warn' : 'qa-text-mid'
+                    }
+                  >
+                    {c.verdict === 'ok' ? '●' : c.verdict === 'bad' ? '▲' : c.verdict === 'warn' ? '▲' : '○'}
+                  </span>{' '}
+                  <strong>{c.label}</strong>
+                  <span className="qa-block qa-text-10 qa-text-mid qa-ms-3">{c.detail}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* The widget's own failures, which until now went to a console
+              nobody opens — so "the screenshot didn't work" was all that ever
+              reached anybody, while the browser had said exactly why. */}
+          <div className="qa-flex qa-items-center qa-gap-2 qa-flex-wrap">
+            <span className="qa-text-11 qa-text-mid">
+              {t('diag_faults', { n: faults.length })}
+            </span>
+            {faults.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void navigator.clipboard?.writeText(faultsAsText(QA_VERSION))}
+                  className="qa-tap qa-rounded-md qa-border qa-border-subtle qa-px-2 qa-py-0.5 qa-text-10 qa-text-hi"
+                  style={{ background: 'transparent', cursor: 'pointer' }}
+                >
+                  {t('copy_prompt')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { clearFaults(); setFaults([]); }}
+                  className="qa-tap qa-rounded-md qa-border qa-border-subtle qa-px-2 qa-py-0.5 qa-text-10 qa-text-mid"
+                  style={{ background: 'transparent', cursor: 'pointer' }}
+                >
+                  {t('clear_all')}
+                </button>
+              </>
+            )}
+          </div>
+          {faults.length > 0 && (
+            <ul className="qa-space-y-0.5">
+              {faults.slice(0, 5).map((f, i) => (
+                <li key={`${f.at}-${i}`} className="qa-text-10 qa-text-mid">
+                  <code>[{f.where}]</code> {f.what}
+                </li>
+              ))}
+            </ul>
+          )}
         </Section>
       </div>
     </div>

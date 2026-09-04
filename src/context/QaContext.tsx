@@ -393,6 +393,8 @@ export type QaContextValue = {
   // tokens from context.
   namespace: string;
   brand: { label: string };
+  /** True when the host app asked for the widget to be marked as in beta. */
+  beta: boolean;
   loginField: { en: string; ar?: string };
   credentials: QaCredential[];
   journey: QaJourneyLane[];
@@ -833,7 +835,21 @@ export function QaProvider({
   const [lang, setLangState] = useState<string>(() => {
     const saved = storage.getItem(LANG_KEY);
     if (saved === 'ar' || saved === 'en') return saved;
-    return config.rtl ? 'ar' : 'en';
+    if (config.rtl) return 'ar';
+    // Follow the PAGE. An Arabic app whose author never set `rtl` still has an
+    // Arabic-speaking tester in front of it, and showing them an English
+    // widget over an Arabic page is a small insult that also makes the tool
+    // harder to use. The document already declares this; nothing needs asking.
+    try {
+      const html = document.documentElement;
+      if (html.getAttribute('dir') === 'rtl') return 'ar';
+      if ((html.getAttribute('lang') || '').toLowerCase().startsWith('ar')) return 'ar';
+      // Last resort: the reader's own browser. Only consulted when the page
+      // says nothing, so an English page is never flipped under an Arabic
+      // speaker who expects to read it in English.
+      if ((navigator.language || '').toLowerCase().startsWith('ar')) return 'ar';
+    } catch { /* SSR, or a locked-down document */ }
+    return 'en';
   });
 
   // ── Guide checklist ───────────────────────────────────────────────────────
@@ -2581,6 +2597,7 @@ export function QaProvider({
     // Config passthrough
     namespace:   config.namespace,
     brand:       config.brand,
+    beta:        config.beta === true,
     loginField:  config.loginField,
     credentials: config.credentials,
     // Never the raw config value: an unconfigured project falls back to the

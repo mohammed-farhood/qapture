@@ -18,6 +18,7 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   credentials:  [],
   journey:      [],
   preamble:     null,
+  beta:         false,
   rtl:          false,
   /**
    * `undefined` is the "dev-only" sentinel.

@@ -60,6 +60,15 @@ type LangMap = {
   voice_denied: string;
   dev_mode_label: string;
   dev_mode_hint: string;
+  diag_title: string;
+  diag_hint: string;
+  diag_run: string;
+  diag_running: string;
+  diag_version: string;
+  diag_outdated: string;
+  diag_current: string;
+  diag_faults: string;
+  dup_notice: string;
   save_point: string;
   reselect: string;
   save_next: string;
@@ -302,6 +311,15 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     voice_failed:          'Dictation did not start',
     voice_denied:          'Microphone blocked',
     dev_mode_label:        'Developer mode',
+    diag_title:            'Diagnostics',
+    diag_hint:             'Checks the handful of things that actually stop screenshots working on a page. Run it if something looks wrong.',
+    diag_run:              'Check this page',
+    diag_running:          'Checking…',
+    diag_version:          'Version {v}',
+    diag_outdated:         'Update available: {v} —',
+    diag_current:          'up to date',
+    diag_faults:           'Recorded problems: {n}',
+    dup_notice:            'You already said something like this at {when}:',
     dev_mode_hint:         'Adds severity, the element selector, a suggested-fix field and the source location. Off by default so the person reporting a problem is asked only what they can actually answer.',
     save_point:            'Save point',
     save_next:             'Save + next',
@@ -531,6 +549,15 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     voice_failed:          'لم يبدأ الإملاء الصوتي',
     voice_denied:          'الميكروفون محجوب',
     dev_mode_label:        'وضع المطوّر',
+    diag_title:            'التشخيص',
+    diag_hint:             'يفحص الأشياء القليلة التي تمنع عمل اللقطات فعليًا في الصفحة. شغّله إذا بدا شيء غير سليم.',
+    diag_run:              'افحص هذه الصفحة',
+    diag_running:          'جارٍ الفحص…',
+    diag_version:          'الإصدار {v}',
+    diag_outdated:         'يتوفر تحديث: {v} —',
+    diag_current:          'محدّث',
+    diag_faults:           'مشكلات مُسجّلة: {n}',
+    dup_notice:            'سبق أن كتبت شيئًا مشابهًا الساعة {when}:',
     dev_mode_hint:         'يضيف الأهمية ومُحدِّد العنصر وحقل اقتراح الحل وموقع الشيفرة. مُطفأ افتراضيًا حتى لا يُسأل مَن يُبلّغ عن مشكلة إلا عمّا يستطيع الإجابة عنه.',
     save_point:            'حفظ النقطة',
     save_next:             'حفظ + التالي',
