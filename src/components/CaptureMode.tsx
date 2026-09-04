@@ -87,7 +87,6 @@ import { lockPageScroll, unlockPageScroll } from '../lib/scrollLock';
 import { collectTargetForensics, type QaTargetForensics } from '../lib/contextBuffer';
 import { resolveOrigin, type QaOrigin } from '../lib/origin';
 import { findDuplicate } from '../lib/duplicate';
-import VoiceButton from './VoiceButton';
 import LocationReveal from './LocationReveal';
 import ShotAnnotator from './ShotAnnotator';
 
@@ -202,16 +201,8 @@ export default function CaptureMode() {
   const stillRef = useRef<HTMLDivElement | null>(null);
   /** How many notes have already been filed against the current photograph. */
   const [notesFromThisShot, setNotesFromThisShot] = useState(0);
-  /** Expected behaviour, asked as its own question -- see QaNote.wanted. */
-  const [wanted, setWanted] = useState('');
-  /** Why it matters. Optional, and the one the client most often has. */
-  const [why, setWhy] = useState('');
-  /** A suggested fix. Developer mode only; never asked of a client. */
-  const [fixHint, setFixHint] = useState('');
   /** Which component/file drew the picked element, when React will say. */
   const [origin, setOrigin] = useState<QaOrigin | undefined>(undefined);
-  /** Live dictation preview, shown appended until the phrase is finalised. */
-  const [spoken, setSpoken] = useState('');
   /** Which engine produced the current preview — drives the "redraw" offer. */
   const [shotEngine, setShotEngine] = useState<CaptureEngine | null>(null);
   const [shotUrl, setShotUrl] = useState<string | null>(null);
@@ -620,9 +611,6 @@ export default function CaptureMode() {
     setShot(null);
     setShotEngine(null);
     setDescription('');
-    setWanted('');
-    setWhy('');
-    setFixHint('');
     setSeverity('bug');
     setTargetForensics(undefined);
     setOrigin(undefined);
@@ -657,9 +645,6 @@ export default function CaptureMode() {
     };
     await addNote({
       description,
-      wanted,
-      why,
-      fixHint,
       screenshot: shot ?? undefined,
       shotEngine: shotEngine ?? undefined,
       target,
@@ -1379,17 +1364,21 @@ export default function CaptureMode() {
               </p>
             )}
 
-            <label className="qa-flex qa-flex-col qa-gap-1">
-              <span className="qa-flex qa-items-center qa-justify-between qa-gap-2">
-                <span className="qa-text-11 qa-font-semibold qa-text-hi">{t('q_observed')}</span>
-                <VoiceButton
-                  onText={(text) => setDescription((d) => (d ? `${d} ${text}` : text))}
-                  onInterim={setSpoken}
-                />
-              </span>
+            {/* ONE box. It was four, briefly, and four was wrong.
+                The reasoning for splitting "what happened" from "what should
+                have happened" was sound on paper and irrelevant in the hand:
+                a person looking at something broken types one sentence, and a
+                form that answers back with three more empty boxes reads as
+                paperwork. Paperwork is how a feedback tool stops being used,
+                and a tool nobody opens reports nothing at all -- which beats
+                any argument about how well-structured the reports would have
+                been.
+                So: one box, as it always was. Where the sentence turns out to
+                be ambiguous, the export tells the agent to ask instead of
+                guessing, which costs one question and no friction here. */}
             <textarea
               ref={taRef}
-              value={description + (spoken ? ` ${spoken}` : '')}
+              value={description}
               onChange={(e) => setDescription(e.target.value)}
               onKeyDown={(e) => {
                 // Shift keeps you in the same photograph for the next one, so
@@ -1403,70 +1392,10 @@ export default function CaptureMode() {
                   setSeverity(SEVERITIES[Number(e.key) - 1]);
                 }
               }}
-              rows={2}
-              placeholder={t('q_observed_hint')}
+              rows={3}
+              placeholder={t('annotate_placeholder')}
               className="qa-w-full qa-resize-y qa-rounded-lg qa-border qa-border-subtle qa-bg-0 qa-text-hi qa-px-2 qa-py-1.5 qa-text-sm qa-focus-ring"
             />
-            </label>
-
-            {/* The field the research says matters most, and the one people
-                leave empty unless you ask for it by name. */}
-            <label className="qa-flex qa-flex-col qa-gap-1">
-              <span className="qa-flex qa-items-center qa-justify-between qa-gap-2">
-                <span className="qa-text-11 qa-font-semibold qa-text-hi">{t('q_wanted')}</span>
-                <VoiceButton onText={(x) => setWanted((d) => (d ? `${d} ${x}` : x))} />
-              </span>
-              <textarea
-                value={wanted}
-                onChange={(e) => setWanted(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void save(e.shiftKey);
-                }}
-                rows={2}
-                placeholder={t('q_wanted_hint')}
-                className="qa-w-full qa-resize-y qa-rounded-lg qa-border qa-border-subtle qa-bg-0 qa-text-hi qa-px-2 qa-py-1.5 qa-text-sm qa-focus-ring"
-              />
-            </label>
-
-            {/* Optional, and the one a client usually has an answer to even
-                when they have no idea what should happen instead. It is what
-                lets an agent choose sensibly when the literal request turns
-                out to be impossible. */}
-            <label className="qa-flex qa-flex-col qa-gap-1">
-              <span className="qa-flex qa-items-center qa-justify-between qa-gap-2">
-                <span className="qa-text-11 qa-text-mid">{t('q_why')}</span>
-                <VoiceButton onText={(x) => setWhy((d) => (d ? `${d} ${x}` : x))} />
-              </span>
-              <textarea
-                value={why}
-                onChange={(e) => setWhy(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void save(e.shiftKey);
-                }}
-                rows={1}
-                placeholder={t('q_why_hint')}
-                className="qa-w-full qa-resize-y qa-rounded-lg qa-border qa-border-subtle qa-bg-0 qa-text-hi qa-px-2 qa-py-1.5 qa-text-sm qa-focus-ring"
-              />
-            </label>
-
-            {/* Developer mode only, and deliberately last: a suggested fix is
-                the single most powerful field in a report and the most
-                dangerous one, because an agent tends to follow it rather than
-                weigh it. A client should never be invited to write it — "how"
-                is not their job, and a wrong "how" costs more than no "how".
-                It is labelled as a suggestion all the way through the export. */}
-            {developerMode && (
-              <label className="qa-flex qa-flex-col qa-gap-1">
-                <span className="qa-text-11 qa-text-mid">{t('q_fix')}</span>
-                <textarea
-                  value={fixHint}
-                  onChange={(e) => setFixHint(e.target.value)}
-                  rows={1}
-                  placeholder={t('q_fix_hint')}
-                  className="qa-w-full qa-resize-y qa-rounded-lg qa-border qa-border-subtle qa-bg-0 qa-text-hi qa-px-2 qa-py-1.5 qa-text-sm qa-focus-ring"
-                />
-              </label>
-            )}
 
             {/* Where this element comes from in the source. Shown only to a
                 developer, because to a client it is gibberish — but it travels

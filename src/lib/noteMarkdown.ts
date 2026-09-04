@@ -102,7 +102,7 @@ export function noteCheckLine(note: QaNote, index: number): string {
   // back to the symptom and pretending that is a test.
   const wanted = oneLine(note.wanted);
   const seen = oneLine(note.description) || '(not described)';
-  const claim = wanted || `${seen} — _no expectation was given; ask before assuming one_`;
+  const claim = wanted || seen;
   const trimmed = claim.length > 180 ? `${claim.slice(0, 177)}...` : claim;
   return `- [ ] **check-${index}** (\`${where}\`) — ${trimmed}`;
 }
@@ -196,14 +196,21 @@ export function noteToMarkdown(
   lines.push('');
   lines.push(oneLine(note.description) ? note.description.trim() : '_(not described)_');
 
-  lines.push('');
-  lines.push('### Expected');
-  lines.push('');
-  lines.push(
-    note.wanted && oneLine(note.wanted)
-      ? note.wanted.trim()
-      : '_(the tester did not say what they expected instead -- ask rather than assume)_',
-  );
+  // Only written when there is something to write.
+  //
+  // A previous version always emitted this heading, with a placeholder saying
+  // the expectation was missing -- back when the capture card asked for it in
+  // its own box. That box is gone: a person looking at something broken types
+  // one sentence, and answering them with three more empty fields turned the
+  // tool into paperwork. So the heading appears when a developer supplied one
+  // and not otherwise; a placeholder on every single point is noise, and noise
+  // is the thing that buries the sentence that matters.
+  if (note.wanted && oneLine(note.wanted)) {
+    lines.push('');
+    lines.push('### Expected');
+    lines.push('');
+    lines.push(note.wanted.trim());
+  }
 
   if (note.why && oneLine(note.why)) {
     lines.push('');

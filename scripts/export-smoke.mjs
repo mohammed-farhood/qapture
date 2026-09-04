@@ -103,10 +103,12 @@ const must = [
   // assert severity/status/journeyRef/context actually made it into notes.md
   // rather than being silently dropped by the delegation.
   '**Severity:** bug', '**Status:** open', '**Journey step:** buyer → /checkout',
-  // v0.9: the two labelled sections. Their HEADINGS are load-bearing --
-  // removing them while keeping the words costs an agent 10-30 points of solve
-  // rate, because it can no longer tell the symptom from the goal.
-  '### Observed', '### Expected',
+  // v0.9.1: ONE box, so one heading. `### Expected` is written only where
+  // somebody actually stated an expectation -- a placeholder on every point is
+  // noise, and noise buries the sentence that matters. The heading itself
+  // stays, because an agent that cannot tell the symptom from the goal fixes
+  // the wrong one.
+  '### Observed',
   // v0.9: runtime context and the recorded steps moved OUT of notes.md into
   // context/point-N.md -- a long report measurably lowers the chance of the
   // right thing getting fixed. notes.md must now POINT at it instead.

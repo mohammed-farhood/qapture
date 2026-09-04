@@ -274,84 +274,14 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
 
         <div className="qa-h-px qa-bg-3 qa-mt-3 qa-mb-4" />
 
-        {/* ── 2. Storage ──────────────────────────────────────────────────── */}
-        <Section icon="HardDrive" title={t('storage_title')}>
-          <p className="qa-m-0 qa-text-10 qa-text-lo qa-leading-relaxed">{t('storage_explain')}</p>
-
-          {quotaKnown && (
-            <>
-              <div
-                className="qa-w-full qa-rounded-full qa-overflow-hidden qa-bg-3"
-                role="img"
-                aria-label={t('storage_used', {
-                  used: formatBytes(storageHealth.usageBytes),
-                  quota: formatBytes(storageHealth.quotaBytes),
-                })}
-                style={{ height: 6 }}
-              >
-                <div style={{ width: `${usedPct}%`, height: '100%', background: meterColor }} />
-              </div>
-              <p className="qa-m-0 qa-text-10 qa-text-mid">
-                {t('storage_used', {
-                  used: formatBytes(storageHealth.usageBytes),
-                  quota: formatBytes(storageHealth.quotaBytes),
-                })}
-                {' · '}
-                <span className="qa-text-lo">
-                  Qapture {formatBytes(storageHealth.ownBytes)}
-                </span>
-              </p>
-            </>
-          )}
-
-          {/* Auto-backup: the safety net for every browser that can't do
-              folder saving. Sits under Storage because that is where a
-              tester looks when they are worried about losing work. */}
-          <label className="qa-flex qa-items-start qa-gap-2 qa-text-xs qa-text-hi" style={{ cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={autoBackup}
-              onChange={(e) => setAutoBackup(e.target.checked)}
-              style={{ marginTop: 2 }}
-            />
-            <span>
-              {t('autosave_label')}
-              <span className="qa-block qa-text-10 qa-text-lo qa-leading-relaxed">
-                {t('autosave_hint', { n: autoBackupEvery })}
-              </span>
-            </span>
-          </label>
-
-          <div className="qa-flex qa-flex-wrap qa-gap-2">
-            {storageHealth.persisted ? (
-              <span className="qa-inline-flex qa-items-center qa-gap-1 qa-rounded-full qa-bg-success-tint qa-text-success qa-px-2 qa-py-0.5 qa-text-10">
-                <Icon name="CheckCircle2" size={11} />
-                {t('persist_on')}
-              </span>
-            ) : (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void run(requestPersistentStorage)}
-                className="qa-tap qa-rounded-lg qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-10 qa-text-mid"
-                style={{ background: 'transparent', cursor: 'pointer' }}
-              >
-                {t('persist_keep')}
-              </button>
-            )}
-            {notes.some((n) => n.screenshot) && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void run(dropAllScreenshots)}
-                className="qa-tap qa-rounded-lg qa-border qa-border-subtle qa-px-2 qa-py-1 qa-text-10 qa-text-mid"
-                style={{ background: 'transparent', cursor: 'pointer' }}
-              >
-                {t('drop_shots')}
-              </button>
-            )}
-          </div>
-        </Section>
+        {/* The storage panel used to live here: a percentage bar, a
+            "keep my notes" button, and a way to drop every screenshot.
+            Removed 2026-09-05. It answered a question nobody standing in
+            front of this widget was asking, and the two controls that
+            mattered are better automatic than offered -- notes already
+            mirror to disk when a folder is open, and a quota that is
+            genuinely full already says so at the moment it bites, with
+            Export attached to the message. */}
 
         <div className="qa-h-px qa-bg-3 qa-mt-3 qa-mb-4" />
 

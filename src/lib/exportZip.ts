@@ -286,11 +286,14 @@ function buildPreamble(
     `Hand \`verify.md\` back with the work.\n\n` +
 
     `### What is in this archive\n\n` +
-    `- \`notes.md\` — the points themselves. Each one carries **Observed** and ` +
-    `**Expected** under those exact headings. They are separate on purpose: ` +
-    `where a report leaves the expectation out, agents do not stop and ask, ` +
-    `they pick a reading and commit to it. Where you see Expected marked as ` +
-    `not given, **ask rather than assume**.\n` +
+    `- \`notes.md\` — the points themselves, under an **Observed** heading. ` +
+    `Most carry only that: the tester writes one sentence about what is wrong, ` +
+    `which is the right amount to ask of somebody who is not an engineer. An ` +
+    `**Expected** heading appears where somebody stated one.\n` +
+    `  Where a point is ambiguous, **ask — do not pick a reading and commit ` +
+    `to it.** That failure mode is specific to you: a person would stop and ` +
+    `check, and an agent tends to fill the gap in and carry on. One question ` +
+    `costs a message. A confident fix to the wrong problem costs the round.\n` +
     `- \`verify.md\` — the checklist, one unticked box per point.\n` +
     `- \`screenshots/\` — one per point. A point marked with a screenshot ` +
     `caveat was re-drawn rather than photographed, so canvases, charts and ` +

@@ -3,6 +3,45 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] "One Box" — 2026-09-05
+
+0.9.0 replaced one text box with four. That was wrong, and this puts it back.
+
+### Changed
+
+- **One box again.** "What happened?", "What should have happened?", "Why does
+  it matter?" and "Suggested fix" are gone from the capture card. There is a
+  text box, and you write in it.
+
+  The reasoning for splitting them was real — an agent handed a report with no
+  stated expectation picks a reading and commits to it, and that is measurable.
+  The mistake was making it the *tester's* problem to solve. A person looking at
+  something broken types one sentence; answering them with three more empty
+  boxes turns a feedback tool into paperwork, and paperwork is how a feedback
+  tool stops getting used. A tool nobody opens files no reports at all, which
+  beats every argument about how well-structured those reports would have been.
+
+  Where a point is genuinely ambiguous, the export now tells the agent to **ask**
+  rather than guess — one question costs a message, and it costs the tester
+  nothing.
+- **`### Expected` is written only when somebody stated one.** It used to be
+  emitted on every point with a placeholder saying it was missing. With no box
+  asking for it, that placeholder would appear on every single point — noise,
+  burying the sentence that matters. The heading stays for the cases that have
+  one, because an agent that cannot tell the symptom from the goal fixes the
+  wrong one.
+- **Voice input is hidden.** The code is still there and still works; nothing
+  renders it. It was another control on a card that needed fewer.
+
+### Removed
+
+- **The storage panel in Settings** — a percentage bar, a "keep my notes"
+  button, and a way to drop every screenshot. It answered a question nobody
+  standing in front of this widget was asking, and the two controls that
+  mattered are better automatic than offered: notes already mirror to disk when
+  a folder is open, and a quota that is genuinely full already says so at the
+  moment it bites, with Export attached to the message.
+
 ## [0.9.0] "Client Mode" — 2026-09-05
 
 The default user of this widget is a client, not an engineer. This release is
