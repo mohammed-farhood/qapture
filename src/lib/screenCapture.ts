@@ -197,6 +197,73 @@ export function getFrozenFrame(): FrozenFrame | null {
   return frozen;
 }
 
+// ---------------------------------------------------------------------------
+// Reusing one grant for a burst of captures
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a still may be reused for.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * A browser will never remember screen-share permission. `getDisplayMedia`
+ * prompts on every call, deliberately and unconditionally, and no flag, origin
+ * setting or previous grant changes that -- it is the security model, not a
+ * gap in it. So the only honest lever is asking FEWER TIMES, and the only
+ * question is how many captures one grant can honestly cover.
+ *
+ * A tester filing several notes is looking at one screen and writing about
+ * different parts of it. They are not clicking through the app between notes;
+ * that is a different activity, and it moves the page. So a still stays usable
+ * while the page has demonstrably not moved -- same scroll, same size, same
+ * route -- and is thrown away the instant any of that changes.
+ *
+ * The age cap is the backstop for what those three cannot see: a live feed
+ * repainting, a countdown, a websocket pushing new rows. Ninety seconds is
+ * about as long as a tester spends writing one note, so in practice the
+ * invalidation that fires is nearly always a real page movement rather than
+ * this timer.
+ *
+ * The failure this must never allow is a screenshot of pixels that are no
+ * longer on screen -- a wrong screenshot is worse than no screenshot, because
+ * nobody double-checks one that looks fine.
+ */
+const STILL_REUSE_MS = 90_000;
+
+let frozenAtScrollX = 0;
+let frozenAtScrollY = 0;
+let frozenAtPath = '';
+
+/**
+ * Is the still we are holding still a truthful picture of the screen?
+ *
+ * Every condition here is a way the picture could have gone stale. Any doubt
+ * answers no, and a no costs one more permission prompt -- which is the cheap
+ * side of this trade.
+ */
+export function stillIsCurrent(): boolean {
+  if (!frozen) return false;
+  if (typeof window === 'undefined') return false;
+  if (Date.now() - frozen.takenAt > STILL_REUSE_MS) return false;
+  if (window.scrollX !== frozenAtScrollX || window.scrollY !== frozenAtScrollY) return false;
+  if (window.location.pathname + window.location.search !== frozenAtPath) return false;
+  const vw = document.documentElement.clientWidth || window.innerWidth;
+  const vh = document.documentElement.clientHeight || window.innerHeight;
+  if (vw !== frozen.viewportWidth || vh !== frozen.viewportHeight) return false;
+  return true;
+}
+
+/**
+ * The still for this capture: the one we already hold if it is still true,
+ * otherwise a fresh photograph (which costs one prompt).
+ *
+ * This is what turns "a prompt per screenshot" into "a prompt per screenful".
+ */
+export async function freezeOrReuse(): Promise<FrozenFrame | null> {
+  if (stillIsCurrent()) return frozen;
+  return freezeViewport();
+}
+
 /**
  * Drop the still.
  *
@@ -515,6 +582,11 @@ export async function freezeViewport(): Promise<FrozenFrame | null> {
       viewportHeight: vh,
       takenAt: Date.now(),
     };
+    // Where the page was standing when this was taken. Reusing a still is only
+    // safe while all of this is still true -- see stillIsCurrent().
+    frozenAtScrollX = window.scrollX;
+    frozenAtScrollY = window.scrollY;
+    frozenAtPath = window.location.pathname + window.location.search;
     lastMode = mode;
     return frozen;
   } catch {

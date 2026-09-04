@@ -70,6 +70,8 @@ import {
   armExactCapture,
   disarmExactCapture,
   freezeViewport,
+  freezeOrReuse,
+  stillIsCurrent,
   getExactCaptureStatus,
   isExactCaptureSupported,
   releaseFrozenFrame,
@@ -739,6 +741,9 @@ export function QaProvider({
    */
   const notesRef = useRef<QaNote[]>([]);
   useEffect(() => { notesRef.current = notes; }, [notes]);
+
+  /** Releases the held still once the reuse window has passed. */
+  const staleStillTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const applyNotes = useCallback((updater: (prev: QaNote[]) => QaNote[]): QaNote[] => {
     const next = updater(notesRef.current);
@@ -1565,11 +1570,26 @@ export function QaProvider({
       // No stream can outlive the widget any more — freezeViewport() gives the
       // screen back before it returns — but a still might, and it is a
       // viewport-sized bitmap.
+      if (staleStillTimer.current) {
+        clearTimeout(staleStillTimer.current);
+        staleStillTimer.current = null;
+      }
       releaseFrozenFrame();
     };
   }, [flushPendingDeletes]);
 
   // ── Actions — capture mode ───────────────────────────────────────────────
+
+  /**
+   * How long the still is kept alive after a note is filed.
+   *
+   * Slightly longer than screenCapture's STILL_REUSE_MS, so the decision about
+   * whether a still may be REUSED is made by stillIsCurrent() — which checks
+   * whether it is still truthful — and never by whichever timer happened to
+   * fire first. This one exists only to give the memory back.
+   */
+  const STILL_HOLD_MS = 100_000;
+
 
   const startCapture = useCallback((prefill?: string) => {
     setIsOpen(false);
@@ -1590,10 +1610,17 @@ export function QaProvider({
     // the sharing indicator blinks and goes rather than staying lit for the
     // session. Failure is not fatal: no still means this capture is a redraw,
     // and the preview says so.
-    setFrozenAt(null);
+    // Reuse the still we already hold when the page has not moved since it was
+    // taken -- same scroll, same size, same route, and recent. A browser will
+    // never remember screen-share permission (getDisplayMedia prompts on every
+    // call by design, and nothing changes that), so asking less often is the
+    // only lever there is. This turns a prompt per screenshot into a prompt
+    // per screenful, which is what filing six notes about one screen should
+    // have cost all along.
+    if (!stillIsCurrent()) setFrozenAt(null);
     if (exactShotsWanted(storage) && isExactCaptureSupported()) {
       resetExactCaptureDecline();
-      void freezeViewport().then((frame) => {
+      void freezeOrReuse().then((frame) => {
         setFrozenAt(frame?.takenAt ?? null);
         setExactStatus(getExactCaptureStatus());
       });
@@ -1602,11 +1629,21 @@ export function QaProvider({
 
   const endCapture = useCallback((reopen = true) => {
     setCaptureActive(false);
-    // The still is a viewport-sized bitmap — tens of megabytes on a retina
-    // display — so it goes the moment the tester is done with it, not whenever
-    // the next capture happens to overwrite it.
-    releaseFrozenFrame();
-    setFrozenAt(null);
+    // The still is NOT dropped here any more. It is a viewport-sized bitmap —
+    // tens of megabytes on a retina display — but throwing it away the instant
+    // one note is filed is what made the next note cost another permission
+    // prompt, and the tester filing six notes about one screen answered six
+    // prompts to photograph the same pixels.
+    //
+    // So it is kept for the reuse window and released by the timer below.
+    // Correctness is not traded for it: stillIsCurrent() re-checks scroll,
+    // size, route and age before the still is used again, and any doubt takes
+    // a fresh photograph.
+    if (staleStillTimer.current) clearTimeout(staleStillTimer.current);
+    staleStillTimer.current = setTimeout(() => {
+      releaseFrozenFrame();
+      staleStillTimer.current = null;
+    }, STILL_HOLD_MS);
     if (reopen) setIsOpen(true);
   }, []);
 

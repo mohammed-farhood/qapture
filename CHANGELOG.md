@@ -3,6 +3,37 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.3] "One Prompt Per Screenful" — 2026-09-04
+
+### Changed
+
+- **One permission prompt now covers a burst of notes, not one note each.**
+  0.8.2 made real photographs the default, which fixed the screenshots and
+  introduced a new irritation: the browser asked to share the tab every single
+  time. Filing six notes about one screen meant answering six prompts to
+  photograph the same pixels.
+
+  To be clear about what cannot be done: a browser will **never** remember
+  screen-share permission. `getDisplayMedia` prompts on every call, by design,
+  and no flag, origin setting or earlier grant changes it — that is the
+  security model, not a gap in it. The only honest lever is asking fewer times.
+
+  So the still taken when capture mode opens is now kept after a note is filed
+  and reused by the next capture, as long as it is demonstrably still a
+  truthful picture of the screen: same scroll position, same viewport size,
+  same route, and under ninety seconds old. Any one of those failing takes a
+  fresh photograph, and costs one prompt. A tester writing several notes about
+  one screen is not moving the page, so in practice they now answer once.
+
+  Correctness is not traded for it. A screenshot of pixels that are no longer
+  on screen is worse than no screenshot, because nobody double-checks one that
+  looks fine — so every reuse is re-checked against all four conditions, and
+  any doubt re-photographs. The age cap is the backstop for what those checks
+  cannot see: a live feed repainting, a countdown, new rows arriving.
+
+  The held still is released about a hundred seconds after the last note, so a
+  viewport-sized bitmap is not left sitting in memory once the burst is over.
+
 ## [0.8.2] "Nothing To Photograph With" — 2026-09-04
 
 ### Fixed

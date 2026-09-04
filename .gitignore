@@ -9,3 +9,6 @@ playground/dist/
 .env
 .env.*
 !.env.example
+
+# graphify knowledge graph — regenerated locally by git hook
+/graphify-out/
