@@ -28,7 +28,8 @@
 import type { QaJourneyLane, QaTheme, QaCredential, QaPreamble } from '../config/schema';
 import type { QaNote } from '../context/QaContext';
 import { computeCoverage } from './coverage';
-import { noteToMarkdown, noteCheckLine } from './noteMarkdown';
+import { noteToMarkdown, noteCheckLine, noteContextMarkdown } from './noteMarkdown';
+import { reproSpec } from './reproSpec';
 import { shotExtension } from './capture';
 
 // ---------------------------------------------------------------------------
@@ -282,7 +283,26 @@ function buildPreamble(
     `line saying why. An unticked box with a reason is a good answer. A ticked ` +
     `box that does not hold up is the only bad one — it costs the tester the ` +
     `trip to find out.\n\n` +
-    `Hand \`verify.md\` back with the work.`,
+    `Hand \`verify.md\` back with the work.\n\n` +
+
+    `### What is in this archive\n\n` +
+    `- \`notes.md\` — the points themselves. Each one carries **Observed** and ` +
+    `**Expected** under those exact headings. They are separate on purpose: ` +
+    `where a report leaves the expectation out, agents do not stop and ask, ` +
+    `they pick a reading and commit to it. Where you see Expected marked as ` +
+    `not given, **ask rather than assume**.\n` +
+    `- \`verify.md\` — the checklist, one unticked box per point.\n` +
+    `- \`screenshots/\` — one per point. A point marked with a screenshot ` +
+    `caveat was re-drawn rather than photographed, so canvases, charts and ` +
+    `maps may be blank in it; trust the words over the picture there.\n` +
+    `- \`context/\` — console, network, environment and element forensics, one ` +
+    `file per point. Deliberately **not** in \`notes.md\`: a longer report ` +
+    `measurably lowers the chance of the right thing getting fixed, because ` +
+    `the two sentences that matter get buried. Open these only when something ` +
+    `is genuinely unresolved.\n` +
+    `- \`repro/\` — Playwright drafts, one per point, all optional. Finish the ` +
+    `ones where the point is behavioural and worth pinning down; delete the ` +
+    `ones where it is cosmetic. That judgement is yours.`,
   );
 
   // ── 3. Project table ──────────────────────────────────────────────────────
@@ -488,7 +508,14 @@ export async function buildZipBlob(
   // journeyRef/context (runtime events + env + forensics) automatically,
   // since noteToMarkdown reads those straight off the QaNote.
   const noteBlocks = notes.map((n, i) =>
-    noteToMarkdown(n, { brand: brandLabel, index: i + 1 }),
+    noteToMarkdown(n, {
+      brand: brandLabel,
+      index: i + 1,
+      // Runtime evidence goes to its own file and is pointed at from here.
+      // See the contextFile branch in noteMarkdown.ts for why: a long report
+      // measurably lowers an agent's chance of fixing the thing.
+      contextFile: n.context ? `context/point-${i + 1}.md` : undefined,
+    }),
   );
   const notesBody = noteBlocks.length > 0
     ? `${noteBlocks.join('\n\n---\n\n')}\n\n---\n`
@@ -553,6 +580,52 @@ export async function buildZipBlob(
     'Re-open the walkthrough on the tester\'s machine with `?qa=walk:verify`.',
     '',
   ].join('\n'));
+
+  // ── Runtime context, one file per point ───────────────────────────────────
+  // Everything the browser recorded, kept out of notes.md so the report stays
+  // short enough to be read properly, and kept in the archive so nothing that
+  // might be needed has been thrown away.
+  const contextDir = zip.folder('context');
+  notes.forEach((n, i) => {
+    if (n.context && contextDir) {
+      contextDir.file(`point-${i + 1}.md`, noteContextMarkdown(n, i + 1));
+    }
+  });
+
+  // ── Reproduction drafts ───────────────────────────────────────────────────
+  // Drafts, not tests -- see reproSpec.ts. The agent decides which are worth
+  // finishing and deletes the rest; most points do not want one.
+  const reproDir = zip.folder('repro');
+  let reproCount = 0;
+  notes.forEach((n, i) => {
+    const spec = reproSpec(n, i + 1);
+    if (spec && reproDir) {
+      reproDir.file(`check-${i + 1}.spec.ts`, spec);
+      reproCount++;
+    }
+  });
+  if (reproCount && reproDir) {
+    reproDir.file('README.md', [
+      '# Reproduction drafts',
+      '',
+      'One per point, and every one of them is optional.',
+      '',
+      '**Use one** where the point is behavioural and worth pinning down, so it',
+      'cannot quietly come back later. An executable check is worth far more to',
+      'you than another paragraph of steps written in English.',
+      '',
+      '**Delete it** where the point is cosmetic -- a colour, a spacing, a word.',
+      'A test asserting that a heading is visible proves nothing anybody wanted',
+      'proved, and it is one more file to maintain forever.',
+      '',
+      'That call is yours. The tester was not asked to make it and could not.',
+      '',
+      'What is already done for you in each file: the URL, a selector verified',
+      'against the live DOM at capture time, and the observed and expected',
+      'behaviour quoted in place. What is left is the assertion, marked TODO.',
+      '',
+    ].join('\n'));
+  }
 
   // ── Screenshots ───────────────────────────────────────────────────────────
   notes.forEach((n, i) => {

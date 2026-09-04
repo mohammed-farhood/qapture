@@ -103,10 +103,14 @@ const must = [
   // assert severity/status/journeyRef/context actually made it into notes.md
   // rather than being silently dropped by the delegation.
   '**Severity:** bug', '**Status:** open', '**Journey step:** buyer → /checkout',
-  'Runtime context at capture', 'POST /api/checkout → 500', 'viewport   1280×800 @1x',
-  // v0.5: steps to reproduce, rendered as a numbered list above the runtime
-  // context block.
-  '**Steps before this**', '1. [-10.0s] clicked “Sign in”', 'typed in “Email”', 'went to /checkout',
+  // v0.9: the two labelled sections. Their HEADINGS are load-bearing --
+  // removing them while keeping the words costs an agent 10-30 points of solve
+  // rate, because it can no longer tell the symptom from the goal.
+  '### Observed', '### Expected',
+  // v0.9: runtime context and the recorded steps moved OUT of notes.md into
+  // context/point-N.md -- a long report measurably lowers the chance of the
+  // right thing getting fixed. notes.md must now POINT at it instead.
+  'context/point-1.md',
 ];
 const missing = must.filter((s) => !md.includes(s));
 console.log('\nASSERT required content:', missing.length ? 'MISSING ' + missing.join(', ') : 'all present ✅');
@@ -116,11 +120,27 @@ if (missing.length) throw new Error('FAIL: preamble missing: ' + missing.join(',
 // `type` step has only the field's label; assert the export contains the
 // label and nothing that looks like a value, and that a repeated interaction
 // collapsed into a count rather than 14 separate lines.
-if (!md.includes('typed in “Email”')) throw new Error('FAIL: typed-field step missing from notes.md');
-if (md.includes('typed in “Email”: ') || /typed in “Email”[^\n]*@/.test(md)) {
+// v0.9: these live in context/point-1.md now, not notes.md.
+const ctx1 = zip.file('context/point-1.md')
+  ? await zip.file('context/point-1.md').async('string')
+  : '';
+const ctxMust = [
+  'Runtime context at capture', 'POST /api/checkout → 500', 'viewport   1280×800 @1x',
+  '**Steps before this**', '1. [-10.0s] clicked “Sign in”', 'typed in “Email”', 'went to /checkout',
+];
+const ctxMissing = ctxMust.filter((x) => !ctx1.includes(x));
+console.log('ASSERT runtime context moved to its own file:',
+  ctxMissing.length ? 'MISSING ' + ctxMissing.join(', ') : 'all present ✅');
+if (ctxMissing.length) throw new Error('FAIL: context/point-1.md missing: ' + ctxMissing.join(', '));
+if (md.includes('Runtime context at capture')) {
+  throw new Error('FAIL: runtime context is still inline in notes.md -- it must move out');
+}
+
+if (!ctx1.includes('typed in “Email”')) throw new Error('FAIL: typed-field step missing from the context file');
+if (ctx1.includes('typed in “Email”: ') || /typed in “Email”[^\n]*@/.test(ctx1)) {
   throw new Error('FAIL: a typed VALUE reached the export — the step recorder must record labels only');
 }
-const typedLines = md.split('\n').filter((l) => l.includes('typed in “Email”'));
+const typedLines = ctx1.split('\n').filter((l) => l.includes('typed in “Email”'));
 if (typedLines.length !== 1) {
   throw new Error(`FAIL: expected one collapsed typing step, got ${typedLines.length}`);
 }

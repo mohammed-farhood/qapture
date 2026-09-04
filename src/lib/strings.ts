@@ -46,6 +46,20 @@ type LangMap = {
   too_heavy: string;
   no_shot: string;
   annotate_placeholder: string;
+  q_observed: string;
+  q_observed_hint: string;
+  q_wanted: string;
+  q_wanted_hint: string;
+  q_why: string;
+  q_why_hint: string;
+  q_fix: string;
+  q_fix_hint: string;
+  voice_start: string;
+  voice_stop: string;
+  voice_failed: string;
+  voice_denied: string;
+  dev_mode_label: string;
+  dev_mode_hint: string;
   save_point: string;
   reselect: string;
   save_next: string;
@@ -272,6 +286,23 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     too_heavy:             'This page is too big to redraw — the tab would freeze. Photograph it instead: one frame, and maps and charts come out right.',
     no_shot:               'no screenshot (location saved)',
     annotate_placeholder:  'What do you want to do here? (add / remove / change…)',
+    // Asked as two plain questions, never as jargon. "Expected behaviour" is
+    // a phrase from a bug tracker; "what should have happened" is a question
+    // anybody can answer.
+    q_observed:            'What happened?',
+    q_observed_hint:       'What you saw. Plain words are fine.',
+    q_wanted:              'What should have happened?',
+    q_wanted_hint:         'What you expected instead. This is the important one.',
+    q_why:                 'Why does it matter? (optional)',
+    q_why_hint:            'What you were trying to get done.',
+    q_fix:                 'Suggested fix (optional)',
+    q_fix_hint:            'Passed on as a suggestion, not an instruction.',
+    voice_start:           'Speak',
+    voice_stop:            'Stop',
+    voice_failed:          'Dictation did not start',
+    voice_denied:          'Microphone blocked',
+    dev_mode_label:        'Developer mode',
+    dev_mode_hint:         'Adds severity, the element selector, a suggested-fix field and the source location. Off by default so the person reporting a problem is asked only what they can actually answer.',
     save_point:            'Save point',
     save_next:             'Save + next',
     save_next_hint:        'Save this one and mark up another part of the same screenshot — no second permission prompt.',
@@ -487,6 +518,20 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     too_heavy:             'هذه الصفحة أكبر من أن يُعاد رسمها — سيتجمّد التبويب. صوّرها بدل ذلك: إطار واحد، وتظهر الخرائط والرسوم كما هي.',
     no_shot:               'بدون صورة (تم حفظ الموقع)',
     annotate_placeholder:  'ماذا تريد أن تفعل هنا؟ (إضافة / حذف / تغيير…)',
+    q_observed:            'ما الذي حدث؟',
+    q_observed_hint:       'ما رأيته. بكلماتك العادية.',
+    q_wanted:              'ما الذي كان يجب أن يحدث؟',
+    q_wanted_hint:         'ما توقّعته بدل ذلك. هذا هو الأهم.',
+    q_why:                 'لماذا يهمّك؟ (اختياري)',
+    q_why_hint:            'ما الذي كنت تحاول إنجازه.',
+    q_fix:                 'اقتراح للحل (اختياري)',
+    q_fix_hint:            'يُمرَّر كاقتراح، لا كأمر.',
+    voice_start:           'تحدّث',
+    voice_stop:            'إيقاف',
+    voice_failed:          'لم يبدأ الإملاء الصوتي',
+    voice_denied:          'الميكروفون محجوب',
+    dev_mode_label:        'وضع المطوّر',
+    dev_mode_hint:         'يضيف الأهمية ومُحدِّد العنصر وحقل اقتراح الحل وموقع الشيفرة. مُطفأ افتراضيًا حتى لا يُسأل مَن يُبلّغ عن مشكلة إلا عمّا يستطيع الإجابة عنه.',
     save_point:            'حفظ النقطة',
     save_next:             'حفظ + التالي',
     save_next_hint:        'احفظ هذه وحدّد جزءًا آخر من نفس اللقطة — بدون طلب إذن جديد.',

@@ -85,6 +85,8 @@ import { getStableSelector } from '../lib/selector';
 import { useCoarsePointer } from '../lib/coarse';
 import { lockPageScroll, unlockPageScroll } from '../lib/scrollLock';
 import { collectTargetForensics, type QaTargetForensics } from '../lib/contextBuffer';
+import { resolveOrigin, type QaOrigin } from '../lib/origin';
+import VoiceButton from './VoiceButton';
 import LocationReveal from './LocationReveal';
 import ShotAnnotator from './ShotAnnotator';
 
@@ -180,7 +182,7 @@ export default function CaptureMode() {
   const {
     addNote, endCapture, t, dir,
     compactCapture, setCompactCapture,
-    exactShots, photographNow,
+    exactShots, photographNow, developerMode,
     capturePrefill,
   } = useQa();
   const coarse = useCoarsePointer();
@@ -199,6 +201,16 @@ export default function CaptureMode() {
   const stillRef = useRef<HTMLDivElement | null>(null);
   /** How many notes have already been filed against the current photograph. */
   const [notesFromThisShot, setNotesFromThisShot] = useState(0);
+  /** Expected behaviour, asked as its own question -- see QaNote.wanted. */
+  const [wanted, setWanted] = useState('');
+  /** Why it matters. Optional, and the one the client most often has. */
+  const [why, setWhy] = useState('');
+  /** A suggested fix. Developer mode only; never asked of a client. */
+  const [fixHint, setFixHint] = useState('');
+  /** Which component/file drew the picked element, when React will say. */
+  const [origin, setOrigin] = useState<QaOrigin | undefined>(undefined);
+  /** Live dictation preview, shown appended until the phrase is finalised. */
+  const [spoken, setSpoken] = useState('');
   /** Which engine produced the current preview — drives the "redraw" offer. */
   const [shotEngine, setShotEngine] = useState<CaptureEngine | null>(null);
   const [shotUrl, setShotUrl] = useState<string | null>(null);
@@ -397,6 +409,7 @@ export default function CaptureMode() {
     if (regionRect) {
       const sel: Selection = { kind: 'region', rect: regionRect };
       setTargetForensics(undefined); // regions have no single DOM target to inspect
+      setOrigin(undefined);
       if (coarse) {
         setCandidate(sel);
         setPhase('confirming');
@@ -420,6 +433,9 @@ export default function CaptureMode() {
       tagName: el.tagName.toLowerCase(),
     };
     setTargetForensics(collectTargetForensics(el));
+    // Which component drew this, and the file it was written in. Free when
+    // the framework will say, absent rather than guessed when it will not.
+    setOrigin(resolveOrigin(el));
     if (coarse) {
       setCandidate(sel);
       setHover({ rect: sel.rect, selector: sel.selector || '' });
@@ -595,8 +611,12 @@ export default function CaptureMode() {
     setShot(null);
     setShotEngine(null);
     setDescription('');
+    setWanted('');
+    setWhy('');
+    setFixHint('');
     setSeverity('bug');
     setTargetForensics(undefined);
+    setOrigin(undefined);
     setCaptureError(false);
   }, []);
 
@@ -628,9 +648,14 @@ export default function CaptureMode() {
     };
     await addNote({
       description,
+      wanted,
+      why,
+      fixHint,
       screenshot: shot ?? undefined,
+      shotEngine: shotEngine ?? undefined,
       target,
       severity,
+      origin,
       forensics: selection.kind === 'element' ? targetForensics : undefined,
     });
     if (keepGoing) {
@@ -1281,10 +1306,20 @@ export default function CaptureMode() {
               )}
             </div>
 
-            <LocationReveal target={selection as QaTarget} />
+            {/* Developer mode only. A client does not need to be shown a CSS
+                selector, and being shown one is how a feedback tool starts to
+                feel like something you need training for. It is still captured
+                either way — only the asking stops. */}
+            {developerMode && <LocationReveal target={selection as QaTarget} />}
 
-            {/* severity chip row — default 'bug', threaded into addNote on save */}
-            <div
+            {/* Severity chips — developer mode only.
+                Asking clients to grade their own complaint is a question they
+                cannot answer and should not have to. They know it is wrong;
+                they do not know whether that makes it a "bug" or a "design"
+                issue, and a wrong answer makes the export lie. Everything
+                files as 'bug' and whoever does the work re-tags it in a
+                second. */}
+            {developerMode && <div
               role="group"
               aria-label={t('severity_label')}
               className="qa-flex qa-items-center qa-flex-wrap qa-gap-1.5"
@@ -1314,11 +1349,28 @@ export default function CaptureMode() {
                   </button>
                 );
               })}
-            </div>
+            </div>}
 
+            {/* ── The questions that decide whether the work comes back right.
+                ─────────────────────────────────────────────────────────────
+                Two labelled fields, not one free box — and that is not
+                tidiness. An agent handed a report with no stated expectation
+                does not stop and ask the way a person would: it picks a
+                reading and commits to it. Rolled into one paragraph, "what I
+                saw" and "what I wanted" get confused, and the fix lands on the
+                invented version. The labels survive into the export intact,
+                for exactly the same reason. */}
+            <label className="qa-flex qa-flex-col qa-gap-1">
+              <span className="qa-flex qa-items-center qa-justify-between qa-gap-2">
+                <span className="qa-text-11 qa-font-semibold qa-text-hi">{t('q_observed')}</span>
+                <VoiceButton
+                  onText={(text) => setDescription((d) => (d ? `${d} ${text}` : text))}
+                  onInterim={setSpoken}
+                />
+              </span>
             <textarea
               ref={taRef}
-              value={description}
+              value={description + (spoken ? ` ${spoken}` : '')}
               onChange={(e) => setDescription(e.target.value)}
               onKeyDown={(e) => {
                 // Shift keeps you in the same photograph for the next one, so
@@ -1332,10 +1384,80 @@ export default function CaptureMode() {
                   setSeverity(SEVERITIES[Number(e.key) - 1]);
                 }
               }}
-              rows={3}
-              placeholder={t('annotate_placeholder')}
+              rows={2}
+              placeholder={t('q_observed_hint')}
               className="qa-w-full qa-resize-y qa-rounded-lg qa-border qa-border-subtle qa-bg-0 qa-text-hi qa-px-2 qa-py-1.5 qa-text-sm qa-focus-ring"
             />
+            </label>
+
+            {/* The field the research says matters most, and the one people
+                leave empty unless you ask for it by name. */}
+            <label className="qa-flex qa-flex-col qa-gap-1">
+              <span className="qa-flex qa-items-center qa-justify-between qa-gap-2">
+                <span className="qa-text-11 qa-font-semibold qa-text-hi">{t('q_wanted')}</span>
+                <VoiceButton onText={(x) => setWanted((d) => (d ? `${d} ${x}` : x))} />
+              </span>
+              <textarea
+                value={wanted}
+                onChange={(e) => setWanted(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void save(e.shiftKey);
+                }}
+                rows={2}
+                placeholder={t('q_wanted_hint')}
+                className="qa-w-full qa-resize-y qa-rounded-lg qa-border qa-border-subtle qa-bg-0 qa-text-hi qa-px-2 qa-py-1.5 qa-text-sm qa-focus-ring"
+              />
+            </label>
+
+            {/* Optional, and the one a client usually has an answer to even
+                when they have no idea what should happen instead. It is what
+                lets an agent choose sensibly when the literal request turns
+                out to be impossible. */}
+            <label className="qa-flex qa-flex-col qa-gap-1">
+              <span className="qa-flex qa-items-center qa-justify-between qa-gap-2">
+                <span className="qa-text-11 qa-text-mid">{t('q_why')}</span>
+                <VoiceButton onText={(x) => setWhy((d) => (d ? `${d} ${x}` : x))} />
+              </span>
+              <textarea
+                value={why}
+                onChange={(e) => setWhy(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void save(e.shiftKey);
+                }}
+                rows={1}
+                placeholder={t('q_why_hint')}
+                className="qa-w-full qa-resize-y qa-rounded-lg qa-border qa-border-subtle qa-bg-0 qa-text-hi qa-px-2 qa-py-1.5 qa-text-sm qa-focus-ring"
+              />
+            </label>
+
+            {/* Developer mode only, and deliberately last: a suggested fix is
+                the single most powerful field in a report and the most
+                dangerous one, because an agent tends to follow it rather than
+                weigh it. A client should never be invited to write it — "how"
+                is not their job, and a wrong "how" costs more than no "how".
+                It is labelled as a suggestion all the way through the export. */}
+            {developerMode && (
+              <label className="qa-flex qa-flex-col qa-gap-1">
+                <span className="qa-text-11 qa-text-mid">{t('q_fix')}</span>
+                <textarea
+                  value={fixHint}
+                  onChange={(e) => setFixHint(e.target.value)}
+                  rows={1}
+                  placeholder={t('q_fix_hint')}
+                  className="qa-w-full qa-resize-y qa-rounded-lg qa-border qa-border-subtle qa-bg-0 qa-text-hi qa-px-2 qa-py-1.5 qa-text-sm qa-focus-ring"
+                />
+              </label>
+            )}
+
+            {/* Where this element comes from in the source. Shown only to a
+                developer, because to a client it is gibberish — but it travels
+                in the export either way, which is the point of collecting it. */}
+            {developerMode && origin && (origin.component || origin.file) && (
+              <p className="qa-text-10 qa-text-mid" data-qa-origin="true">
+{origin.component ?? '—'}
+                {origin.file ? ` · ${origin.file}${origin.line ? `:${origin.line}` : ''}` : ''}
+              </p>
+            )}
 
             <div className="qa-flex qa-items-center qa-gap-2">
               <button
@@ -1373,7 +1495,7 @@ export default function CaptureMode() {
             </div>
 
             <p className="qa-text-center qa-text-10 qa-text-slate-400">
-              {t('save_hint')} · {t('severity_keys')}
+              {t('save_hint')}{developerMode ? ` · ${t('severity_keys')}` : ''}
             </p>
           </div>
         </div>

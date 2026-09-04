@@ -55,6 +55,39 @@ function formatEvent(ev: QaContextEvent, t0: number): string {
 }
 
 /**
+ * Divides the REPORT from the EVIDENCE. Never shown: it is sliced out on the
+ * way to notes.md and sliced on to build the context file.
+ */
+const EVIDENCE_MARK = '<!--qa:evidence-->';
+
+/**
+ * The runtime evidence for one note, as its own document.
+ *
+ * Split from noteToMarkdown so the main report can stay short (see the
+ * contextFile branch there) while nothing is actually lost.
+ */
+export function noteContextMarkdown(note: QaNote, index: number): string {
+  const body = noteToMarkdown(note, { index, keepEvidenceMark: true });
+  const at = body.indexOf(EVIDENCE_MARK);
+  const header = [
+    `# Point ${index} — runtime context`,
+    '',
+    `Page: ${oneLine(note.route) || '/'}`,
+    `Captured: ${oneLine(note.timestamp)}`,
+    '',
+    'Everything the browser recorded around this capture. Kept out of',
+    "`notes.md` on purpose -- it is here when it is needed, and out of the way",
+    'when it is not.',
+    '',
+    '---',
+    '',
+  ].join('\n');
+  return at === -1
+    ? `${header}_(nothing was recorded)_\n`
+    : header + body.slice(at + EVIDENCE_MARK.length).trimStart();
+}
+
+/**
  * The one-line acceptance check for a note, as it appears in `verify.md` and
  * as the question the walkthrough puts to the tester. Kept here, beside the
  * note renderer, so the two can never drift apart and describe different
@@ -62,8 +95,15 @@ function formatEvent(ev: QaContextEvent, t0: number): string {
  */
 export function noteCheckLine(note: QaNote, index: number): string {
   const where = oneLine(note.route) || '/';
-  const what = oneLine(note.description) || '(no description)';
-  const trimmed = what.length > 160 ? `${what.slice(0, 157)}...` : what;
+  // The EXPECTED behaviour is the check, not the complaint. A checklist line
+  // reading "the total is wrong" cannot be ticked by anybody -- ticked against
+  // what? "The total should include delivery" can. Where the tester never said
+  // what they wanted, the line says so outright rather than quietly falling
+  // back to the symptom and pretending that is a test.
+  const wanted = oneLine(note.wanted);
+  const seen = oneLine(note.description) || '(not described)';
+  const claim = wanted || `${seen} — _no expectation was given; ask before assuming one_`;
+  const trimmed = claim.length > 180 ? `${claim.slice(0, 177)}...` : claim;
   return `- [ ] **check-${index}** (\`${where}\`) — ${trimmed}`;
 }
 
@@ -74,7 +114,7 @@ export function noteCheckLine(note: QaNote, index: number): string {
  */
 export function noteToMarkdown(
   note: QaNote,
-  opts?: { brand?: string; index?: number },
+  opts?: { brand?: string; index?: number; contextFile?: string; keepEvidenceMark?: boolean },
 ): string {
   const brand = opts?.brand ?? 'Qapture';
   const idx = opts?.index;
@@ -111,10 +151,27 @@ export function noteToMarkdown(
     }
   }
 
+  // Naming the file is one of the biggest single wins a report can carry --
+  // without it, agents apply correct fixes to the wrong file. Only ever
+  // printed when the framework actually said so.
+  if (note.origin?.component) lines.push(`- **Component:** \`${oneLine(note.origin.component)}\``);
+  if (note.origin?.file) {
+    lines.push(`- **Source:** \`${oneLine(note.origin.file)}${note.origin.line ? `:${note.origin.line}` : ''}\``);
+  }
+
   if (idx != null && note.screenshot) {
     // Extension follows the blob's real type: v0.4 encodes screenshots as
     // WebP where the browser supports it (far smaller), PNG otherwise.
     lines.push(`- **Screenshot:** screenshots/point-${idx}.${shotExtension(note.screenshot)}`);
+    // Whether this is a photograph or a re-drawing decides how far the picture
+    // can be trusted. A redraw renders maps, charts and any <canvas> as blank,
+    // and an agent that does not know it is looking at a redraw reads that
+    // blankness as the bug.
+    if (note.shotEngine === 'dom') {
+      lines.push('- **Screenshot caveat:** this is a re-drawing of the page, not a ' +
+        'photograph. Canvas, WebGL and cross-origin images may be blank or missing ' +
+        'in it. Trust the words over the picture where they disagree.');
+    }
   }
   if (idx != null && note.afterScreenshot) {
     // v0.5: proof from a re-test. Named so the pair reads as before/after
@@ -125,9 +182,45 @@ export function noteToMarkdown(
     );
   }
 
-  // — the tester's own words —
+  // — the tester's own words, under labels that must not be removed —
+  //
+  // The headings here are load-bearing. Measured against repair agents,
+  // deleting the SECTION HEADERS while keeping every word of the content cost
+  // 10-30 points of solve rate: without a label saying which is which, agents
+  // conflate what was seen with what was wanted and fix the confusion. So
+  // "Observed" and "Expected" are always written, and "Expected" is written
+  // even when it is empty -- an absent expectation that says so is safer than
+  // one an agent quietly invents.
   lines.push('');
-  lines.push(oneLine(note.description) ? note.description.trim() : '_(no description)_');
+  lines.push('### Observed');
+  lines.push('');
+  lines.push(oneLine(note.description) ? note.description.trim() : '_(not described)_');
+
+  lines.push('');
+  lines.push('### Expected');
+  lines.push('');
+  lines.push(
+    note.wanted && oneLine(note.wanted)
+      ? note.wanted.trim()
+      : '_(the tester did not say what they expected instead -- ask rather than assume)_',
+  );
+
+  if (note.why && oneLine(note.why)) {
+    lines.push('');
+    lines.push('### Why it matters');
+    lines.push('');
+    lines.push(note.why.trim());
+  }
+
+  if (note.fixHint && oneLine(note.fixHint)) {
+    lines.push('');
+    lines.push('### Suggested fix (a suggestion, not an instruction)');
+    lines.push('');
+    lines.push(note.fixHint.trim());
+    lines.push('');
+    lines.push('> Weigh this. It came from a person looking at the symptom, not at ' +
+      'the code, and following a wrong suggestion costs more than ignoring it.');
+  }
 
   // — round two (v0.7.8) —
   // Placed immediately under the original, and never merged into it: the
@@ -149,21 +242,6 @@ export function noteToMarkdown(
     lines.push(note.followUp.trim());
   }
 
-  // — steps to reproduce, recorded automatically (v0.5) —
-  // Placed directly under the description, ABOVE the runtime-context
-  // <details>, because this is the part a human reads first: it is the
-  // answer to "how do I get to this?".
-  const recordedSteps = note.context?.steps ?? [];
-  if (recordedSteps.length) {
-    const t0 = Date.parse(note.timestamp) || recordedSteps[recordedSteps.length - 1].t;
-    lines.push('');
-    lines.push('**Steps before this** (recorded automatically, oldest first)');
-    lines.push('');
-    recordedSteps.forEach((step, i) => {
-      lines.push(`${i + 1}. ${formatStep(step, t0)}`);
-    });
-  }
-
   // — the check this point will be graded against (v0.8.2) —
   // Every point is now an acceptance test, not a suggestion. The tester will
   // be walked back to this exact spot and asked one question, so the agent is
@@ -183,7 +261,38 @@ export function noteToMarkdown(
       `Record the outcome against \`check-${idx}\` in \`verify.md\`.`);
   }
 
+  // ── The seam ──────────────────────────────────────────────────────────────
+  // Everything above is the REPORT: what was seen, what was wanted, why, and
+  // where. Everything below is EVIDENCE: the recorded steps, the console and
+  // network traffic, the computed styles. The evidence is worth keeping and
+  // worth keeping OUT of the report -- measured, a longer report lowers the
+  // odds of the right fix, and recorded steps in prose showed no benefit at
+  // all next to a runnable check (which is what repro/ is for).
+  lines.push(EVIDENCE_MARK);
+
+  // — steps to reproduce, recorded automatically (v0.5) —
+  // Placed directly under the description, ABOVE the runtime-context
+  // <details>, because this is the part a human reads first: it is the
+  // answer to "how do I get to this?".
+  const recordedSteps = note.context?.steps ?? [];
+  if (recordedSteps.length) {
+    const t0 = Date.parse(note.timestamp) || recordedSteps[recordedSteps.length - 1].t;
+    lines.push('');
+    lines.push('**Steps before this** (recorded automatically, oldest first)');
+    lines.push('');
+    recordedSteps.forEach((step, i) => {
+      lines.push(`${i + 1}. ${formatStep(step, t0)}`);
+    });
+  }
+
   // — runtime context —
+  //
+  // Moved OUT of this file by default since v0.9. Report length turns out to
+  // correlate NEGATIVELY with an agent's chance of fixing the thing (measured
+  // odds ratio 0.49) -- a wall of network events, computed styles and
+  // accessibility flags buries the two sentences that actually say what is
+  // wrong. None of it is discarded: it moves to a file of its own, named right
+  // here, for the cases where an agent genuinely needs it.
   const ctx = note.context;
   if (ctx) {
     const env = ctx.env;
@@ -237,5 +346,13 @@ export function noteToMarkdown(
     lines.push('</details>');
   }
 
-  return lines.join('\n');
+  const whole = lines.join('\n');
+  if (opts?.keepEvidenceMark) return whole;
+  if (!opts?.contextFile) return whole.replace(`${EVIDENCE_MARK}\n`, '').replace(EVIDENCE_MARK, '');
+
+  const at = whole.indexOf(EVIDENCE_MARK);
+  const report = at === -1 ? whole : whole.slice(0, at).trimEnd();
+  return `${report}\n\n<sub>Steps, console, network, environment and element ` +
+    `forensics: \`${opts.contextFile}\` — open it only if the words above leave ` +
+    `something genuinely unresolved.</sub>`;
 }

@@ -173,6 +173,44 @@ export type QaNote = {
    */
   status?: 'open' | 'fixed' | 'verified';
   /**
+   * What the tester expected instead -- the EXPECTED BEHAVIOUR, kept in its
+   * own field rather than mixed into `description`.
+   *
+   * This is the single highest-value thing a report can carry, and the reason
+   * is not style. An agent handed a report with no expected behaviour does not
+   * stop and ask, the way a developer would: it picks an interpretation and
+   * commits to it. `description` says what the tester SAW; this says what they
+   * WANTED. Merged into one paragraph, the two get confused and the agent
+   * "fixes" the symptom it invented.
+   */
+  wanted?: string;
+  /**
+   * Why it matters to the tester -- their goal, in their words.
+   *
+   * Not decoration. It is what lets an agent choose sensibly when the literal
+   * request is impossible or silly, instead of implementing the letter of a
+   * sentence and missing the point of it.
+   */
+  why?: string;
+  /**
+   * A suggested fix. Developer mode only, and never asked of a client.
+   *
+   * Kept separate and labelled as a SUGGESTION so an agent weighs it rather
+   * than obeying it -- a wrong suggestion stated as fact is worse than none.
+   */
+  fixHint?: string;
+  /** Which engine took the screenshot: a real photograph, or a redraw. */
+  shotEngine?: 'exact' | 'dom';
+  /**
+   * Where this element comes from in the source, when the framework will say.
+   *
+   * Naming the file is one of the largest single improvements a report can
+   * make -- without it agents apply correct fixes to the wrong file. React
+   * keeps this on the fibre in a development build; nothing is invented when
+   * it is absent.
+   */
+  origin?: { component?: string; file?: string; line?: number };
+  /**
    * When this note was last handed to an agent by an export (ISO stamp).
    *
    * Exporting is not a passive dump any more -- it is the moment a point
@@ -384,6 +422,11 @@ export type QaContextValue = {
     severity?: 'bug' | 'design' | 'enhance';
     status?: 'open' | 'fixed' | 'verified';
     forensics?: QaTargetForensics;
+    wanted?: string;
+    why?: string;
+    fixHint?: string;
+    shotEngine?: 'exact' | 'dom';
+    origin?: { component?: string; file?: string; line?: number };
   }) => Promise<void>;
   /**
    * Patch a note. `screenshot: null` removes the screenshot (sets to undefined).
@@ -556,6 +599,9 @@ export type QaContextValue = {
   setSimpleMode: (on: boolean) => void;
   /** Capture with a small inline box instead of the full annotation card. */
   compactCapture: boolean;
+  /** Developer mode: everything shown. Off by default -- see the state above. */
+  developerMode: boolean;
+  setDeveloperMode: (on: boolean) => void;
   setCompactCapture: (on: boolean) => void;
 
   // Export
@@ -631,6 +677,7 @@ function exactShotsWanted(store: { getItem(k: string): string | null }): boolean
 }
 const SIMPLE_MODE_KEY   = 'simpleMode';
 const COMPACT_KEY       = 'compactCapture';
+const DEV_MODE_KEY      = 'developerMode';   // '1' once someone opts into it
 const LAST_CAMPAIGN_KEY = 'lastCampaign';    // {project, campaign, tester}
 // v0.5
 const AUTO_BACKUP_KEY   = 'autoBackup';      // '0' to opt out
@@ -852,6 +899,26 @@ export function QaProvider({
   const [simpleMode, setSimpleModeState] = useState<boolean>(
     () => storage.getItem(SIMPLE_MODE_KEY) === '1',
   );
+  /**
+   * Developer mode. OFF by default, and reachable only from Settings.
+   *
+   * The default user of this widget is a client, not a tester and not an
+   * engineer -- someone who knows the app is wrong and does not know, or care,
+   * what a selector is. Everything that exists to serve the person who will
+   * FIX the problem (severity, forensics, journey steps, engine, fix hints)
+   * is noise to the person REPORTING it, and noise is what makes a client
+   * stop filing anything at all.
+   *
+   * So none of it is shown by default. All of it is still CAPTURED -- the
+   * export is unchanged in substance -- it is only the asking that stops.
+   * What the client is asked instead is the pair of questions that actually
+   * decide whether the work comes back right: what happened, and what did you
+   * want to happen.
+   */
+  const [developerMode, setDeveloperModeState] = useState<boolean>(
+    () => storage.getItem(DEV_MODE_KEY) === '1',
+  );
+
   const [compactCapture, setCompactCaptureState] = useState<boolean>(
     () => storage.getItem(COMPACT_KEY) === '1',
   );
@@ -1278,6 +1345,11 @@ export function QaProvider({
       severity?: 'bug' | 'design' | 'enhance';
       status?: 'open' | 'fixed' | 'verified';
       forensics?: QaTargetForensics;
+      wanted?: string;
+      why?: string;
+      fixHint?: string;
+      shotEngine?: 'exact' | 'dom';
+      origin?: { component?: string; file?: string; line?: number };
     }): Promise<void> => {
       const loc = safeLocation();
       // Query strings routinely carry tokens/session ids (see redactUrl()'s
@@ -1322,6 +1394,11 @@ export function QaProvider({
         target: input.target ?? undefined,
         severity: input.severity,
         status: input.status,
+        wanted: (input.wanted || '').trim() || undefined,
+        why: (input.why || '').trim() || undefined,
+        fixHint: (input.fixHint || '').trim() || undefined,
+        shotEngine: input.shotEngine,
+        origin: input.origin,
         journeyRef,
         context,
       };
@@ -1983,6 +2060,11 @@ export function QaProvider({
     storage.setItem(COMPACT_KEY, on ? '1' : '0');
   }, [storage]);
 
+  const setDeveloperMode = useCallback((on: boolean) => {
+    setDeveloperModeState(on);
+    storage.setItem(DEV_MODE_KEY, on ? '1' : '0');
+  }, [storage]);
+
   const setFilter = useCallback((patch: Partial<QaNoteFilter>) => {
     setFilterState((prev) => ({ ...prev, ...patch }));
   }, []);
@@ -2618,6 +2700,8 @@ export function QaProvider({
     simpleMode,
     setSimpleMode,
     compactCapture,
+    developerMode,
+    setDeveloperMode,
     setCompactCapture,
 
     exportZip: exportZipFn,

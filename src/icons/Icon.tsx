@@ -23,6 +23,7 @@ export type IconName =
   | 'Loader2'
   | 'MousePointerClick'
   | 'Square'
+  | 'Mic'
   | 'ImagePlus'
   | 'CheckCircle2'
   | 'Crosshair'
@@ -131,6 +132,12 @@ const ICONS: Record<IconName, SvgDescriptor[]> = {
 
   Square: [
     ['rect', { width: '18', height: '18', x: '3', y: '3', rx: '2' }],
+  ],
+
+  Mic: [
+    ['path', { d: 'M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z' }],
+    ['path', { d: 'M19 10v2a7 7 0 0 1-14 0v-2' }],
+    ['line', { x1: '12', x2: '12', y1: '19', y2: '22' }],
   ],
 
   ImagePlus: [
