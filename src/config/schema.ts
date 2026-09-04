@@ -131,6 +131,24 @@ export type QaConfig = {
    */
   beta?: boolean;
   /**
+   * Post each note to a collector as it is written, so the client never has to
+   * remember to export and send anything.
+   *
+   * Purely additive: notes are saved locally first and the export is unchanged,
+   * so a collector that is down or unreachable costs nothing at all.
+   *
+   * The token here is WRITE-ONLY and ships to the browser, which is fine by
+   * design: it can add notes to one project and cannot read anything back.
+   * Never put the collector's admin token in a page.
+   */
+  collector?: {
+    url: string;
+    token: string;
+    project: string;
+    campaign?: string;
+    tester?: string;
+  };
+  /**
    * Whether the panel is visible.
    * - true / false: always show / always hide
    * - undefined (default): ShadowMount treats as "dev-only" (show only when
@@ -174,6 +192,7 @@ export type ResolvedConfig = {
   preamble: QaPreamble | null;
   rtl: boolean;
   beta: boolean;
+  collector: { url: string; token: string; project: string; campaign?: string; tester?: string } | null;
   /**
    * Visibility sentinel.
    * - true: always show
@@ -199,6 +218,7 @@ const DEFAULTS = {
   loginField:    { en: 'Username', ar: 'اسم المستخدم' } as { en: string; ar?: string },
   rtl:           false,
   beta:          false,
+  collector:     null,
   visible:       undefined as boolean | undefined,
   alwaysVisible: false,
   hotkey:        'shift+alt+q',
@@ -434,6 +454,7 @@ export function validateConfig(
         preamble:     null,
         rtl:          DEFAULTS.rtl,
         beta:         DEFAULTS.beta,
+        collector:    null,
         visible:      DEFAULTS.visible,
         alwaysVisible: DEFAULTS.alwaysVisible,
         hotkey:       DEFAULTS.hotkey,
@@ -456,6 +477,7 @@ export function validateConfig(
         preamble:     null,
         rtl:          DEFAULTS.rtl,
         beta:         DEFAULTS.beta,
+        collector:    null,
         visible:      DEFAULTS.visible,
         alwaysVisible: DEFAULTS.alwaysVisible,
         hotkey:       DEFAULTS.hotkey,
@@ -517,6 +539,21 @@ export function validateConfig(
   // scalar booleans / strings
   const rtl = typeof raw['rtl'] === 'boolean' ? raw['rtl'] : DEFAULTS.rtl;
   const beta = typeof raw['beta'] === 'boolean' ? raw['beta'] : DEFAULTS.beta;
+  // Accepted only when it is complete: a half-configured collector would fail
+  // silently on every note, which is worse than not having one.
+  const rawCol = raw['collector'] as Record<string, unknown> | undefined;
+  const collector =
+    rawCol && typeof rawCol['url'] === 'string'
+      && typeof rawCol['token'] === 'string'
+      && typeof rawCol['project'] === 'string'
+      ? {
+          url: rawCol['url'] as string,
+          token: rawCol['token'] as string,
+          project: rawCol['project'] as string,
+          campaign: typeof rawCol['campaign'] === 'string' ? rawCol['campaign'] : undefined,
+          tester: typeof rawCol['tester'] === 'string' ? rawCol['tester'] : undefined,
+        }
+      : DEFAULTS.collector;
   const alwaysVisible = typeof raw['alwaysVisible'] === 'boolean'
     ? raw['alwaysVisible']
     : DEFAULTS.alwaysVisible;
@@ -552,6 +589,7 @@ export function validateConfig(
       preamble,
       rtl,
       beta,
+      collector,
       visible,
       alwaysVisible,
       hotkey,

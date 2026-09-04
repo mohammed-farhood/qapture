@@ -19,6 +19,7 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   journey:      [],
   preamble:     null,
   beta:         false,
+  collector:    null,
   rtl:          false,
   /**
    * `undefined` is the "dev-only" sentinel.

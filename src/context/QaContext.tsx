@@ -62,6 +62,7 @@ import { FALLBACK_JOURNEY, ANY_PAGE } from '../lib/fallbackJourney';
 import { drainSinceLastNote, readRecentSteps, collectEnvSnapshot, redactUrl, onIssue, type QaIssue, type QaNoteContext, type QaTargetForensics } from '../lib/contextBuffer';
 import { createStorage } from '../lib/storage';
 import { createIdb } from '../lib/idb';
+import { sendToCollector } from '../lib/collector';
 import { translate, pick as pickFn } from '../lib/strings';
 import { buildAndDownloadZip, buildZipBlob, exportFileName } from '../lib/exportZip';
 import { canShareFiles, shareZipFile, type ShareOutcome } from '../lib/shareZip';
@@ -1435,8 +1436,17 @@ export function QaProvider({
       // Disk copy (when a campaign folder is open) — the note survives even
       // if this browser's storage is full or gets cleared.
       await syncNoteThrough(note);
+
+      // And to the collector, when one is configured. Deliberately last, and
+      // deliberately not awaited into the save path's success: the note is
+      // already in storage and already in the export by the time this runs, so
+      // a server that is down or unreachable must cost the tester nothing at
+      // all. Failures land in the fault log, visible in Settings.
+      if (config.collector) {
+        void sendToCollector(note, config.collector);
+      }
     },
-    [idb, config.journey, config.captureContext, testAlong, testAlongSteps, notify, t, syncNoteThrough, applyNotes],
+    [idb, config.journey, config.captureContext, config.collector, testAlong, testAlongSteps, notify, t, syncNoteThrough, applyNotes],
   );
 
   const updateNote = useCallback(
