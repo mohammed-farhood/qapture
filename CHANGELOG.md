@@ -3,6 +3,36 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.1] "Say So" — 2026-09-20
+
+0.10.0 moved the camera out of the browser but never told anyone how to switch
+it on, so the share dialog kept appearing and looked like the fix had not
+landed.
+
+### Added
+
+- **Settings now prints the exact command for the site you are on.** Not a
+  README line — the real thing, with `--allow <origin>` already filled in when
+  you are testing a deployed site and omitted when you are on localhost. The
+  flag you need depends on where you are standing, which is precisely what a
+  static instruction cannot know.
+
+### Fixed
+
+- **Safari on an https site now says why, instead of silently failing.**
+  The helper is plain HTTP on 127.0.0.1. Chrome and Firefox treat loopback as
+  a potentially trustworthy origin and allow the call; WebKit has declined to
+  (bug 171934, still open) and blocks it as active mixed content before it is
+  sent. No setting changes that.
+
+  So the widget stops pretending: it does not probe where the browser will
+  refuse — which also removes a failed fetch and a red console line per
+  capture — and the settings panel names the limitation and points at Chrome.
+
+  This was reported as "each time I try to capture, this window shows". It was
+  never a bug in the capture path; it was a helper that could not be reached
+  and a UI with nothing to say about it.
+
 ## [0.10.0] "Own Camera" — 2026-09-20
 
 The browser was never going to stop asking. So the camera moved out of it.

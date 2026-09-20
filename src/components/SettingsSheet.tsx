@@ -322,6 +322,31 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
               {t('exact_turn_on')}
             </button>
           )}
+
+          {/* How to stop being asked.
+              Only shown when the helper is NOT already answering, because once
+              it is there is nothing to do. Either the command that would start
+              it here, or — where the browser would refuse to reach it whatever
+              the tester does — the reason and the way out. */}
+          {exactShots.status !== 'native' && (
+            exactShots.helperReachable ? (
+              <div className="qa-mt-2">
+                <p className="qa-m-0 qa-mb-1 qa-text-10 qa-text-lo qa-leading-relaxed">
+                  {t('exact_helper_offer')}
+                </p>
+                <code
+                  className="qa-block qa-rounded-lg qa-bg-2 qa-border qa-border-subtle qa-px-2 qa-py-1.5 qa-text-10 qa-text-hi"
+                  style={{ userSelect: 'all', wordBreak: 'break-all' }}
+                >
+                  {exactShots.helperCommand}
+                </code>
+              </div>
+            ) : (
+              <p className="qa-m-0 qa-mt-2 qa-text-10 qa-text-mid qa-leading-relaxed">
+                {t('exact_helper_safari')}
+              </p>
+            )
+          )}
         </Section>
 
         <div className="qa-h-px qa-bg-3 qa-mt-3 qa-mb-4" />

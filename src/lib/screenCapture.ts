@@ -77,6 +77,8 @@ import {
   getCachedMapping,
   cacheMapping,
   setShotPort,
+  helperReachableHere,
+  helperStartCommand,
 } from './nativeShot';
 
 /** How wrong the frame's aspect ratio may be before we distrust a tab share. */
@@ -143,6 +145,16 @@ export interface FrozenFrame {
  */
 let nativeReady = false;
 
+
+/** Whether this browser could reach the helper from this page (see nativeShot). */
+export function isHelperReachableHere(): boolean {
+  return helperReachableHere();
+}
+
+/** The command that would start the helper for this site. */
+export function getHelperCommand(): string {
+  return helperStartCommand();
+}
 
 /** Go and ask whether the helper is running, and remember the answer. */
 export async function refreshNativeAvailability(port?: number): Promise<boolean> {

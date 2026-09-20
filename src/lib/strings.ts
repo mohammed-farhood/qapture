@@ -141,6 +141,8 @@ type LangMap = {
   exact_unsupported: string;
   exact_native_hint: string;
   exact_native_on: string;
+  exact_helper_offer: string;
+  exact_helper_safari: string;
   sync_title: string;
   sync_hint: string;
   sync_choose: string;
@@ -393,6 +395,8 @@ const STR: Record<'en' | 'ar', LangMap> = {
     exact_unsupported:     'Needs a desktop browser — phones cannot photograph the screen',
     exact_native_hint:     'Screenshots are real photographs, taken by the qapture helper on this machine with the same engine as Cmd+Shift+4. It never asks permission and leaves nothing recording, so it costs no battery. Nothing leaves your device.',
     exact_native_on:       'Real screenshots on — local helper',
+    exact_helper_offer:    'To stop being asked every time: run this next to your dev server and leave it going. macOS asks once for Screen Recording, then never again.',
+    exact_helper_safari:   'Safari cannot reach the local helper on an https site — it blocks loopback as mixed content, and no setting changes that. Open this site in Chrome for screenshots that never ask, or turn the option above off to stay on redrawn shots.',
     sync_title:            'Save to a folder',
     sync_hint:             'Every note is written to your disk the moment you save it — nothing is lost if this browser dies.',
     sync_choose:           'Choose folder',
@@ -632,6 +636,8 @@ const STR: Record<'en' | 'ar', LangMap> = {
     exact_turn_on:         'تفعيل',
     exact_native_hint:     'اللقطات صور حقيقية يلتقطها مساعد qapture على هذا الجهاز بالمحرك نفسه الذي يستخدمه Cmd+Shift+4. لا يطلب إذنًا ولا يترك أي تسجيل يعمل، فلا يستهلك البطارية. ولا شيء يغادر جهازك.',
     exact_native_on:       'اللقطات الحقيقية مفعّلة — المساعد المحلي',
+    exact_helper_offer:    'لإيقاف السؤال في كل مرة: شغّل هذا الأمر بجانب خادم التطوير واتركه يعمل. يطلب ماك إذن تسجيل الشاشة مرة واحدة فقط.',
+    exact_helper_safari:   'لا يستطيع Safari الوصول إلى المساعد المحلي على موقع https — فهو يحجب العنوان المحلي كمحتوى مختلط، ولا يغيّر ذلك أي إعداد. افتح الموقع في Chrome للحصول على لقطات بلا سؤال، أو أطفئ الخيار أعلاه للبقاء على اللقطات المُعاد رسمها.',
     exact_unsupported:     'يتطلب متصفح سطح مكتب — الهواتف لا تستطيع تصوير الشاشة',
     sync_title:            'الحفظ في مجلد',
     sync_hint:             'تُكتب كل ملاحظة على القرص لحظة حفظها — لا شيء يضيع إذا تعطّل المتصفح.',

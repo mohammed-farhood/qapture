@@ -72,6 +72,8 @@ import {
   disarmExactCapture,
   exactCaptureIsFree,
   refreshNativeAvailability,
+  isHelperReachableHere,
+  getHelperCommand,
   freezeViewport,
   freezeOrReuse,
   stillIsCurrent,
@@ -479,6 +481,15 @@ export type QaContextValue = {
   exactShots: {
     supported: boolean;
     status: ExactCaptureStatus;
+    /**
+     * Whether this browser could reach the local helper from this page at all.
+     * False on an HTTPS site in Safari, which blocks loopback as mixed content
+     * — see nativeShot.ts. Nothing the tester does changes it, so the UI says
+     * so rather than offering a setup that cannot work.
+     */
+    helperReachable: boolean;
+    /** The exact command that would start the helper for THIS origin. */
+    helperCommand: string;
     /**
      * When the still for the capture in progress was photographed, or null when
      * this capture has no still and will therefore be a redraw.
@@ -2699,7 +2710,13 @@ export function QaProvider({
     evidenceByStep,
 
     // v0.4 — screenshots
-    exactShots: { supported: exactSupported, status: exactStatus, frozenAt },
+    exactShots: {
+      supported: exactSupported,
+      status: exactStatus,
+      frozenAt,
+      helperReachable: isHelperReachableHere(),
+      helperCommand: getHelperCommand(),
+    },
     enableExactShots,
     photographNow,
     disableExactShots,

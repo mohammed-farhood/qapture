@@ -62,6 +62,36 @@ const ABSENT_RECHECK_MS = 30_000;
  */
 let configuredPort = DEFAULT_SHOT_PORT;
 
+/**
+ * Can this browser reach the helper from this page at all?
+ *
+ * The helper is plain HTTP on 127.0.0.1. Whether an HTTPS page may call that
+ * is not a matter of configuration — it is the browser's mixed-content policy,
+ * and the browsers disagree:
+ *
+ *   • Chrome and Firefox treat loopback as a "potentially trustworthy" origin,
+ *     so the call is allowed. Chrome additionally sends a Private Network
+ *     Access preflight, which shotServer.ts answers.
+ *   • Safari does not. WebKit has declined to grant loopback that status
+ *     (bug 171934, still open), so it blocks the request as active mixed
+ *     content before it is ever sent. No flag or permission changes it.
+ *
+ * On an HTTP page — any localhost dev server — every browser is fine.
+ *
+ * Returning false here is what lets the UI say "use Chrome for this site"
+ * instead of leaving the tester to wonder why a helper they can see running
+ * is being ignored.
+ */
+export function helperReachableHere(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.location.protocol !== 'https:') return true;
+  const ua = navigator.userAgent;
+  // Chromium-based browsers all put "Chrome" in the UA; only Safari proper
+  // has "Safari" without it.
+  const isSafari = /Safari/.test(ua) && !/Chrome|Chromium|Edg|OPR/.test(ua);
+  return !isSafari;
+}
+
 /** Point the widget at a different port, and forget what we knew. */
 export function setShotPort(port: number): void {
   if (!Number.isInteger(port) || port <= 0 || port >= 65536) return;
@@ -99,6 +129,10 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Pro
  */
 export async function isNativeShotAvailable(port = configuredPort): Promise<boolean> {
   if (typeof window === 'undefined') return false;
+  // Don't probe where the browser will refuse the request anyway: it costs a
+  // failed fetch and a red console line per attempt, and tells us nothing we
+  // did not already know from the protocol and the user agent.
+  if (!helperReachableHere()) return false;
   const now = Date.now();
   if (lastProbeResult && cachedBase) return true;
   if (!lastProbeResult && now - lastProbeAt < ABSENT_RECHECK_MS) return false;
@@ -108,6 +142,25 @@ export async function isNativeShotAvailable(port = configuredPort): Promise<bool
   lastProbeResult = !!res && res.ok;
   cachedBase = lastProbeResult ? baseUrl(port) : null;
   return lastProbeResult;
+}
+
+/**
+ * The exact command that would turn real screenshots on for THIS site.
+ *
+ * Built rather than documented because the `--allow` argument depends on where
+ * the tester is standing: a localhost dev server needs no flag, a deployed site
+ * needs its own origin named. A README cannot know which, and a tester reading
+ * one should not have to work it out.
+ */
+export function helperStartCommand(port = configuredPort): string {
+  const flags: string[] = [];
+  if (port !== DEFAULT_SHOT_PORT) flags.push(`--port ${port}`);
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(origin);
+    if (!local) flags.push(`--allow ${origin}`);
+  }
+  return `npx qapture2 shots${flags.length ? ' ' + flags.join(' ') : ''}`;
 }
 
 /** Forget what we know about the helper — used when the tester toggles it. */
