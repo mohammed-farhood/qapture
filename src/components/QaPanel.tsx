@@ -53,6 +53,7 @@ import CredentialsSection from './CredentialsSection';
 import GuideSection from './GuideSection';
 import { GUIDE_TAB_ENABLED } from '../lib/features';
 import { computeCoverage } from '../lib/coverage';
+import { suggestedExportName } from '../lib/exportZip';
 import { useCoarsePointer } from '../lib/coarse';
 
 // ---------------------------------------------------------------------------
@@ -79,8 +80,16 @@ function visibleTab(tab: TabKey): TabKey {
   return tab === 'guide' && !GUIDE_TAB_ENABLED ? 'notes' : tab;
 }
 
-function todayName(): string {
-  return `qa-notes-${new Date().toISOString().slice(0, 10)}`;
+/**
+ * What the export field starts with.
+ *
+ * Delegated to exportZip.ts so the suggestion in the box and the name the file
+ * actually gets are the same string produced by the same function — they used
+ * to be two `qa-notes-<date>` literals in two files, which is how they could
+ * ever have disagreed.
+ */
+function suggestName(project: string | undefined): string {
+  return suggestedExportName(project, new Date().toISOString());
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +151,7 @@ export default function QaPanel() {
     simpleMode, sync, storageHealth, noteCounts, setFilter,
     showWelcome, canShare, shareExport, pendingShare, sharePending, notify,
     panelSide, setPanelSide, panelCollapsed, setPanelCollapsed,
+    projectName,
   } = useQa();
 
   // What the panel actually shows. The stored tab can name one that is
@@ -332,7 +342,7 @@ export default function QaPanel() {
   if (phase === 'hidden') return null;
 
   // ── Naming dialog helpers ────────────────────────────────────────────────
-  const openNaming = () => { setFilename(todayName()); setNaming(true); };
+  const openNaming = () => { setFilename(suggestName(projectName)); setNaming(true); };
   const doExport   = () => { setNaming(false); void exportZip(filename); };
 
   /**

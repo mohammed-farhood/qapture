@@ -13,7 +13,7 @@
 
 import { useState, useEffect } from 'react';
 
-export function isCoarsePointer(): boolean {
+function isCoarsePointer(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return true;

@@ -70,9 +70,27 @@ The **capture interceptor** (`src/lib/capture.ts`) and **element highlighter** (
 
 `destroy()` cleans up all `[data-qa-overlay]` children of `<body>` after unmounting React.
 
-### html2canvas scope
+### Screenshot scope
 
-`html2canvas` captures the **visible light DOM** of the host page. It does not capture content inside other custom elements that have their own shadow roots. The Qapture widget itself (which lives in a shadow root) is excluded from the captured image automatically.
+The Qapture widget lives in a shadow root and is excluded from every captured
+image, on every engine — the light-DOM overlays it injects are marked
+`data-qa-overlay` and hidden for the frame.
+
+What each engine can see differs, and that is the reason there is more than one:
+
+- **`native`** (`bin/shotServer.ts` → `lib/nativeShot.ts`) photographs the
+  desktop through `screencapture`, so it sees exactly what you see — canvas,
+  WebGL, video, cross-origin iframes included. It is a separate process, not a
+  page API, which is why it never prompts.
+- **`exact`** (`getDisplayMedia`) sees the composited tab or window. Same
+  fidelity, but the browser prompts on every call.
+- **`dom`** (`html2canvas`) sees only the **light DOM** it can re-render. Not
+  other custom elements' shadow roots, not canvas/WebGL/video pixels, not
+  cross-origin iframes. It is a reconstruction, which is why the other two
+  exist.
+
+`lib/screenCapture.ts` chooses between them and normalises whichever wins into
+one shape, so nothing downstream knows which ran.
 
 ---
 
@@ -156,109 +174,59 @@ Key settings:
 
 ## Module map
 
-```
-src/
-├── index.ts                    Public API: Qapture component + initQaStudio() (QaStudio backward alias)
-├── next.ts                     Next.js App Router re-export (postbuild adds 'use client')
-├── standalone.ts               Non-React entry: initQaStudio() + <qapture-widget> custom element
-├── defaults.ts                 Default config values
-│
-├── config/
-│   └── schema.ts               All public config types (QaConfig, QaTheme [deprecated,
-│                               ignored], QaCredential, QaJourneyLane, QaJourneyStep
-│                               [+ optional `expect`], QaPreamble, QaBilingual, QaRisk,
-│                               ResolvedConfig [no `theme`, has `captureContext`])
-│                               + validateConfig() (warns+ignores a `theme` key)
-│
-├── mount/
-│   └── ShadowMount.ts          Creates <qapture-overlay> host, open shadow root,
-│                               starts/stops contextBuffer capture, mounts React
-│
-├── context/
-│   └── QaContext.tsx           React context: notes list, guide checked/failed state,
-│                               language toggle, capture mode, notices/undo, test-along,
-│                               and all actions (theme REMOVED from context value)
-│
-├── components/
-│   ├── QaRoot.tsx              Top-level component rendered inside the shadow root;
-│   │                           handles visibility gating, hotkey listener, and mounts
-│   │                           <NoticeHost/> + (while active) <TestAlongHud/>
-│   ├── QaPanel.tsx             Main panel (tabs: Notes / Guide / Credentials / Export);
-│   │                           suppressed while test-along is active
-│   ├── QaFab.tsx               Floating action button (launcher toggle)
-│   ├── GuideSection.tsx        Journey map with risk dots + RED N/M coverage counter;
-│   │                           "Start walkthrough" entry point + per-step evidence badges
-│   ├── CredentialsSection.tsx  Credentials table with copy-to-clipboard
-│   ├── CaptureMode.tsx         Click/drag capture overlay (activated in capture mode);
-│   │                           failed-capture retry, severity chips, forensics capture
-│   ├── NoteList.tsx            List of captured notes with edit/delete, severity/status,
-│   │                           and "Copy as agent prompt"
-│   ├── NoteEditor.tsx          Note edit form (severity chip row)
-│   ├── NoticeHost.tsx          (new) Toast viewport for the notices/undo system
-│   ├── TestAlongHud.tsx        (new) Guided step-by-step walkthrough bar, replaces the
-│   │                           panel while test-along is active
-│   └── LocationReveal.tsx      Current page path display
-│
-├── lib/
-│   ├── capture.ts              html2canvas integration; element/region targeting;
-│   │                           injects light-DOM flash highlight during capture
-│   ├── contextBuffer.ts        (new) installContextCapture()/uninstallContextCapture() —
-│   │                           console/error/network ring buffer (cap 75) + env snapshot
-│   │                           + per-element forensics; see SECURITY.md for guarantees
-│   ├── coverage.ts             computeCoverage() — pure function; red/amber/green
-│   │                           tallies; tier (Minimal/Adequate/Full/Complete)
-│   ├── exportZip.ts            buildAndDownloadZip() — assembles preamble + notes.md
-│   │                           + screenshots/ into a ZIP and triggers browser download
-│   ├── highlight.ts            Light-DOM highlight box for hovered/selected element
-│   │                           (fixed Graphite colours built in — no `colors` param)
-│   ├── idb.ts                  createIdb(namespace) — namespaced IndexedDB wrapper;
-│   │                           DB v2 migration ladder; SSR-safe no-op fallback
-│   ├── journeyMatch.ts         (new) matchRouteToSteps() — links a captured note to the
-│   │                           journey step matching the current route (`:param`-aware)
-│   ├── noteMarkdown.ts         (new) noteToMarkdown() — renders one note as agent-ready
-│   │                           Markdown; shared by exportZip.ts and "Copy as agent prompt"
-│   ├── ShotAnnotator.tsx       (v0.5) draw arrows/boxes/pen marks on a screenshot;
-│   │                           flattens them into the stored image on save
-│   ├── screenCapture.ts        (v0.4) pixel-exact engine — getDisplayMedia(preferCurrentTab)
-│   │                           session stream, frame grab, viewport→frame crop mapping
-│   ├── fsSync.ts               (v0.4) File System Access folder sync — project/campaign
-│   │                           tree, per-note md+image writes, campaign.json index, REPORT.md
-│   ├── storageHealth.ts        (v0.4) navigator.storage estimate/persist + byte formatting
-│   ├── selector.ts             CSS selector generation from DOM elements
-│   ├── storage.ts              createStorage(namespace) — namespaced localStorage
-│   │                           wrapper; in-memory Map fallback
-│   ├── strings.ts              QaBilingual resolution helpers
-│   └── styles.ts               Shadow DOM style injection — fixed Graphite design
-│                               tokens only; no consumer-supplied theme application
-│
-├── icons/
-│   └── Icon.tsx                Lucide-derived SVG icon set (ISC license); includes
-│                               Bug, AlertTriangle, RotateCcw, ChevronLeft, ChevronRight, Play,
-│                               Search, Folder, FolderCheck, Settings, HardDrive, Camera,
-│                               Minimize2, Maximize2, Send
-│
-└── bin/
-    ├── init.ts                 CLI entry: argument parsing, orchestration, printSummary
-    ├── md.d.ts                 TypeScript declaration for *.md text imports
-    │
-    ├── utils/
-    │   ├── args.ts             Argument parser (command, dir, --force flag)
-    │   ├── secretGuard.ts      Hard file-path blocklist — assertSafeToRead(path)
-    │   │                       never reads .env, certs, keys, or secret-named files
-    │   ├── mergeAgentsMd.ts    Idempotent AGENTS.md merge with sentinel guards
-    │   ├── walk.ts             Recursive directory walker with ignore patterns
-    │   └── writeIdempotent.ts  writeIfAbsent() + writeAlways() helpers
-    │
-    ├── detectors/
-    │   ├── detectRoutes.ts     Route file scanner → journey lane/step draft
-    │   └── detectCredentials.ts .env.example + seeder file scanner (safe sources only)
-    │   (detectTheme.ts was deleted in v0.3.0 — no more theme detection)
-    │
-    ├── generators/
-    │   ├── genConfig.ts        qa.config.js / qa.config.ts text generator
-    │   └── genPreamble.ts      qa.preamble.md text generator
-    │
-    └── artifacts/
-        ├── SKILL.md            Claude Code agent skill (bundled as a text constant)
-        └── AGENTS_SECTION.md   AGENTS.md qapture section (bundled as a text constant)
-```
+Grouped by what a file is *for*. Every module carries a header comment
+explaining why it exists and what it refuses to do — that is the real
+documentation, and unlike a list it cannot drift from the code.
+
+**Entry points**
+
+| | |
+|---|---|
+| `index.ts` | Public API: `<Qapture>` and `initQaStudio()` |
+| `next.ts` | Next.js App Router entry (postbuild prepends `'use client'`) |
+| `standalone.ts` | Non-React entry + `<qapture-widget>` custom element |
+| `mount/ShadowMount.ts` | Creates the `<qapture-overlay>` host and open shadow root |
+| `config/schema.ts` | All public config types and `validateConfig()` — also the single defaults table |
+| `version.ts` | Build-time injected version, for the out-of-date check |
+
+**Taking the picture** — the subsystem with the most invariants; read
+`screenCapture.ts`'s header first.
+
+| | |
+|---|---|
+| `lib/screenCapture.ts` | Picks the engine, freezes one still per capture, crops from it |
+| `lib/nativeShot.ts` | Talks to the local `screencapture` helper |
+| `bin/shotServer.ts` | The helper itself: loopback server, origin gate, `screencapture` |
+| `lib/frameCalibration.ts` | Measures where the page sits inside a frame, and refuses when it cannot |
+| `lib/capture.ts` | The html2canvas redraw fallback, and painted-area clipping |
+| `lib/cssColors.ts` | Converts CSS Color 4 (`oklch`…) to something html2canvas can parse |
+| `lib/scrollLock.ts` | Freezes the page without touching CSS (which would unstick `sticky`) |
+| `lib/highlight.ts`, `lib/selector.ts` | Element targeting and stable CSS selectors |
+
+**Notes: storing, describing, shipping**
+
+| | |
+|---|---|
+| `context/QaContext.tsx` | The state everything hangs off — notes, capture mode, filters, notices |
+| `lib/idb.ts`, `lib/storage.ts`, `lib/storageHealth.ts` | Namespaced IndexedDB + localStorage, and what "storage full" means |
+| `lib/exportZip.ts`, `lib/shareZip.ts` | The ZIP: preamble, `notes.md`, `screenshots/` |
+| `lib/noteMarkdown.ts`, `lib/reproSpec.ts` | One note as Markdown, and its steps-to-reproduce |
+| `lib/fsSync.ts` | Writing each note to a real folder as it is saved |
+| `lib/collector.ts` | Posting each note to a server, when one is configured |
+| `lib/contextBuffer.ts` | Console/error/network ring buffer + per-element forensics (see SECURITY.md) |
+| `lib/duplicate.ts`, `lib/journeyMatch.ts`, `lib/coverage.ts` | Dedupe, route→step matching, red/amber/green tallies |
+
+**UI** — `components/`, all rendered inside the shadow root.
+
+`QaRoot` gates visibility and owns the hotkeys; `QaPanel` is the panel and its
+tabs; `CaptureMode` is the capture overlay and annotation card; `WalkHud`
+replaces the panel during a guided walkthrough. The rest are sections and
+controls within those. `lib/styles.ts` holds the design tokens, `lib/strings.ts`
+the English and Arabic copy, `icons/Icon.tsx` the icon set.
+
+**CLI** — `bin/`, built separately as Node CJS.
+
+`init.ts` dispatches; `detectors/` scan the target repo for routes and
+(safely-sourced) credentials; `generators/` emit the config and preamble;
+`utils/secretGuard.ts` is the hard blocklist that keeps real secrets files
+unread.

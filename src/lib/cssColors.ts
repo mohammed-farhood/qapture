@@ -115,7 +115,7 @@ function getProbe(): CanvasRenderingContext2D | null {
  */
 const conversionCache = new Map<string, string | null>();
 
-export function toRenderableColor(value: string): string | null {
+function toRenderableColor(value: string): string | null {
   const ctx = getProbe();
   if (!ctx || !value) return null;
   const cached = conversionCache.get(value);
@@ -156,7 +156,7 @@ function convertUncached(ctx: CanvasRenderingContext2D, value: string): string |
  * functions nest — `color-mix(in oklch, oklch(0.7 0.1 20), white)` is one
  * colour containing another, and a non-greedy regex would cut it in half.
  */
-export function neutralizeColorFunctions(value: string): string {
+function neutralizeColorFunctions(value: string): string {
   if (!value || !UNSUPPORTED_FN.test(value)) return value;
   const scanner = unsupportedFnScanner();
   let out = '';
@@ -187,7 +187,7 @@ export function neutralizeColorFunctions(value: string): string {
 }
 
 /** True when a value would make html2canvas throw. */
-export function hasUnsupportedColor(value: string | null | undefined): boolean {
+function hasUnsupportedColor(value: string | null | undefined): boolean {
   return !!value && UNSUPPORTED_FN.test(value);
 }
 

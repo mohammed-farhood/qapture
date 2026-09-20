@@ -53,21 +53,6 @@ export function walk(dir: string): string[] {
 }
 
 /**
- * Walk only the files directly inside `dir` (non-recursive).
- * Returns [] if `dir` doesn't exist.
- */
-export function walkShallow(dir: string): string[] {
-  try {
-    return fs
-      .readdirSync(dir, { withFileTypes: true })
-      .filter(e => e.isFile())
-      .map(e => path.join(dir, e.name));
-  } catch {
-    return [];
-  }
-}
-
-/**
  * Read a file and return its content as a UTF-8 string.
  * Returns '' on any error (missing file, permission denied, binary, etc.).
  * NEVER throws.
@@ -86,17 +71,6 @@ export function readFileSafe(filePath: string): string {
 export function dirExists(dirPath: string): boolean {
   try {
     return fs.statSync(dirPath).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Return true if `filePath` exists and is a regular file.
- */
-export function fileExists(filePath: string): boolean {
-  try {
-    return fs.statSync(filePath).isFile();
   } catch {
     return false;
   }

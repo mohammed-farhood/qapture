@@ -99,6 +99,11 @@ export type QaConfig = {
   /** Storage + DB namespace. Defaults to 'qapture'. */
   namespace?: string;
   /**
+   * Where `npx qapture2 shots` is listening, when you started it on a port
+   * other than the default 7017. Only needed if 7017 was already taken.
+   */
+  shotPort?: number;
+  /**
    * Override any subset of the colour palette.
    *
    * @deprecated Custom themes were removed in Qapture 0.3.0 — the widget now
@@ -185,6 +190,7 @@ export type QaConfig = {
 
 export type ResolvedConfig = {
   namespace: string;
+  shotPort: number;
   brand: { label: string };
   loginField: { en: string; ar?: string };
   credentials: QaCredential[];
@@ -214,6 +220,7 @@ export type ResolvedConfig = {
 
 const DEFAULTS = {
   namespace:     'qapture',
+  shotPort:      7017,
   brandLabel:    'Qapture',
   loginField:    { en: 'Username', ar: 'اسم المستخدم' } as { en: string; ar?: string },
   rtl:           false,
@@ -447,6 +454,7 @@ export function validateConfig(
     return {
       config: {
         namespace:    DEFAULTS.namespace,
+        shotPort:     DEFAULTS.shotPort,
         brand:        { label: DEFAULTS.brandLabel },
         loginField:   { ...DEFAULTS.loginField },
         credentials:  [],
@@ -470,6 +478,7 @@ export function validateConfig(
     return {
       config: {
         namespace:    DEFAULTS.namespace,
+        shotPort:     DEFAULTS.shotPort,
         brand:        { label: DEFAULTS.brandLabel },
         loginField:   { ...DEFAULTS.loginField },
         credentials:  [],
@@ -494,6 +503,14 @@ export function validateConfig(
   const namespace = isNonEmptyString(raw['namespace'])
     ? (raw['namespace'] as string).trim()
     : DEFAULTS.namespace;
+
+  // shotPort — where `npx qapture2 shots` is listening. Only a real TCP port
+  // is accepted; anything else silently keeps the default rather than sending
+  // the widget looking for a helper at a nonsense address.
+  const rawPort = Number(raw['shotPort']);
+  const shotPort = Number.isInteger(rawPort) && rawPort > 0 && rawPort < 65536
+    ? rawPort
+    : DEFAULTS.shotPort;
 
   // theme — removed in Qapture 0.3.0. Kept-but-ignored: warn, do not resolve.
   if (raw['theme'] !== undefined) {
@@ -582,6 +599,7 @@ export function validateConfig(
   return {
     config: {
       namespace,
+      shotPort,
       brand: { label: brandLabel },
       loginField,
       credentials,

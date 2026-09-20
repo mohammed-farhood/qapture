@@ -139,6 +139,8 @@ type LangMap = {
   exact_declined: string;
   exact_turn_on: string;
   exact_unsupported: string;
+  exact_native_hint: string;
+  exact_native_on: string;
   sync_title: string;
   sync_hint: string;
   sync_choose: string;
@@ -262,7 +264,7 @@ type LangMap = {
 
 export type StrKey = keyof LangMap;
 
-export const STR: Record<'en' | 'ar', LangMap> = {
+const STR: Record<'en' | 'ar', LangMap> = {
   en: {
     tab_notes:             'Notes',
     tab_logins:            'Logins',
@@ -389,6 +391,8 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     exact_declined:        'Staying on redrawn screenshots',
     exact_turn_on:         'Turn on',
     exact_unsupported:     'Needs a desktop browser — phones cannot photograph the screen',
+    exact_native_hint:     'Screenshots are real photographs, taken by the qapture helper on this machine with the same engine as Cmd+Shift+4. It never asks permission and leaves nothing recording, so it costs no battery. Nothing leaves your device.',
+    exact_native_on:       'Real screenshots on — local helper',
     sync_title:            'Save to a folder',
     sync_hint:             'Every note is written to your disk the moment you save it — nothing is lost if this browser dies.',
     sync_choose:           'Choose folder',
@@ -626,6 +630,8 @@ export const STR: Record<'en' | 'ar', LangMap> = {
     exact_off:             'العودة إلى اللقطات المُعاد رسمها',
     exact_declined:        'سنبقى على اللقطات المُعاد رسمها',
     exact_turn_on:         'تفعيل',
+    exact_native_hint:     'اللقطات صور حقيقية يلتقطها مساعد qapture على هذا الجهاز بالمحرك نفسه الذي يستخدمه Cmd+Shift+4. لا يطلب إذنًا ولا يترك أي تسجيل يعمل، فلا يستهلك البطارية. ولا شيء يغادر جهازك.',
+    exact_native_on:       'اللقطات الحقيقية مفعّلة — المساعد المحلي',
     exact_unsupported:     'يتطلب متصفح سطح مكتب — الهواتف لا تستطيع تصوير الشاشة',
     sync_title:            'الحفظ في مجلد',
     sync_hint:             'تُكتب كل ملاحظة على القرص لحظة حفظها — لا شيء يضيع إذا تعطّل المتصفح.',

@@ -1306,14 +1306,18 @@ export default function CaptureMode() {
                 either way — only the asking stops. */}
             {developerMode && <LocationReveal target={selection as QaTarget} />}
 
-            {/* Severity chips — developer mode only.
-                Asking clients to grade their own complaint is a question they
-                cannot answer and should not have to. They know it is wrong;
-                they do not know whether that makes it a "bug" or a "design"
-                issue, and a wrong answer makes the export lie. Everything
-                files as 'bug' and whoever does the work re-tags it in a
-                second. */}
-            {developerMode && <div
+            {/* Severity chips — always.
+                These were behind developer mode on the reasoning that a client
+                cannot grade their own complaint. True, but it made the tags
+                invisible to the person who CAN: the owner testing their own
+                app, who then had to re-tag every note afterwards from the list.
+                The row is three chips with a sensible default already selected,
+                so a tester who does not care can ignore it and still file a
+                'bug' — which is what they were filing before. Nobody is
+                blocked by a question they can decline to answer.
+                The quick-note form has shown the same row unconditionally
+                since 0.4; this only makes capture agree with it. */}
+            {<div
               role="group"
               aria-label={t('severity_label')}
               className="qa-flex qa-items-center qa-flex-wrap qa-gap-1.5"
@@ -1443,7 +1447,7 @@ export default function CaptureMode() {
             </div>
 
             <p className="qa-text-center qa-text-10 qa-text-slate-400">
-              {t('save_hint')}{developerMode ? ` · ${t('severity_keys')}` : ''}
+              {t('save_hint')} · {t('severity_keys')}
             </p>
           </div>
         </div>

@@ -61,11 +61,6 @@ function recogniser(): Ctor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-/** Whether dictation exists in this browser at all. */
-export function voiceSupported(): boolean {
-  return recogniser() !== null;
-}
-
 export default function VoiceButton({
   onText,
   onInterim,

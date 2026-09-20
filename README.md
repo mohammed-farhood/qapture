@@ -14,14 +14,9 @@ npm install qapture2
 
 ## Contents
 
-- [What's new in v0.7 "Walk"](#whats-new-in-v07-walk)
-- [What's new in v0.6 "Elbow Room"](#whats-new-in-v06-elbow-room)
-- [What's new in v0.5 "Loop"](#whats-new-in-v05-loop)
-- [What's new in v0.4 "Ledger"](#whats-new-in-v04-ledger)
-- [Breaking Changes (v0.3.0 "Graphite")](#breaking-changes-v030-graphite)
 - [Quick Start](#quick-start)
 - [Steps to reproduce, recorded for you](#steps-to-reproduce-recorded-for-you)
-- [Screenshots: two engines](#screenshots-two-engines)
+- [Screenshots: three engines](#screenshots-three-engines)
 - [Saving to a folder](#saving-to-a-folder)
 - [Where notes live, and what "storage full" means](#where-notes-live-and-what-storage-full-means)
 - [Config Reference](#config-reference)
@@ -40,98 +35,10 @@ npm install qapture2
 
 ---
 
-## What's new in v0.7 "Walk"
 
-| | |
-|---|---|
-| **The Walk** | One guided sequence over either your test plan or your notes, with a **Take me there** button that actually navigates. Pressing a Guide step now walks from it. |
-| **Walk the re-test queue** | Filter to Re-test, press Walk: each stop takes you to the page, lights up the spot, re-shoots it and takes your verdict. |
-| **A link that starts it** | `?qa=walk:retest` opens the app with the re-test round already running — send that instead of instructions. |
-| **"Doesn't apply"** | A third grade for plan steps that aren't relevant to this build. Removed from coverage totals rather than counted either way. |
-| **Alt+1/2/3** | Set severity while typing a note. |
-| **Session summary** | The export leads with "12 points · 5 bugs · 4 pages · over 38 minutes". |
 
-**Two fixes from real use:** the widget could be hidden underneath an app's own high-z-index chrome (it now sits above everything, in its own stacking context, without ever swallowing a click), or removed outright by a framework clearing `<body>` (it now puts itself back). And the panel's open state, tab and walk position survive a reload — the notes always did, the *place in the work* didn't.
 
----
 
-## What's new in v0.6 "Elbow Room"
-
-| | |
-|---|---|
-| **Bulk actions** | Select many notes → mark them Open / Re-test / Verified, or delete them, in one pass with a single undo. |
-| **Compact list** | One line per note, expanding in place — for when a session has thirty of them. |
-| **Move the panel** | Dock it to the other edge, or collapse it to its header strip, so it stops covering the app you're testing. |
-| **Whole-screen capture** | Grab everything visible without dragging a box across the screen. |
-
----
-
-## What's new in v0.5 "Loop"
-
-Not a breaking release. Notes from 0.3.x and 0.4.x read back unchanged.
-
-| | |
-|---|---|
-| **Steps to reproduce, written for you** | Every note now carries what the tester clicked, typed into, toggled and navigated on the way to it. Never what they typed — see [below](#steps-to-reproduce-recorded-for-you). |
-| **Draw on the screenshot** | Tap the shot, add an arrow / box / pen mark in one of four colours. Burned into the image, so it survives everywhere the screenshot goes. Never interrupts the capture flow. |
-| **A capture shortcut** | `Alt+Shift+C` (`Option+Shift+C` on macOS) jumps straight into capture from anywhere; press again to back out. Configurable via `captureHotkey`. |
-| **A re-test queue** | Note status is now Open → **Re-test** → Verified. "Re-test" is the state that tells a tester what to check on the next build, with a filter chip and a header badge so the queue can't be missed. |
-| **Automatic backups** | A backup ZIP downloads every 5 notes, for everyone who can't use folder saving (Safari, Firefox, phones). Pauses itself while folder saving is on. |
-| **Catches what you miss** | When the page throws an error or a request fails, Qapture offers a one-tap capture with the error already written in — the bug nobody reported because nobody saw it. |
-| **Before / after on a re-test** | A note in the re-test queue gets a "Re-test now" button that re-shoots the same target, so "is it actually fixed?" is answered with a picture. |
-| **Share (phones)** | Hands the campaign ZIP to the OS share sheet — WhatsApp, Mail, Files, AirDrop — because a "download" on a phone lands where nobody finds it. |
-| **A welcome card** | Three lines, shown once, for someone who was just handed a beta link. |
-
----
-
-## What's new in v0.4 "Ledger"
-
-v0.4 is **not** a breaking release — every 0.3.x config, note and export keeps
-working, and each new feature is off until someone turns it on.
-
-| | |
-|---|---|
-| **Screenshots frame the right thing** | Capture mode's own scroll lock used `overflow:hidden`, which **unstuck every `position: sticky` header** just before the screenshot was rendered — measured at 20px of wrongness in a 40px capture, now 0.0px. See [Screenshots: two engines](#screenshots-two-engines). |
-| **Pixel-exact capture (opt-in)** | A real photograph rather than a redraw — so canvas/WebGL, video, cross-origin iframes and exotic CSS all come out right. Taken the instant capture opens, then the screen is handed straight back: one frame per capture, nothing recording in between. Desktop browsers. |
-| **Save straight to a folder** | Pick a QA folder once; every note is written to disk as it's saved, organised `Project / Campaign / notes + screenshots + REPORT.md`. See [Saving to a folder](#saving-to-a-folder). |
-| **Storage that explains itself** | A real usage meter, WebP screenshots (~10× smaller), a request to stop the browser evicting your data, and a "drop screenshots, keep findings" recovery valve. |
-| **A usable notes list** | Severity/status filter chips with counts, text search, and a "this page" toggle. |
-| **Simple mode** | Hides Logins and Guide for a tester who was just handed a link. |
-| **Minimized capture** | A small box next to your selection instead of the full card — type, Enter, move on. |
-
----
-
-## Breaking Changes (v0.3.0 "Graphite")
-
-**v0.3.0 is a breaking release.**
-
-- **Custom themes are removed.** The widget now ships one fixed, self-contained
-  dark design ("Graphite") — there is no more per-project colour override. A
-  `theme` key left in `qa.config` is no longer read; `validateConfig` ignores
-  it and pushes this exact warning:
-
-  > theme: custom themes were removed in Qapture 0.3.0 — the widget now ships
-  > one fixed, self-contained design. The "theme" key is ignored; remove it
-  > from your qa.config to silence this warning.
-
-  Delete the `theme` block from your config — see the updated
-  [`examples/minimal.config.ts`](./examples/minimal.config.ts) and
-  [`examples/stitch-and-sell.config.ts`](./examples/stitch-and-sell.config.ts),
-  both of which had their `theme` block removed entirely. The `QaTheme` type
-  is still exported so old config objects keep type-checking, but it is
-  `@deprecated` and has no runtime effect — see [`QaTheme`](#qatheme-deprecated).
-- **New:** a guided, step-by-step walkthrough over your journey ("test-along"),
-  severity + status on notes, a one-click "Copy as agent prompt", and an
-  undo-capable delete/clear system. See the sections below.
-- **New, and worth reading if you care about privacy:** an (on-by-default,
-  opt-out) runtime context capture that records recent console errors and
-  failed network calls into each note. See
-  [Runtime Context Capture](#runtime-context-capture) and
-  [SECURITY.md § Runtime context capture](./SECURITY.md#runtime-context-capture).
-
-Full details: [CHANGELOG.md](./CHANGELOG.md#030-graphite--unreleased).
-
----
 
 ## Quick Start
 
@@ -265,168 +172,124 @@ capture — no listener is installed at all. The complete guarantees are in
 
 ---
 
-## Screenshots: two engines
+## Screenshots: three engines
 
-Qapture can produce a screenshot two different ways. Both crop the exact
-viewport rectangle you selected; they differ in where the pixels come from.
+Every engine crops the exact viewport rectangle you selected. They differ in
+where the pixels come from, and that difference is the whole story.
 
-### `dom` — the default, works everywhere
+| | Prompts you | Real pixels | Works in |
+|---|---|---|---|
+| **`native`** — local helper | never | yes | any browser, macOS |
+| **`exact`** — browser screen capture | every capture | yes | Chromium, Safari, Firefox |
+| **`dom`** — html2canvas redraw | never | no, a reconstruction | everywhere |
 
-html2canvas **re-renders a clone** of your DOM into an offscreen frame and
-rasterises it. No permission prompt, works in every browser, and it is the
-only option on Firefox, Safari and mobile.
+Qapture picks the best one available and tells you in the capture card which
+one it used.
 
-Because it is a reconstruction rather than a photograph, it has limits worth
-knowing:
+### `native` — real screenshots, no prompt (recommended, macOS)
+
+Run this next to your dev server and leave it going:
+
+```bash
+npx qapture2 shots
+```
+
+It drives `/usr/sbin/screencapture` — the binary behind Cmd+Shift+4. macOS
+asks the terminal for Screen Recording permission **once**, and never again.
+
+That single fact is why this engine exists. `getDisplayMedia`, which the
+`exact` engine uses, prompts on *every* call by design; no flag or prior grant
+changes it. Each prompt restarts the OS capture pipeline, which on a laptop is
+heat and a machine that feels like it is recording continuously. The helper
+takes a picture and exits — nothing is left running between shots.
+
+The widget finds it automatically. Nothing to configure, and nothing to turn
+on in Settings, because there is no prompt to opt into.
+
+**What it will answer.** It binds to `127.0.0.1` only, so nothing off your
+machine can reach it. It answers `http://localhost:*` and `http://127.0.0.1:*`
+without being asked. Any other origin — a staging site you are testing
+against, say — must be named explicitly:
+
+```bash
+npx qapture2 shots --allow https://staging.example.com
+```
+
+Origins not on that list get no CORS headers at all, so the browser blocks the
+request before the page sees a reply. Add `--port 7018` (and `shotPort: 7018`
+in your config) if 7017 is taken.
+
+**If captures come back as wallpaper with no windows in them**, the permission
+was not granted: System Settings → Privacy & Security → Screen Recording, tick
+your terminal, restart it.
+
+### `exact` — real pixels, at a prompt per screenful
+
+The browser's own Screen Capture API. Turn it on from the capture hint bar
+("Pixel-exact shots") or Settings; turning it on does not prompt, the first
+capture does.
+
+One grant covers several notes: "Save + next" (⌘/Ctrl + Shift + Enter) files
+the note and puts you straight back to framing the same photograph. Worth
+knowing in Safari, where the per-site Screen Sharing setting offers only *Ask*
+and *Deny* — there is no *Allow*, so the only lever is needing fewer captures.
+
+Chromium shares this tab directly (`preferCurrentTab`), so the frame *is* the
+viewport — measured at 0.0px error. Safari and Firefox can only share a window
+or a screen; see below for how the page is found inside that.
+
+### `dom` — the fallback, works everywhere
+
+html2canvas re-renders a clone of your DOM and rasterises it. No prompt, every
+browser, and the only option on mobile. Because it is a reconstruction rather
+than a photograph:
 
 - `<canvas>` / WebGL, `<video>` and cross-origin `<iframe>` content cannot be
-  read and render blank or approximated;
+  read, and come out blank or approximated;
 - CSS the cloner doesn't implement (some `backdrop-filter`, `mask`, exotic
   gradients) renders differently;
-- anything the clone lays out differently is a shot that doesn't match.
+- an element inside a scroll container is clipped to what is actually painted,
+  because the rest of it does not exist as pixels anywhere.
 
-That last category is what v0.4 fixed. The culprit was Qapture's own scroll
-lock: freezing the page with `overflow: hidden` on `<html>` takes away the
-scrollport that `position: sticky` elements stick to, so every stuck header
-and toolbar jumped back to its natural document position in the instant
-between you choosing a rectangle and the screenshot being rendered. The lock
-now swallows scroll events instead of touching CSS, and stuck elements are
-additionally pinned in html2canvas's clone (it doesn't implement sticky
-either).
+If a shot looks simulated rather than photographed, this is the engine that
+took it — start the helper above and it will not be.
 
-You can measure this yourself — `npm run capture-accuracy-test` captures a
-rectangle straddling a colour boundary and reports the error in pixels. It
-reads 0.0px on 0.4.0 and 20px (of a 40px capture) on 0.3.1.
+### How a photograph is aligned to the page
 
-**v0.7.1 fixed a second, much louder failure: no screenshot at all.**
-html2canvas ships its own CSS colour parser, and it predates CSS Color 4.
-Handed `oklch(...)` it throws, and the throw aborts the whole render — so the
-tester saw "Screenshot failed" and a Retry that re-ran the identical render and
-could never succeed. Tailwind v4 emits `oklch()` for its entire default
-palette and shadcn/ui inherits it, so on those stacks screenshots never worked
-at all, on any page. `lab()`, `lch()`, `oklab()`, `color()` and `color-mix()`
-failed the same way.
+`native` and `exact`-on-Safari/Firefox both hand back a frame containing the
+browser's toolbar, and maybe a whole desktop. Working out where the page sits
+inside that by arithmetic (`outerHeight - innerHeight`, `screenX`,
+`devicePixelRatio`) is a stack of guesses, and a wrong guess is a screenshot
+confidently showing the *wrong pixels* — worse than no screenshot, because
+nobody double-checks one that looks fine.
 
-Qapture now rewrites those colours to plain sRGB inside the clone html2canvas
-renders — never in your page. The conversion paints each colour onto a 1×1
-canvas and reads the pixel back rather than reading `fillStyle` as a string,
-because Chrome round-trips `oklch(...)` unchanged. Gradients and shadows are
-rewritten in place, and a render that still throws is retried once with
-decoration stripped. `npm run modern-css-test` proves it, and proves itself:
-it first asserts that raw html2canvas *still* dies on the same fixture.
+So Qapture measures instead. It covers the page with an opaque card carrying
+four known colours at four known corners, photographs that, and solves for
+scale and origin from where the colours landed. Toolbar height, pixel ratio
+and monitor layout never enter the arithmetic, so they cannot be wrong in it.
+You see a dark flash for a fifth of a second.
 
-**v0.7.2 fixed the last of the mis-framing: clicking an element only captured
-the part of it that was on screen.** Dragged regions are clamped into the
-viewport before capture, so they were always safe — but an element *pick* is a
-raw `getBoundingClientRect()`, and a table column, a sidebar, a long form or a
-wide toolbar routinely extends past the fold. You got a fragment. And when the
-element started *above* the viewport, the crop slid down the page to fill its
-height, so the screenshot was the right size showing the wrong content — a
-failure with nothing on screen to reveal it.
+Two corners solve the mapping and the other two verify it. **A calibration
+that cannot be verified is refused** — the frame is dropped and the capture
+falls back to `dom`, visibly, rather than returning a confidently wrong image.
 
-Captures now render the union of the viewport and the selection, so an element
-that leaves the screen in any direction is rendered whole, up to 4000px per
-side (past a ~64 MB device-pixel render budget the scale drops, not the
-framing). The exact engine can't photograph off-screen pixels, so there the
-selection is trimmed to the visible part instead — cropped, never displaced.
-`npm run element-capture-test` measures all four cases.
+On the `native` path the measurement is cached against the window's geometry,
+so that flash happens once a session rather than once a capture.
 
-**v0.7.3 corrected the half of that which was wrong.** Chasing an element's
-whole box is only right when the whole box is *drawn*. Inside a scroll
-container it isn't: a dashboard scrolls an inner `overflow:auto` box, so a
-3000px column inside a 700px box is 700px of pixels and 2300px of nothing.
-0.7.2 rendered the nothing — measured at 23.3% element, 76.7% empty page, with
-the real content squeezed from 1040px wide to 312px by the long-edge cap.
+### Common to both photograph engines
 
-Captures are now clipped to what the browser actually paints: the element's box
-intersected with every ancestor that clips it, on either axis, up to `<html>`.
-The viewport is deliberately not a clipper, so a long form on an ordinary
-scrolling page still captures in full. Same fixture after: 100% element, full
-1040×1400. The hover outline is clipped identically, so what you highlight is
-what you get.
-
-### "The screenshot looks simulated"
-
-Because by default it is. The DOM engine re-draws your page; fonts shift,
-shadows and gradients flatten, `<canvas>` and video come out blank. From
-v0.7.3 a redrawn capture says so under the preview and offers a one-tap **Use
-real screenshots**, which grants tab-share and re-shoots the same selection
-with the exact engine below.
-
-**From v0.7.6 this works in Safari and Firefox too.** They have no tab capture,
-but they can share a *window*, and Qapture works out where your page sits
-inside that frame — by measuring, not by guessing at toolbar heights. On the
-first capture the page is covered for a fifth of a second by a dark card with
-four coloured corners; the engine photographs it, finds the corners and solves
-for the mapping. That dark flash is the measurement. If it can't verify the
-result it refuses the grant and falls back to redrawing, because a screenshot
-of the wrong pixels is worse than no screenshot.
-
-Chromium still takes the direct path (`preferCurrentTab`), unchanged and still
-0.0px. Only iOS/iPadOS have no Screen Capture API at all, and there the card
-says so.
-
-**If your app draws anything with inline SVG, a `<canvas>`, or video, turn real
-screenshots on.** A redraw will render an SVG chart as bare outlines and a
-canvas as a blank box, every time, in any tool built this way.
-
-### `exact` — opt-in, pixel-for-pixel
-
-Uses the Screen Capture API to photograph **the viewport's real composited
-pixels**, then crops your rectangle out arithmetically. Nothing is
-re-rendered, so it cannot mis-frame, and everything above renders correctly
-because it was never re-drawn in the first place.
-
-**The photograph is taken when you open capture mode, not when you finish
-dragging.** That ordering is the whole design, and it decides three things at
-once:
-
-- **Nothing keeps recording.** The stream is acquired, one frame is taken, and
-  the track is stopped — about a third of a second — so the browser's sharing
-  indicator blinks and goes. Before 0.8 the stream was held for the entire
-  session so it would only prompt once, which on Safari (where the only option
-  is sharing a window or a whole screen) meant the indicator stayed lit and the
-  capture pipeline kept running behind every page. One prompt per capture is
-  the price of not recording you between them.
-- **You crop what you can see.** The still is shown under the capture scrim
-  while you frame, so a page that animates cannot move between the moment you
-  point at something and the moment it is cropped — and a hover state, an open
-  dropdown or a tooltip survives being framed instead of being dismissed by the
-  mouse moving to start the drag.
-- **Whether this shot is a photograph or a redraw is settled before you
-  start.** A still is either held or it is not. Previously the exact engine
-  reached for a frame at the end, from a stream that could quietly have died,
-  and fell through to `dom` without saying so — which is why the same click
-  could photograph one time and redraw the next.
-
-Everything else:
-
-- **Turn it on** from the capture hint bar ("Pixel-exact shots") or Settings.
-  Turning it on does not prompt; the first capture does.
-- **One prompt can cover several notes.** "Save + next" on the annotation card
-  (⌘/Ctrl + Shift + Enter) files the note and puts you back to framing the same
-  photograph. Worth knowing in **Safari**, where the per-site Screen Sharing
-  setting offers only *Ask* and *Deny* — there is no *Allow*, so every capture
-  prompts and the only lever is needing fewer captures. Three bugs on one
-  screen, one prompt.
-- Nothing leaves the device — the frame is cropped locally and never uploaded.
+- **The picture is taken when you enter capture mode, not when you finish
+  dragging.** You then crop a frozen still, so the page cannot move under you,
+  and a hover state, an open dropdown or a tooltip survives being framed
+  instead of being dismissed by the mouse moving to start the drag.
+- Nothing leaves the device. The frame is cropped locally and never uploaded.
 - The QA overlay is hidden for the captured frame, so the scrim, the selection
   outline and the annotation card never appear in the image.
-- **Chromium** shares this tab directly (`preferCurrentTab`), so the frame *is*
-  the viewport — measured at 0.0px error.
-- **Safari and Firefox** have no tab capture, only a window or a screen. That
-  frame does contain the page, and Qapture finds it by *measuring*: it covers
-  the page with an opaque card carrying four known colours at four known
-  corners, photographs that, and solves for scale and origin from where the
-  colours landed. Toolbar height, pixel ratio and monitor layout all cancel
-  out. You see a dark flash for a fifth of a second. Two corners solve and the
-  other two verify — and a calibration that cannot be verified is **refused**,
-  falling back to `dom` rather than returning a confidently wrong image.
 - The still belongs to the viewport it was taken in. Resize the window
-  mid-capture and the crop is refused for the same reason.
+  mid-capture and the crop is refused rather than guessed.
 - Off-screen pixels do not exist in a photograph at any price, so a selection
-  that runs past the fold is trimmed to what was visible. The `dom` engine
-  re-renders and has no such limit.
+  running past the fold is trimmed to what was visible. `dom` re-renders and
+  has no such limit.
 
 ---
 
@@ -531,7 +394,8 @@ All fields are optional. Passing an empty object (or no config at all) produces 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `namespace` | `string` | `'qapture'` | Prefix for IndexedDB (`${namespace}-db`) and localStorage keys (`${namespace}:*`). Use a unique value per project to avoid storage collisions on the same origin. |
-| `theme` | `Partial<QaTheme>` (**deprecated, ignored**) | — | **Removed in v0.3.0.** `validateConfig` ignores this key (after pushing a warning) — the widget always renders the fixed Graphite design. Delete it from your config. See [Breaking Changes](#breaking-changes-v030-graphite). |
+| `shotPort` | `number` | `7017` | Where `npx qapture2 shots` is listening. Only needed if you started the helper on another port. |
+| `theme` | `Partial<QaTheme>` (**deprecated, ignored**) | — | **Removed in v0.3.0.** `validateConfig` ignores this key (after pushing a warning) — the widget always renders the fixed Graphite design. Delete it from your config. |
 | `brand` | `{ label?: string }` | `{ label: 'Qapture' }` | Panel heading label. |
 | `loginField` | `{ en: string; ar?: string }` | `{ en: 'Username', ar: 'اسم المستخدم' }` | Display label for the login column in the Credentials tab. |
 | `credentials` | `QaCredential[]` | `[]` | DEV/TEST/SEED login rows shown in the Credentials tab. |
@@ -540,8 +404,8 @@ All fields are optional. Passing an empty object (or no config at all) produces 
 | `rtl` | `boolean` | `false` | When `true`, the UI initialises in Arabic / RTL mode. |
 | `visible` | `boolean \| undefined` | `undefined` | `true` = always show; `false` = always hide; `undefined` = dev-only (hidden in production). |
 | `alwaysVisible` | `boolean` | `false` | When `true`, overrides `visible` and shows the panel even in production. |
-| `hotkey` | `string` | `'shift+alt+q'` |
-| `captureHotkey` | `string` | `'shift+alt+c'` — jumps straight into capture mode | Keyboard shortcut that toggles the panel open/closed. |
+| `hotkey` | `string` | `'shift+alt+q'` | Keyboard shortcut that toggles the panel open/closed. |
+| `captureHotkey` | `string` | `'shift+alt+c'` | Keyboard shortcut that jumps straight into capture mode. |
 | `captureContext` | `boolean` | `true` | Whether to record ambient runtime context (recent console errors/warnings, uncaught errors, failed network calls, and an environment snapshot) into each note as it's captured. Set to `false` to disable entirely. See [Runtime Context Capture](#runtime-context-capture). |
 
 ### `QaTheme` (deprecated)
@@ -806,10 +670,16 @@ The CLI scaffolds `qa.config`, the agent skill, and `AGENTS.md` into any reposit
 
 ```bash
 npx qapture2 init [target-dir] [--force]
+npx qapture2 shots [--port 7017] [--allow <origin>]
 npx qapture2 version
 ```
 
 `target-dir` defaults to the current directory. `--force` overwrites existing `qa.config.*` and `qa.preamble.md` (SKILL.md is always refreshed regardless).
+
+`shots` is the local screenshot helper — a loopback server that runs
+`screencapture` so screenshots are real photographs and never prompt. macOS
+only; see [Screenshots](#screenshots-three-engines). It is the one command
+here that keeps running: leave it up while you test.
 
 ### What it detects and generates
 
@@ -817,7 +687,7 @@ npx qapture2 version
 |---|---|
 | Route detection | Scans `src/`, `app/`, `pages/` for route files; generates journey lanes with placeholder `'green'` steps for you to grade |
 | Credential detection | Scans `.env.example` and seeder/seed files for test logins. **Never reads `.env`, `.env.local`, `.env.production`, or any real secrets file** — enforced by a hard blocklist |
-| `qa.config.js` / `.ts` | Generated based on detections; contains TODO comments for manual grading. No `theme` block is emitted — v0.3.0 removed custom themes entirely (see [Breaking Changes](#breaking-changes-v030-graphite)) |
+| `qa.config.js` / `.ts` | Generated based on detections; contains TODO comments for manual grading. No `theme` block is emitted — v0.3.0 removed custom themes entirely (see CHANGELOG) |
 | `qa.preamble.md` | Starter preamble file; fill with project context and paste into `config.preamble` |
 | `.claude/skills/qapture/SKILL.md` | Claude Code agent skill (always refreshed — this is a vendor artifact) |
 | `AGENTS.md` | Idempotent merge with sentinel guards; safe to run repeatedly |

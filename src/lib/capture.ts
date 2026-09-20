@@ -628,7 +628,7 @@ function usedViewportOverflow(rootValue?: string, bodyValue?: string): string {
  * The part of a selection that is actually on screen, or null when none of it
  * is. Used by the exact engine, which cannot invent off-viewport pixels.
  */
-export function intersectViewport(rect: QaRect): QaRect | null {
+function intersectViewport(rect: QaRect): QaRect | null {
   const { vw, vh } = viewportSize();
   const left = Math.max(0, rect.left);
   const top = Math.max(0, rect.top);

@@ -16,7 +16,60 @@ There is no:
 - Remote logging or error reporting
 - External CDN dependency at runtime
 - Model API call or AI provider credential
-- Webhook, callback URL, or server-side component
+- Webhook or callback URL
+
+Two things are allowed to leave the page, and only because you asked for them:
+
+- **The collector** (`collector` in your config) posts each note to a URL you
+  name, with a token you issue. Absent by default.
+- **The screenshot helper** (`npx qapture2 shots`) is a server on your own
+  machine's loopback interface. It is a separate process you start yourself,
+  it has its own section below, and nothing reaches it unless you run it.
+
+Neither is on unless you turn it on, and neither talks to us.
+
+### The screenshot helper (`npx qapture2 shots`)
+
+This is the only part of Qapture that can photograph the machine it runs on,
+so it is worth being precise about.
+
+**What it is.** A loopback HTTP server that shells out to
+`/usr/sbin/screencapture` — the binary behind Cmd+Shift+4 — and returns the
+PNG. It exists because the browser's own `getDisplayMedia` prompts on every
+call and restarts the OS capture pipeline each time.
+
+**What it will answer.**
+
+- It binds to `127.0.0.1` only. Nothing off the machine can reach it, on any
+  network.
+- It answers `http://localhost:*` and `http://127.0.0.1:*` — your dev server.
+- Any other origin must be named with `--allow <origin>` at startup.
+- An origin that is not allowed gets a 403 **and no CORS headers at all**, so
+  a browser blocks the response before the page can read it. A site you happen
+  to have open in another tab therefore cannot ask it for a picture of your
+  screen.
+- Requests with no `Origin` header are refused.
+
+**What it will not do.**
+
+- It does not capture on a timer, record video, or hold a capture session open.
+  One request, one `screencapture` process, which exits.
+- It rejects malformed rectangles and anything larger than 20000 points a side
+  rather than passing them on.
+- The temp file is unlinked before the response is written, so a screenshot of
+  your screen does not outlive the request in a world-readable directory.
+- It sends nothing anywhere. The PNG goes back to the page that asked, and
+  that page is yours.
+
+**Permission.** macOS asks the terminal running it for Screen Recording
+permission once. That grant belongs to your terminal, not to Qapture, and you
+can revoke it in System Settings → Privacy & Security → Screen Recording.
+
+**Stopping it.** Ctrl+C. It runs only while you leave it running, and the
+widget silently falls back to the browser's engines when it is not there.
+
+These guarantees are covered by `scripts/shot-server-smoke.mjs`, which is part
+of `npm run verify`.
 
 ### Data stays in the browser
 

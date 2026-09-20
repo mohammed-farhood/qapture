@@ -54,11 +54,60 @@ export type ExportConfig = {
 // Per-point body — delegated to noteMarkdown.ts (see buildAndDownloadZip)
 // ---------------------------------------------------------------------------
 
-function safeName(name: string | undefined, stamp: string): string {
-  const fallback = `qa-notes-${stamp.slice(0, 10)}`;
+/**
+ * The archive's name, when nobody typed one.
+ *
+ * WHY THIS IS NOT `qa-notes-<date>`
+ * ---------------------------------
+ * That name was the same on every project, so the second export of the day
+ * landed as `qa-notes-2026-09-20 (1).zip` and the developer opening it had to
+ * guess which app it came from. Both facts needed to identify an archive —
+ * which project, and which run — were already known here and thrown away.
+ *
+ * So: `<project>-qa-2026-09-20-1432`. Date first inside the run so archives
+ * from one project sort chronologically, and minutes because two exports an
+ * hour apart is a normal afternoon.
+ */
+function autoName(project: string | undefined, stamp: string): string {
+  // ISO 8601: 2026-09-20T14:32:07.123Z → date, then hours and minutes.
+  const date = stamp.slice(0, 10);
+  const time = stamp.slice(11, 16).replace(':', '');
+  const slug = (project ?? '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40);
+  const when = time ? `${date}-${time}` : date;
+  return slug ? `${slug}-qa-${when}` : `qa-notes-${when}`;
+}
+
+/**
+ * The project's own name, as the archive should spell it.
+ *
+ * `preamble.projectName` is the field someone actually filled in for this app.
+ * `brand.label` is deliberately NOT a fallback: it defaults to "Qapture", so
+ * using it would name every unconfigured project's export after the tool
+ * instead of the app — which is the problem this is here to fix.
+ */
+export function exportProjectName(config?: ExportConfig): string | undefined {
+  const name = config?.preamble?.projectName;
+  return typeof name === 'string' && name.trim() ? name.trim() : undefined;
+}
+
+function safeName(name: string | undefined, stamp: string, project?: string): string {
   let base = (name ?? '').trim().replace(/\.zip$/i, '');
   base = base.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').slice(0, 80).trim();
-  return `${base || fallback}.zip`;
+  return `${base || autoName(project, stamp)}.zip`;
+}
+
+/**
+ * The name the export field should start with, so the tester sees what they
+ * are about to get rather than an empty box and a surprise.
+ */
+export function suggestedExportName(project: string | undefined, stamp: string): string {
+  return autoName(project, stamp);
 }
 
 // ---------------------------------------------------------------------------
@@ -665,7 +714,7 @@ export async function buildAndDownloadZip(
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = safeName(filename, stamp);
+  a.download = safeName(filename, stamp, exportProjectName(config));
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -673,8 +722,12 @@ export async function buildAndDownloadZip(
 }
 
 /** The filename a shared/downloaded archive should carry. */
-export function exportFileName(filename: string | undefined, stamp: string): string {
-  return safeName(filename, stamp);
+export function exportFileName(
+  filename: string | undefined,
+  stamp: string,
+  project?: string,
+): string {
+  return safeName(filename, stamp, project);
 }
 
 /**

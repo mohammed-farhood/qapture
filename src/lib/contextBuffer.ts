@@ -785,7 +785,3 @@ export function collectTargetForensics(el: Element): QaTargetForensics {
   return out;
 }
 
-/** Test seam: true when the wrappers are currently in place. */
-export function isContextCaptureInstalled(): boolean {
-  return installed;
-}

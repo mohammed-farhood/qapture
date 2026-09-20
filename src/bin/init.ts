@@ -8,6 +8,7 @@
  *
  * Commands:
  *   qapture init [target-dir] [--force]   ← main command
+ *   qapture shots [--port N] [--allow ...] ← local screenshot helper (macOS)
  *   qapture version                        ← print version
  *
  * The #!/usr/bin/env node shebang is injected by tsup's banner config.
@@ -24,6 +25,7 @@ import AGENTS_SECTION from '../artifacts/AGENTS_SECTION.md';
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
 import { parseArgs } from './utils/args.js';
+import { createShotServer } from './shotServer.js';
 import { writeIfAbsent, writeAlways } from './utils/writeIdempotent.js';
 import { mergeAgentsMd } from './utils/mergeAgentsMd.js';
 
@@ -122,10 +124,14 @@ function printUsage(): void {
     `\nqapture CLI v${PKG_VERSION}\n` +
     `\nUsage:\n` +
     `  qapture init [target-dir] [--force]   Scaffold config + artifacts into target-dir\n` +
+    `  qapture shots [--port N] [--allow O]   Real screenshots without the browser prompt (macOS)\n` +
     `  qapture version                        Print version\n` +
     `\nOptions:\n` +
     `  --force  Overwrite qa.config.* and qa.preamble.md if they already exist\n` +
     `           (SKILL.md is always refreshed regardless of --force)\n` +
+    `  --port   Port for \`shots\` to listen on (default 7017)\n` +
+    `  --allow  Extra origin \`shots\` will answer, repeatable.\n` +
+    `           Loopback (http://localhost:*) is always allowed.\n` +
     `\nDocs: ${REPO_URL}\n\n`,
   );
 }
@@ -213,6 +219,83 @@ function printSummary(
   );
 }
 
+// ── shots ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Start the local screenshot helper and explain what it is.
+ *
+ * The explanation is not decoration. This process can photograph the screen,
+ * so anyone running it deserves to see, on one screen, what it will answer and
+ * who it will answer. Nobody reads a README before running a dev command.
+ */
+function startShotServer(port: number, allow: string[]): void {
+  if (process.platform !== 'darwin') {
+    process.stderr.write(
+      `\nqapture shots needs macOS — it drives /usr/sbin/screencapture,\n` +
+      `the binary behind Cmd+Shift+4. On ${process.platform}, Qapture falls back\n` +
+      `to the browser's own screen capture.\n\n`,
+    );
+    process.exit(1);
+  }
+
+  const server = createShotServer({ port, allow, verbose: true });
+
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      process.stderr.write(
+        `\nPort ${port} is already in use.\n\n` +
+        `  If that is another copy of this helper, you are already running one.\n` +
+        `  Otherwise pick a different port:  npx qapture2 shots --port 7018\n` +
+        `  (and set  shotPort: 7018  in your Qapture config, so the widget looks there)\n\n`,
+      );
+    } else {
+      process.stderr.write(`\nqapture shots failed to start: ${err.message}\n\n`);
+    }
+    process.exit(1);
+  });
+
+  server.listen(port, '127.0.0.1', () => {
+    process.stdout.write(
+      `\n${DIVIDER}\n` +
+      `  qapture shots — real screenshots, no prompt, no heat\n` +
+      `${DIVIDER}\n` +
+      `\n` +
+      `  Listening   127.0.0.1:${port}  (loopback only — not reachable from the network)\n` +
+      `  Engine      /usr/sbin/screencapture — the same one Cmd+Shift+4 uses\n` +
+      `  Answering   http://localhost:*  and  http://127.0.0.1:*\n` +
+      (allow.length
+        ? `              ${allow.join('\n              ')}\n`
+        : `              (add others with --allow https://your-site.example)\n`) +
+      `\n` +
+      `  First run: macOS will ask this terminal for Screen Recording permission.\n` +
+      `  Grant it once. It is never asked again, and no capture pipeline is left\n` +
+      `  running between shots — that is the whole point of moving off the\n` +
+      `  browser's getDisplayMedia.\n` +
+      `\n` +
+      `  If captures come back as wallpaper with no windows in them, the\n` +
+      `  permission was not granted: System Settings → Privacy & Security →\n` +
+      `  Screen Recording, tick your terminal, then restart it.\n` +
+      `\n` +
+      `  Leave this running while you test. Ctrl+C to stop.\n` +
+      `${DIVIDER}\n\n`,
+    );
+  });
+
+  const shutdown = () => {
+    process.stdout.write(`\n  qapture shots stopped.\n\n`);
+    server.close(() => process.exit(0));
+    // A capture in flight must not hold the process open indefinitely.
+    setTimeout(() => process.exit(0), 500).unref();
+  };
+  // The real process object, not the `node:process` namespace this module
+  // imports: a namespace import is a sealed object, and addListener writes a
+  // counter onto whatever it is given. Bundled to CJS that throws on the
+  // first signal handler — which is to say, at startup.
+  const proc = globalThis.process;
+  proc.on('SIGINT', shutdown);
+  proc.on('SIGTERM', shutdown);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 function main(argv: string[]): void {
@@ -228,6 +311,12 @@ function main(argv: string[]): void {
   if (args.command === 'help') {
     printUsage();
     process.exit(0);
+  }
+
+  // ── shots ──────────────────────────────────────────────────────────────────
+  if (args.command === 'shots') {
+    startShotServer(args.port, args.allow);
+    return; // the server keeps the process alive
   }
 
   // ── init ───────────────────────────────────────────────────────────────────

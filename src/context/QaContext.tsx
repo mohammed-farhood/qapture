@@ -64,12 +64,14 @@ import { createStorage } from '../lib/storage';
 import { createIdb } from '../lib/idb';
 import { sendToCollector } from '../lib/collector';
 import { translate, pick as pickFn } from '../lib/strings';
-import { buildAndDownloadZip, buildZipBlob, exportFileName } from '../lib/exportZip';
+import { buildAndDownloadZip, buildZipBlob, exportFileName, exportProjectName } from '../lib/exportZip';
 import { canShareFiles, shareZipFile, type ShareOutcome } from '../lib/shareZip';
 import { captureRegion } from '../lib/capture';
 import {
   armExactCapture,
   disarmExactCapture,
+  exactCaptureIsFree,
+  refreshNativeAvailability,
   freezeViewport,
   freezeOrReuse,
   stillIsCurrent,
@@ -609,6 +611,12 @@ export type QaContextValue = {
 
   // Export
   exportZip: (filename?: string) => Promise<void>;
+  /**
+   * The app's own name, from `preamble.projectName`, or undefined when nobody
+   * filled it in. The export dialog uses it to name the archive after the
+   * project rather than after the tool.
+   */
+  projectName: string | undefined;
 };
 
 // ---------------------------------------------------------------------------
@@ -881,7 +889,33 @@ export function QaProvider({
     if (exactShotsWanted(storage)) armExactCapture();
     return getExactCaptureStatus();
   });
-  const exactSupported = isExactCaptureSupported();
+  const [exactSupported, setExactSupported] = useState<boolean>(() => isExactCaptureSupported());
+
+  /**
+   * Look for the local screenshot helper once the widget is up.
+   *
+   * Deliberately not at import time: this is a fetch that usually fails (most
+   * sessions have no helper running), and a failed fetch is a red line in the
+   * tester's console. Doing it here keeps that to one line per page rather
+   * than one per capture, and the result is cached in screenCapture.ts.
+   *
+   * It re-runs when the tab regains focus, because "start the helper, come
+   * back to the browser" is exactly how someone turns this on mid-session and
+   * the widget should notice without a reload.
+   */
+  useEffect(() => {
+    let alive = true;
+    const look = () => {
+      void refreshNativeAvailability(config.shotPort).then(() => {
+        if (!alive) return;
+        setExactSupported(isExactCaptureSupported());
+        setExactStatus(getExactCaptureStatus());
+      });
+    };
+    look();
+    window.addEventListener('focus', look);
+    return () => { alive = false; window.removeEventListener('focus', look); };
+  }, [config.shotPort]);
   // Non-null while a still is held for the capture in progress. Doubles as the
   // re-render signal: `exactStatus` does not change when a freeze succeeds
   // (armed before, armed after), so without this the overlay would never learn
@@ -1720,8 +1754,13 @@ export function QaProvider({
     // only lever there is. This turns a prompt per screenshot into a prompt
     // per screenful, which is what filing six notes about one screen should
     // have cost all along.
+    //
+    // The opt-in below is about the PROMPT, not about real screenshots. With
+    // the local helper running there is no prompt, no capture pipeline and no
+    // battery cost, so there is nothing to opt into: it just takes the picture.
+    // exactCaptureIsFree() is what distinguishes the two.
     if (!stillIsCurrent()) setFrozenAt(null);
-    if (exactShotsWanted(storage) && isExactCaptureSupported()) {
+    if (exactCaptureIsFree() || (exactShotsWanted(storage) && isExactCaptureSupported())) {
       resetExactCaptureDecline();
       void freezeOrReuse().then((frame) => {
         setFrozenAt(frame?.takenAt ?? null);
@@ -2189,7 +2228,7 @@ export function QaProvider({
   const shareExport = useCallback(async (filename?: string): Promise<ShareOutcome> => {
     if (!notes.length) return { status: 'unsupported' };
     const stamp = nowIso();
-    const name = exportFileName(filename, stamp);
+    const name = exportFileName(filename, stamp, exportProjectName(config));
     setIsExporting(true);
     try {
       const blob = await buildZipBlob(notes, stamp, config, guideChecked, guideSkipped);
@@ -2728,6 +2767,7 @@ export function QaProvider({
     setSimpleMode,
     compactCapture,
     developerMode,
+    projectName: exportProjectName(config),
     setDeveloperMode,
     setCompactCapture,
 

@@ -246,9 +246,6 @@ export function getFsSyncCampaign(): FsCampaign | null {
   return campaign;
 }
 
-export function getFsSyncRootName(): string {
-  return root?.name ?? '';
-}
 
 /** Human-readable "where notes are landing", for the panel. */
 export function getFsSyncPath(): string {

@@ -3,6 +3,107 @@
 All notable changes to `qapture2` are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] "Own Camera" — 2026-09-20
+
+The browser was never going to stop asking. So the camera moved out of it.
+
+### Added
+
+- **`npx qapture2 shots` — real screenshots that never prompt.** A loopback
+  server that drives `/usr/sbin/screencapture`, the binary behind Cmd+Shift+4.
+  Leave it running next to your dev server and every capture is a real
+  photograph, in any browser, with no permission dialog and no OS capture
+  pipeline left warm between shots.
+
+  This is the fix for "my laptop gets hot and it feels like it is recording
+  continuously". It was not a leak — the stream really was stopped every time —
+  it was `getDisplayMedia` working as designed. That API prompts on **every**
+  call, deliberately and unconditionally, and each prompt restarts the capture
+  pipeline. Qapture already asked as rarely as it honestly could (one grant per
+  screenful, held until the page moved). The only move left was to stop asking
+  the browser.
+
+  macOS asks your terminal for Screen Recording permission once. Never again.
+
+  The widget finds the helper by itself and prefers it over everything else.
+  Nothing to switch on in Settings, because there is nothing to opt into: with
+  no prompt and no battery cost, there is no trade to offer you. The Settings
+  section says so instead of showing a button that would do nothing.
+
+  Security: loopback-only bind, an origin allowlist (loopback dev servers by
+  default, anything else named with `--allow`), refusal with **no CORS headers**
+  for everyone else so the browser blocks it before the page reads a reply,
+  rectangle validation, and the temp file unlinked before the response is
+  written. `SECURITY.md` has the full model, and
+  `scripts/shot-server-smoke.mjs` holds it to it as part of `npm run verify`.
+
+- **`shotPort` config key**, for when 7017 is taken.
+
+### Changed
+
+- **Bug / Design / Enhance is visible to everyone.** The chips in the capture
+  card, and the 1/2/3 shortcuts, were behind developer mode. The reasoning was
+  sound — a client cannot grade their own complaint — but it hid the tags from
+  the person who *can*: the owner testing their own app, who then re-tagged
+  every note afterwards from the list. The row has a default already selected,
+  so anyone who does not care can still ignore it and file a `bug`. The
+  quick-note form has shown the same row to everyone since 0.4; capture now
+  agrees with it.
+
+- **Exports are named after the project.** `qa-notes-2026-09-20.zip` is now
+  `ibn-sina-erp-qa-2026-09-20-1432.zip`, from `preamble.projectName` plus the
+  time. Both facts needed to identify an archive were already known and thrown
+  away, so a second export in one day landed as `… (1).zip` and whoever opened
+  it had to guess which app it came from. The name suggested in the dialog and
+  the name the file actually gets now come from one function — they were two
+  separate `qa-notes-<date>` literals in two files, which is how they could
+  disagree at all.
+
+- **Calibration is measured once a session, not once a capture.** On the native
+  path the marker-card flash is cached against the window's geometry and only
+  re-measured when the window actually moves, resizes, zooms or changes display.
+
+- **A held still is no longer reused on the native path.** Reuse only ever
+  existed to dodge a permission prompt. With no prompt, a fresh photograph is
+  strictly more truthful and costs about the same.
+
+### Removed
+
+- **`src/defaults.ts`.** It exported a `DEFAULT_CONFIG` that nothing imported —
+  `schema.ts` carries its own defaults table and says so in a comment. Two
+  tables that had to agree, one of which was never read.
+
+- Dead exports: `walkShallow`, `fileExists`, `voiceSupported`,
+  `isContextCaptureInstalled`, `getFsSyncRootName`, `getExactCaptureMode` (and
+  the `lastMode` it read). `intersectViewport`, `isCoarsePointer`,
+  `toRenderableColor`, `neutralizeColorFunctions`, `hasUnsupportedColor` and
+  `STR` are still there but no longer exported — they were only ever used
+  inside their own files.
+
+- **`docs/V03-CONTRACT.md` and `docs/V03-BUILD-PROMPT.md`**, which described a
+  version six releases old.
+
+- **Five stacked "What's new in v0.x" sections and a "Breaking Changes"
+  section from the README.** A changelog pasted into the front door, describing
+  releases nobody installs any more. That is what this file is for. The README
+  now describes what the tool is today, and is 137 lines shorter for it.
+
+### Fixed
+
+- `qapture shots` crashed at startup before it ever listened: `init.ts` imports
+  `node:process` as a namespace, which is sealed, and `addListener` writes a
+  counter onto whatever object it is handed. Signal handlers now attach to the
+  real `process`.
+
+- The README's `QaConfig` table was shifted by a cell: `hotkey` had no
+  description and `captureHotkey` carried `hotkey`'s.
+
+- `docs/ARCHITECTURE.md`'s module map listed `TestAlongHud.tsx` (renamed to
+  `WalkHud.tsx` several releases ago) and `defaults.ts`, and marked files "new"
+  that had been there for four versions. Replaced with a map grouped by what a
+  file is *for*, which has far less to go stale — the per-file detail lives in
+  the file headers, where it cannot drift from the code.
+
 ## [0.9.1] "One Box" — 2026-09-05
 
 0.9.0 replaced one text box with four. That was wrong, and this puts it back.

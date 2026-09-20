@@ -14,65 +14,50 @@
  * tester's viewport-coordinate rect out of that is pure arithmetic, so what
  * they framed is exactly what they get.
  *
- * FREEZE FIRST (v0.8)
- * -------------------
- * Until 0.7.9 this module held a live stream for the whole QA session and
- * grabbed a frame at the moment the tester finished dragging. That ordering
- * caused every problem it had:
+ * FREEZE FIRST
+ * ------------
+ * freezeViewport() runs when the tester ENTERS capture mode, not when they
+ * finish dragging: one frame, normalised to the viewport, then the camera is
+ * released. Every subsequent crop is arithmetic against a dead bitmap.
  *
- *   • the stream outlived the moment, so the OS kept the screen-sharing
- *     indicator lit and the capture pipeline running for as long as the tab
- *     was open — a real battery cost, on the one browser (Safari) that can
- *     only share a whole window or screen;
- *   • a mapping measured at grant time could go stale before the grab (window
- *     moved, zoomed, changed display), so the module carried an environment
- *     signature and re-measured mid-session;
- *   • the stream could die between two captures — the tester pressed "Stop
- *     sharing", a frame dropped, an aspect check failed — and the next capture
- *     silently fell back to the redraw engine. Same click, different engine,
- *     no indication which. That is what read as "screenshots are broken
- *     sometimes and fine other times".
+ * That ordering is what makes the rest simple. Nothing is left alive to go
+ * stale, the tester crops a frozen page (so a hover state or an open dropdown
+ * survives being framed), and whether this is a photograph or a redraw is
+ * settled before they start framing rather than discovered afterwards. The
+ * cost is that the page cannot be scrolled mid-capture — which the exact
+ * engine never could anyway.
  *
- * So the order is inverted. freezeViewport() runs when the tester ENTERS
- * capture mode: it acquires the stream, takes ONE frame, normalises it to the
- * viewport, and stops the track — all inside about a third of a second. Every
- * subsequent crop is arithmetic against a dead bitmap.
+ * THREE CAMERAS, BEST FIRST
+ * -------------------------
+ * 'native'   the local helper (`npx qapture2 shots`) running `screencapture`,
+ *            the binary behind Cmd+Shift+4. No permission prompt, no capture
+ *            pipeline, so no heat — see nativeShot.ts. Preferred whenever it
+ *            is running, in any browser.
+ * 'tab'      Chromium's getDisplayMedia with preferCurrentTab: the frame IS
+ *            the viewport, so normalising is a no-op. Measured at 0.0px error.
+ * 'surface'  a window or screen share, with the page somewhere inside it.
  *
- * What that buys, beyond the battery:
- *   • nothing can go stale, because nothing is left alive to go stale — the
- *     still IS the viewport, already mapped, so mapRectToFrame is applied once
- *     here rather than once per capture;
- *   • the tester crops a FROZEN page. A hover state, an open dropdown or a
- *     tooltip survives being framed, where dragging a selection used to
- *     dismiss the very thing being reported;
- *   • whether this capture is a photograph or a redraw is settled before the
- *     tester starts framing, so the UI can say so up front instead of
- *     discovering it afterwards.
+ * The last two prompt on every call. That is the security model, not a gap in
+ * it, and it is the whole reason the native path exists.
  *
- * What it costs: the page cannot be scrolled mid-capture to reach something
- * off-screen. The exact engine never could (it photographs the viewport and
- * nothing else), so nothing that previously worked is lost.
+ * FINDING THE PAGE IN THE FRAME
+ * -----------------------------
+ * 'native' and 'surface' both hand back a frame containing the browser's
+ * toolbar, and maybe a whole desktop. Locating the page inside it by
+ * arithmetic (outerHeight - innerHeight, screenX/screenY, devicePixelRatio) is
+ * a stack of guesses, and a wrong guess is a screenshot confidently showing
+ * the wrong pixels — worse than no screenshot, because nobody double-checks
+ * one that looks fine.
  *
- * TWO STRATEGIES
- * --------------
- * Chromium honours `preferCurrentTab`, so the frame IS the viewport and
- * normalising is a no-op. That is 'tab' mode, measured at 0.0px error.
+ * So calibrate() MEASURES: an opaque card with four known colours at four
+ * known corners, photographed, solved for scale and origin (frameCalibration.
+ * ts). Two corners solve, the other two verify, and a calibration that cannot
+ * be verified is REFUSED — the frame is dropped and the capture falls back to
+ * the DOM engine, visibly. Toolbar height and pixel ratio never appear in the
+ * arithmetic, so they cannot be wrong in it.
  *
- * Safari and Firefox have no tab capture. They CAN share a window or a screen,
- * and that frame does contain the page — it just also contains a toolbar, and
- * maybe a whole desktop. Finding the page in it by arithmetic (outerHeight -
- * innerHeight, screenX/screenY, devicePixelRatio) is a stack of guesses, each
- * of which can be quietly wrong. Quietly wrong here means a screenshot
- * confidently showing the wrong pixels, which is worse than no screenshot:
- * nobody double-checks a screenshot that looks fine.
- *
- * So 'surface' mode MEASURES. calibrate() covers the page with an opaque card
- * carrying four known colours at four known corners, photographs it, and solves
- * for scale and origin from where those colours landed — see
- * frameCalibration.ts. Toolbar height, pixel ratio and monitor layout cancel
- * out because none of them are used. Two corners solve, the other two verify,
- * and a calibration that cannot be verified is REFUSED: the frame is dropped
- * and this capture falls back to the DOM engine, visibly.
+ * On the native path the measurement is cached against the window's geometry,
+ * so the card flashes once a session rather than once a capture.
  *
  * SSR-safe: every entry point returns a falsy/no-op result off-browser.
  */
@@ -86,6 +71,13 @@ import {
   mapRectToFrame,
   type FrameMapping,
 } from './frameCalibration';
+import {
+  isNativeShotAvailable,
+  shootBrowserWindow,
+  getCachedMapping,
+  cacheMapping,
+  setShotPort,
+} from './nativeShot';
 
 /** How wrong the frame's aspect ratio may be before we distrust a tab share. */
 const ASPECT_TOLERANCE = 0.08;
@@ -101,13 +93,18 @@ const VIDEO_READY_TIMEOUT_MS = 4000;
 
 /**
  * How the frame maps onto the page.
+ *  - 'native'  the frame came from the local helper running `screencapture`,
+ *              cropped to the browser window and located by calibration. No
+ *              permission prompt, no capture pipeline, so no heat.
  *  - 'tab'     the frame IS the viewport (Chromium preferCurrentTab).
  *  - 'surface' the frame is a window or a screen with the page somewhere
  *              inside it, located by calibration.
  */
-export type ExactCaptureMode = 'tab' | 'surface';
+export type ExactCaptureMode = 'native' | 'tab' | 'surface';
 
 export type ExactCaptureStatus =
+  /** The local helper is running: real photographs, and it never asks. */
+  | 'native'
   /** No Screen Capture API at all — iOS/iPadOS, and old desktop builds. */
   | 'unsupported'
   /** Supported, but the tester has not switched real photographs on. */
@@ -136,8 +133,32 @@ export interface FrozenFrame {
   readonly takenAt: number;
 }
 
-/** Whether exact capture can be attempted in this browser at all. */
+/**
+ * Whether the local `screencapture` helper answered the last time we looked.
+ *
+ * Kept as a plain boolean because every caller that needs it — the settings
+ * sheet, the capture-mode chrome, doctor() — is synchronous render code, and
+ * the probe behind it is cheap and cached. refreshNativeAvailability() is what
+ * actually goes and asks.
+ */
+let nativeReady = false;
+
+
+/** Go and ask whether the helper is running, and remember the answer. */
+export async function refreshNativeAvailability(port?: number): Promise<boolean> {
+  if (typeof port === 'number') setShotPort(port);
+  nativeReady = await isNativeShotAvailable();
+  return nativeReady;
+}
+
+/**
+ * Whether a real photograph can be taken here at all.
+ *
+ * True when the local helper is running — that works in any browser, including
+ * ones with no Screen Capture API — or when the browser has getDisplayMedia.
+ */
 export function isExactCaptureSupported(): boolean {
+  if (nativeReady) return true;
   if (typeof navigator === 'undefined' || typeof document === 'undefined') return false;
   const md = navigator.mediaDevices as MediaDevices | undefined;
   return !!md && typeof md.getDisplayMedia === 'function';
@@ -150,7 +171,6 @@ export function isExactCaptureSupported(): boolean {
 let armed = false;
 let declined = false;
 let frozen: FrozenFrame | null = null;
-let lastMode: ExactCaptureMode | null = null;
 
 /**
  * Switch real photographs on.
@@ -168,6 +188,17 @@ export function armExactCapture(): boolean {
   return true;
 }
 
+/**
+ * Is a photograph free right now?
+ *
+ * With the helper running there is no prompt and no capture pipeline, so
+ * there is nothing for the tester to opt into and nothing to warn them about.
+ * Callers use this to skip the arming ceremony entirely.
+ */
+export function exactCaptureIsFree(): boolean {
+  return nativeReady;
+}
+
 /** Switch real photographs off and drop any still we are holding. */
 export function disarmExactCapture(): void {
   armed = false;
@@ -181,16 +212,13 @@ export function resetExactCaptureDecline(): void {
 
 /** Current state, for the UI to decide what to offer the tester. */
 export function getExactCaptureStatus(): ExactCaptureStatus {
+  if (nativeReady) return 'native';
   if (!isExactCaptureSupported()) return 'unsupported';
   if (armed) return 'live';
   if (declined) return 'declined';
   return 'idle';
 }
 
-/** Which strategy took the still we are holding, or the last one taken. */
-export function getExactCaptureMode(): ExactCaptureMode | null {
-  return frozen ? frozen.mode : lastMode;
-}
 
 /** The still currently held for this capture, if any. */
 export function getFrozenFrame(): FrozenFrame | null {
@@ -260,7 +288,10 @@ export function stillIsCurrent(): boolean {
  * This is what turns "a prompt per screenshot" into "a prompt per screenful".
  */
 export async function freezeOrReuse(): Promise<FrozenFrame | null> {
-  if (stillIsCurrent()) return frozen;
+  // Reuse only ever existed to avoid a permission prompt. The helper does not
+  // prompt, so with it running a fresh photograph is strictly more truthful
+  // than a held one and costs about as much.
+  if (!nativeReady && stillIsCurrent()) return frozen;
   return freezeViewport();
 }
 
@@ -395,8 +426,7 @@ async function grabFrameCanvas(
  * Returns null when the frame cannot be trusted.
  */
 async function calibrate(
-  video: HTMLVideoElement,
-  grabber: { grabFrame(): Promise<ImageBitmap> } | null,
+  grabFrame: () => Promise<HTMLCanvasElement | null>,
 ): Promise<FrameMapping | null> {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -425,7 +455,7 @@ async function calibrate(
     // One frame is not enough: the compositor and the capture pipeline are not
     // in lockstep, so the first presented frame may predate the card.
     await new Promise((r) => setTimeout(r, CALIBRATION_SETTLE_MS));
-    const frame = await grabFrameCanvas(video, grabber);
+    const frame = await grabFrame();
     if (!frame) return null;
     const ctx = frame.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
@@ -456,9 +486,112 @@ async function calibrate(
  * case the caller uses the DOM engine and says so.
  */
 export async function freezeViewport(): Promise<FrozenFrame | null> {
-  if (!isExactCaptureSupported()) return null;
   releaseFrozenFrame();
 
+  // The local helper first, always. It costs no prompt and no pipeline, so
+  // there is never a reason to prefer the browser's own camera over it.
+  const native = await freezeViaNativeHelper();
+  if (native) return native;
+
+  if (!isExactCaptureSupported()) return null;
+  return freezeViaDisplayMedia();
+}
+
+/**
+ * Cut the viewport out of a frame using a measured mapping, and record it as
+ * the still we are holding.
+ *
+ * Shared by both engines so that, once this returns, nothing downstream can
+ * tell which camera took the picture: the still's pixels ARE the viewport's.
+ */
+function adoptFrame(
+  raw: HTMLCanvasElement,
+  mapping: FrameMapping | null,
+  mode: ExactCaptureMode,
+  vw: number,
+  vh: number,
+): FrozenFrame | null {
+  let page: HTMLCanvasElement;
+  if (mapping) {
+    const box = mapRectToFrame(
+      { left: 0, top: 0, width: vw, height: vh },
+      mapping, raw.width, raw.height,
+    );
+    if (!box) return null;
+    page = document.createElement('canvas');
+    page.width = box.sw;
+    page.height = box.sh;
+    const ctx = page.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(raw, box.sx, box.sy, box.sw, box.sh, 0, 0, box.sw, box.sh);
+    raw.width = 0;
+    raw.height = 0;
+  } else {
+    page = raw;
+  }
+
+  frozen = {
+    canvas: page,
+    mode,
+    viewportWidth: vw,
+    viewportHeight: vh,
+    takenAt: Date.now(),
+  };
+  frozenAtScrollX = window.scrollX;
+  frozenAtScrollY = window.scrollY;
+  frozenAtPath = window.location.pathname + window.location.search;
+  return frozen;
+}
+
+/**
+ * Photograph the viewport through the local `screencapture` helper.
+ *
+ * The helper hands back the browser WINDOW, toolbar and all. Where the page
+ * sits inside that is measured, never computed from outerHeight - innerHeight:
+ * a wrong guess here is a screenshot confidently showing the wrong pixels.
+ *
+ * The measurement is cached against the window's geometry, so the calibration
+ * card flashes once per session rather than once per capture — which is the
+ * whole reason this path is worth having over the surface share.
+ *
+ * Returns null when the helper is not running or the frame cannot be trusted,
+ * and the caller falls back.
+ */
+async function freezeViaNativeHelper(): Promise<FrozenFrame | null> {
+  if (typeof window === 'undefined') return null;
+  nativeReady = await isNativeShotAvailable();
+  if (!nativeReady) return null;
+
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  let mapping = getCachedMapping();
+  if (!mapping) {
+    mapping = await calibrate(() => shootBrowserWindow());
+    if (!mapping) {
+      // We can reach the helper but cannot find the page in what it sent —
+      // the window moved mid-measure, or Screen Recording is not granted and
+      // the frame is a picture of the wallpaper. Either way, refuse.
+      cacheMapping(null);
+      return null;
+    }
+    cacheMapping(mapping);
+  }
+
+  const raw = await withOverlayHidden(() => shootBrowserWindow());
+  if (!raw) return null;
+
+  const adopted = adoptFrame(raw, mapping, 'native', vw, vh);
+  if (!adopted) {
+    // The mapping did not survive contact with this frame. Drop it so the
+    // next capture re-measures rather than repeating the same bad crop.
+    cacheMapping(null);
+  }
+  return adopted;
+}
+
+/** The browser's own camera: one frame, then the screen is given straight back. */
+async function freezeViaDisplayMedia(): Promise<FrozenFrame | null> {
   let stream: MediaStream | null = null;
   let el: HTMLVideoElement | null = null;
 
@@ -541,7 +674,9 @@ export async function freezeViewport(): Promise<FrozenFrame | null> {
 
     // Measure BEFORE the content frame. The card is opaque, so it has to come
     // down again before we photograph the page itself.
-    const mapping = mode === 'surface' ? await calibrate(video, grabber) : null;
+    const mapping = mode === 'surface'
+      ? await calibrate(() => grabFrameCanvas(video, grabber))
+      : null;
     if (mode === 'surface' && !mapping) {
       // We hold a real frame but cannot say where the page is in it. That is
       // precisely when guessing produces a confidently wrong screenshot, so
@@ -554,41 +689,9 @@ export async function freezeViewport(): Promise<FrozenFrame | null> {
     if (!raw) return null;
 
     // Normalise to the viewport once, here, rather than per crop. After this
-    // the still's pixels ARE the viewport's pixels, so both strategies produce
+    // the still's pixels ARE the viewport's pixels, so every strategy produces
     // the same shape of thing and nothing downstream needs to know which ran.
-    let page: HTMLCanvasElement;
-    if (mode === 'surface' && mapping) {
-      const box = mapRectToFrame(
-        { left: 0, top: 0, width: vw, height: vh },
-        mapping, raw.width, raw.height,
-      );
-      if (!box) return null;
-      page = document.createElement('canvas');
-      page.width = box.sw;
-      page.height = box.sh;
-      const ctx = page.getContext('2d');
-      if (!ctx) return null;
-      ctx.drawImage(raw, box.sx, box.sy, box.sw, box.sh, 0, 0, box.sw, box.sh);
-      raw.width = 0;
-      raw.height = 0;
-    } else {
-      page = raw;
-    }
-
-    frozen = {
-      canvas: page,
-      mode,
-      viewportWidth: vw,
-      viewportHeight: vh,
-      takenAt: Date.now(),
-    };
-    // Where the page was standing when this was taken. Reusing a still is only
-    // safe while all of this is still true -- see stillIsCurrent().
-    frozenAtScrollX = window.scrollX;
-    frozenAtScrollY = window.scrollY;
-    frozenAtPath = window.location.pathname + window.location.search;
-    lastMode = mode;
-    return frozen;
+    return adoptFrame(raw, mode === 'surface' ? mapping : null, mode, vw, vh);
   } catch {
     // NotAllowedError (dismissed prompt) and friends all land here.
     declined = true;

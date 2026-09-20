@@ -287,8 +287,18 @@ export default function SettingsSheet({ onClose }: { onClose: () => void }) {
 
         {/* ── 3. Screenshots ──────────────────────────────────────────────── */}
         <Section icon="Camera" title={t('exact_label')}>
-          <p className="qa-m-0 qa-text-10 qa-text-lo qa-leading-relaxed">{t('exact_hint')}</p>
-          {!exactShots.supported ? (
+          <p className="qa-m-0 qa-text-10 qa-text-lo qa-leading-relaxed">
+            {exactShots.status === 'native' ? t('exact_native_hint') : t('exact_hint')}
+          </p>
+          {/* The helper is running: there is no prompt to opt into and nothing
+              to switch on, so the section states a fact instead of offering a
+              button that would do nothing. */}
+          {exactShots.status === 'native' ? (
+            <p className="qa-m-0 qa-inline-flex qa-items-center qa-gap-1.5 qa-text-xs qa-font-semibold qa-text-success">
+              <Icon name="CheckCircle2" size={13} />
+              {t('exact_native_on')}
+            </p>
+          ) : !exactShots.supported ? (
             <p className="qa-m-0 qa-text-10 qa-text-mid">{t('exact_unsupported')}</p>
           ) : exactShots.status === 'live' ? (
             <button
